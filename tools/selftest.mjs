@@ -817,7 +817,7 @@ try {
   const sizeBack = await getJson(port, '/whale/size.json')
   check('预警设置持久化回读', sizeBack && sizeBack.alerts && sizeBack.alerts.planPct === 20, JSON.stringify(sizeBack.alerts))
 
-  // 自定义角色：上传 1x1 png → 列表带 selected；恢复默认后 selected 为 null
+  // 角色库：内置小狐娘（默认）/小鲸鱼固定在前，上传件自动启用；未指定时默认小狐娘
   const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
   const upRes = await fetch('http://127.0.0.1:' + port + '/whale/role-upload.json', {
     method: 'POST',
@@ -828,9 +828,9 @@ try {
   check('角色上传成功并自动启用', upRes.ok && upBody.ok && typeof upBody.id === 'string', JSON.stringify(upBody))
   const roles1 = await getJson(port, '/whale/roles.json')
   check(
-    '角色列表带 selected',
-    roles1 && roles1.ok && roles1.roles.length === 1 && roles1.selected === upBody.id,
-    JSON.stringify(roles1)
+    '角色列表：内置小狐娘/小鲸鱼在前 + 上传件，selected 指向上传件',
+    roles1 && roles1.ok && roles1.roles.length === 3 && roles1.roles[0].id === 'xiaohuniang' && roles1.roles[0].name === '小狐娘' && roles1.roles[1].id === 'whale' && roles1.roles[1].name === '小鲸鱼' && roles1.selected === upBody.id,
+    JSON.stringify(roles1).slice(0, 200)
   )
   // 超过旧版全局 8KB body 上限的上传也应成功（真实头像截图普遍几十 KB 起）
   const bigDataUrl = 'data:image/png;base64,' + Buffer.alloc(15000, 97).toString('base64')
@@ -849,7 +849,22 @@ try {
     body: JSON.stringify({ scale: 1.5, roleId: null }),
   })
   const roles2 = await getJson(port, '/whale/roles.json')
-  check('恢复默认形象（selected=null）', roles2 && roles2.ok && roles2.selected === null, JSON.stringify(roles2.selected))
+  check('未指定角色 = 默认小狐娘（selected=xiaohuniang）', roles2 && roles2.ok && roles2.selected === 'xiaohuniang', JSON.stringify(roles2.selected))
+  const imgDef = Buffer.from(await (await fetch('http://127.0.0.1:' + port + '/whale/image.png')).arrayBuffer())
+  const glmPng = fs.readFileSync(path.join(PLUGIN_ROOT, 'assets', 'GLM.png'))
+  check(
+    '默认形象图 = 小狐娘 GLM.png（608x608）',
+    imgDef.equals(glmPng) && imgDef.readUInt32BE(16) === 608 && imgDef.readUInt32BE(20) === 608,
+    'len=' + imgDef.length
+  )
+  await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, roleId: 'whale' }),
+  })
+  const imgWhale = Buffer.from(await (await fetch('http://127.0.0.1:' + port + '/whale/image.png')).arrayBuffer())
+  const whalePng = fs.readFileSync(path.join(PLUGIN_ROOT, 'assets', 'DSniang1.png'))
+  check('切换小鲸鱼后 image.png 换成 DSniang1.png', imgWhale.equals(whalePng), 'len=' + imgWhale.length)
 
   // 余额校正接口：GET 汇总 + POST 落账（自检环境无 DeepSeek 账本，应为空本形态）
   const adjGet = await getJson(port, '/whale/balance-adjustments.json')

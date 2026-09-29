@@ -354,6 +354,22 @@ try {
     12000
   )
   check('GLM 按量源主显示标题切换', glmView === 'GLM 今日已用', 'label=' + JSON.stringify(glmView))
+
+  // ⑦ 角色库：下拉含内置小狐娘（默认）/小鲸鱼，默认形象图为小狐娘（608x608）
+  const roleView = await pollEval(
+    cdp,
+    "(function(){var ss=document.querySelectorAll('select'),names=[],hasX=false,hasW=false;" +
+      'for(var i=0;i<ss.length;i++){for(var j=0;j<ss[i].options.length;j++){var t=ss[i].options[j].textContent;' +
+      "if(t==='小狐娘')hasX=true;if(t==='小鲸鱼')hasW=true;names.push(t)}}" +
+      "var img=document.querySelector('img[src*=\"image.png\"]');" +
+      "return {hasX:hasX,hasW:hasW,nw:img?img.naturalWidth:0}})()",
+    12000
+  )
+  check(
+    '角色下拉含小狐娘/小鲸鱼，默认形象图为小狐娘（608px）',
+    roleView && roleView.hasX === true && roleView.hasW === true && roleView.nw === 608,
+    JSON.stringify(roleView)
+  )
   const btnStyle = JSON.parse(
     await cdp.eval(
       "(function(){var b=document.querySelector('.zcwv-menu-btn');" +
