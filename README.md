@@ -89,6 +89,22 @@
 
 ---
 
+## v1.3.1 修复：复审遗留项（金额币种 / 版本号 / 扫描缓存 / 出站白名单）
+
+针对 v1.3.0 代码复审报告（`REQUEST_CHANGES`：0 阻断、2 重要、3 建议、2 遗留）的全部条目：
+
+- **CLI / MCP 的每轮消耗金额按真实币种显示**（重要）：`node lib/cli.mjs turn` 与 MCP 的 `whale_last_turn` 此前把人民币写死在格式化里，OpenAI / Claude 这类按美元计价的轮次会显示成 `¥ 0.30`（与真实价值差约 7 倍，逐档单价 `× ¥2/M` 同样错）。现在按轮次/逐行携带的 `currency` 输出 `$ 0.30`，未知币种显式写出币种名。
+- **版本号单一来源**（重要）：MCP 握手报的版本改为直接读 `.zcode-plugin/plugin.json`，不再手改第二处（v1.3.0 复审时 MCP 侧落后两个 minor，会让「确认浮层是 1.3.0」这类排障建议对不上号）。
+- **凭据发现恢复短 TTL 缓存**（建议）：`buildProviderEntries()` 在默认路径上 5 秒内复用上一次扫描结果（改配置后最迟 5 秒生效），前端每 3 秒轮询 `/whale/session.json` 不再每次都全量扫 provider 配置并递归遍历 `runtime/provider` 目录树；注入路径的调用（测试/诊断）仍然现读，并提供 `invalidateDiscoverCache()`。
+- **余额预警的币种口径**（建议）：阈值是「元」，而 OpenAI / Claude 的今日已用是美元——直接比数值会漏报（$1.2 撞不上 ¥1.5）。现在非人民币金额按 `¥7.1/$` 近似汇率折算后比较，文案同时给出原币与折算值（`OpenAI 今日已用 $1.20（约 ¥8.52），达到 ¥5.00`）。汇率只用于「要不要提醒」这一个判断，不参与记账与计价。
+- **`turn-seq.json` 原子写临时名带 pid**（建议）：与 `balance.mjs` 的写文件风格统一，端口顺延出现双实例时不会互踩同一个临时文件。
+- **厂商模板出站白名单改为显式声明**（遗留 S2）：`assertSafeUpstream` 的 host 白名单此前传的是「URL 自己的 hostname」，等于让地址自证清白、校验退化成只查协议与私有 IP。现在每个模板的余额/配额段必须声明 `host` 常量，与其不一致或缺失即拒绝取数（fail closed）——将来放开自定义 URL 也不会变成 SSRF 通道。
+- **浮层跟随脚本按 pid 判定前台**（遗留 S4）：`follow-window.ps1` 不再用 `GetProcessesByName("electron")` 认出「前台是浮层自己」，改由 `main.cjs` 传入浮层主进程 pid。此前**任何** Electron 应用在前台都会被当成浮层，导致 ZCode 被别的窗口盖住时鲸鱼仍置顶显示（实测：别的 Electron 应用在前台，旧逻辑 `fgIsOverlay=true`，新逻辑 `false`）。
+
+回归测试同步补齐：`tools/selftest.mjs` 97 → **115 项**（新增 CLI/MCP 币种断言、MCP 版本号一致性、`computeTodayUsage` 实时令牌档位换算 fixture、模板白名单、发现缓存 TTL），`tools/smoke-ui.mjs` 24 → **28 项**（新增 MiMo Plan 计费源标题与配额时段行、DeepSeek 峰谷对照、美元金额预警折算文案）。
+
+---
+
 ## v1.3.0 新增：不打断 ZCode + 跟随系统主题 + 角色管理 + 余额预警合并 + 自定义气泡文字
 
 - **与挂件互动不再卡住 ZCode**：浮层窗口改成「不可激活」（Windows 上 `focusable:false`，Electron 会给窗口带上 `WS_EX_NOACTIVATE`）。此前点一下鲸鱼或拖一下挂件就会把前台从 ZCode 抢走，ZCode 失去前台后停止刷新自身画面——症状是「和挂件互动后 ZCode 像卡住了，再点一下 ZCode 才恢复」。实测改后普通交互全程保持 `WS_EX_NOACTIVATE`、`WM_MOUSEACTIVATE` 返回 `MA_NOACTIVATEANDEAT`，拖拽、点击、alpha 命中检测都不受影响。
@@ -299,7 +315,7 @@ node lib/cli.mjs json            # 结构化输出，便于脚本消费
 之所以能一边跑得勤、一边几乎不吃 CPU，是两点设计：
 
 - **探测循环编译成 C# 运行**（脚本内联 `Add-Type`），不是解释执行的 PowerShell 循环。同样 40ms 间隔，解释执行的循环体本身就吃掉约 3.4% 单核，编译后只剩 **0.16%**。
-- **贵的操作单独限频**：枚举进程（`GetProcessesByName`）用来定位窗口句柄与进程列表，按 3 秒预算刷新；每个探测周期只做几个微秒级的 Win32 调用，且**只有状态真的变化才输出**。
+- **贵的操作单独限频**：枚举进程（`GetProcessesByName`）用来定位 ZCode 主窗口句柄与其 pid 列表，按 3 秒预算刷新；「前台是不是浮层自己」不再靠进程名枚举，而是比对主进程传入的浮层 pid（v1.3.1 起，见上）。每个探测周期只做几个微秒级的 Win32 调用，且**只有状态真的变化才输出**。
 
 实测对照：
 

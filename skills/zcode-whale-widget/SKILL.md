@@ -80,7 +80,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 
 挂件自身的外观与开关（大小、音效、音量、主题、气泡、每轮消耗提示与自动关闭秒数、避让滚动条、预警阈值、角色选择、显示跟随）在 `~/.zcode/whale/widget-state.json`，由挂件菜单直接写入：
 - `theme`：`light` / `dark` / `system`（跟随系统偏好）。
-- `alerts`：`planPct`（Plan 剩余% 阈值）与 `moneyAlert`（金额阈值，对所有按金额结算的源生效；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。
+- `alerts`：`planPct`（Plan 剩余% 阈值）与 `moneyAlert`（金额阈值，对所有按金额结算的源生效；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。阈值单位是人民币：余额型源看「低于」，消费型源看「达到」；美元厂商（OpenAI / Claude）的金额按 `¥7.1/$` 近似汇率折算后再比较，文案里同时给出原币与折算值（汇率只用于这一处判断，不参与记账与计价）。每个来源每天只提醒一次，去重键含阈值。
 - `roleId`：当前形象（内置 `xiaohuniang` 小狐娘 / `whale` 小鲸鱼，或导入件 id；导入件的索引与图片在 `roles.json` + `roles/`），未指定即小狐娘。
 - 自定义气泡文字在 `~/.zcode/whale/bubble-content.json`：`{v, first:{text,size}|null, items:[{text,size}]}`（`size`：B 大字 / A 中字 / C 小字；`first` 留空显示默认余额视图，`items` 留空用内置随机台词）。
 
@@ -95,9 +95,10 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | 探测脚本秒退 / 浮层跟着消失 | 多为 `follow-window.ps1` 里的 C# 编译失败或脚本被写成非 ASCII。`overlay-debug.log` 里搜 `csharp-compile-failed` / `follow-loop-error`；该文件必须保持纯 ASCII（PS 5.1 按 ANSI 代码页读） |
 | 鲸鱼位置错乱 / 跑到窗口外 | 透明窗口的合成层错位，通常是有人重新打开了定位过渡或改回 `setBounds` 贴窗口。见 README「与上游的差异」里的两条踩坑记录 |
 | 浮层起来了但点不动鲸鱼 | 浮层默认鼠标穿透，指针必须先停在鲸鱼上（此时光标变 `grab`、右上角出现菜单按钮）才能点。若整块区域都点不动，检查是否被其它置顶窗口压住 |
-| 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框/下拉就能打字（浮层在输入类控件上临时接管键盘焦点，离开即交还）。还不行就确认浮层是 1.3.0（`window status`），或改用网页版直接键入 |
+| 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框/下拉就能打字（浮层在输入类控件上临时接管键盘焦点，离开即交还）。还不行就确认浮层版本与插件一致（`window status` 或 `/whale/health` 的 `version`），或改用网页版直接键入 |
 | **和挂件互动后 ZCode 画面卡住（点一下 ZCode 才恢复）** | v1.3.0 已修：浮层窗口设为不可激活（Windows `focusable:false` → Electron 带 `WS_EX_NOACTIVATE`），普通交互不再把前台从 ZCode 抢走；ZCode 失去前台会停止刷新自身画面，这就是「卡住」的来源。复查手法：`GetForegroundWindow` 不该是浮层；浮层的 ex-style 应含 `WS_EX_NOACTIVATE`、`WM_MOUSEACTIVATE` 返回 4（MA_NOACTIVATEANDEAT）。改动 `desktop/main.cjs` 的窗口选项后必须 `window stop` + `window start` 才生效 |
 | 浮层启动失败 | `node lib/cli.mjs window status` 看运行时是否已安装；未安装则 `desktop install`。Electron 约 150MB，装到 `~/.zcode/whale/desktop-runtime` |
+| **ZCode 被别的窗口盖住，鲸鱼却还置顶显示** | v1.3.1 已修：跟随脚本原来靠 `GetProcessesByName("electron")` 认「前台是浮层自己」，任何 Electron 应用在前台都会被误判。现在由 `main.cjs` 传入浮层主进程 pid（`-OverlayPid`），只认这一个进程。改动后要 `window stop` + `window start` 才生效 |
 | 改完 follow-window.ps1 后行为没变 | 该脚本是常驻子进程，改完要 `window stop` + `window start` 才会重新加载 |
 | 余额显示「未找到 DeepSeek API Key」 | 三条凭据来源都没命中：环境变量 `DEEPSEEK_API_KEY`、`~/.zcode/whale/config.json`、ZCode provider 配置（含数据目录迁移后的 `$ZCODE_DATA_BASE_DIR/.zcode/v2/provider_config.json`，规则没写 baseUrl 时端点从 zcode-builtin 模板继承）。错误文案带探测摘要，逐条明细看 `/whale/health` 的 `keyProbe`（标明本地网关/加密凭据为何被跳过）。也可用 `key` 子命令写入 |
 | 切了模型气泡还是旧源 / 一直显示 DeepSeek 余额 | v1.2.0 起主显示随计费源切换（3 秒轮询输入框选择，读不到时回落最近一次真实模型调用）。MiMo 按端点区分：`api.xiaomimimo.com` 计量、`token-plan-cn.xiaomimimo.com` 订阅额度。手动锁定用菜单「显示」 |
@@ -105,6 +106,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | 点设置键却有音效（v1.3.0 起不应出现） | 菜单按钮的 click 里不该有 `playPress()`；按压音只属于角色本体（鲸鱼/气泡）两种操作 |
 | 余额显示旧值并带 `stale` | 接口瞬时失败（网络/5xx），服务在回退缓存。4xx 不会回退，会直接报错 |
 | 今日已用一直 0 | 记账模式只统计「观测到的余额下降」：还没产生消费，或期间的消耗发生在服务未运行时。要精确数字改用 `mode token` |
+| **CLI/MCP 里的每轮消耗金额币种不对** | v1.3.1 起 `cli.mjs` / `mcp-server.mjs` 按轮次和逐行携带的 `currency` 输出（美元轮次显示 `$`）。若还看到人民币符号出现在 OpenAI/Claude 轮次上，说明这两个文本出口又把 `'CNY'` 写死在格式化里了；`tools/selftest.mjs` 里有「美元轮次经 CLI/MCP 路径」的回归断言 |
 | **每轮消耗金额离谱（虚高十几倍）** | 多半是计价口径又踩了「input 含缓存」这个坑：缓存命中的 token 被按未命中价重复算了一遍。核对 `lib/pricing.mjs` 的 `splitInputTokens()` 是否被 `costOfUsage()` 使用，并跑 `node tools/selftest.mjs`（内含两种口径的回归断言）。用 `node lib/cli.mjs turn` 看逐档明细即可判断 |
 | 每轮消耗不弹窗 | 需要 ZCode 至少完成过一轮对话（`turn_usage` 有 `completed` 行）；另外菜单里「每轮消耗提示」必须开着 |
 | 挂件服务打不开 | `node lib/cli.mjs status` 看是否运行；未运行则 `start`。端口被占用会自动顺延，以 `status` 输出的地址为准 |
@@ -117,6 +119,8 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 ## 出站安全约束
 
 服务端只向白名单主机发请求（`api.deepseek.com`、`platform.deepseek.com`），发请求前校验协议为 http/https、主机名匹配白名单、拒绝环回/私有/保留地址的字面量 IP。改 `lib/credentials.mjs` 的 `ALLOWED_HOSTS` 才能扩展目标。
+
+厂商模板（`lib/vendors.mjs` 的 `TEMPLATES`）另有一层：每个带 `url` 的余额/配额段必须**显式声明 `host`**，与 URL 的 hostname 不一致或缺声明就直接拒绝取数。别图省事传 `new URL(section.url).hostname`——那等于让地址自证清白，白名单校验会退化成只查协议与私有 IP。
 
 本地服务本身还有三层防护：只监听 `127.0.0.1`、校验 `Host` 头防 DNS rebinding、写操作校验 `Origin` 防跨站伪造；停止服务需要 `~/.zcode/whale/server.json` 里的随机令牌。
 
