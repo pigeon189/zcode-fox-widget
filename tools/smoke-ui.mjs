@@ -355,21 +355,218 @@ try {
   )
   check('GLM 按量源主显示标题切换', glmView === 'GLM 今日已用', 'label=' + JSON.stringify(glmView))
 
-  // ⑦ 角色库：下拉含内置小狐娘（默认）/小鲸鱼，默认形象图为小狐娘（608x608）
+  // ⑦ 角色：自定义下拉（不再是原生 select）——内置小狐娘/小鲸鱼无删除按钮，
+  //    导入件行尾带小 × 与改名按钮
+  await fetch('http://127.0.0.1:' + PORT + '/whale/role-upload.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: '冒烟角色',
+      dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
   const roleView = await pollEval(
     cdp,
-    "(function(){var ss=document.querySelectorAll('select'),names=[],hasX=false,hasW=false;" +
-      'for(var i=0;i<ss.length;i++){for(var j=0;j<ss[i].options.length;j++){var t=ss[i].options[j].textContent;' +
-      "if(t==='小狐娘')hasX=true;if(t==='小鲸鱼')hasW=true;names.push(t)}}" +
+    "(function(){var t=document.querySelector('.zcwv-role-trigger');if(!t)return null;t.click();" +
+      "var rows=document.querySelectorAll('.zcwv-role-row'),names=[],del=0,builtin=0;" +
+      "for(var i=0;i<rows.length;i++){var p=rows[i].querySelector('.zcwv-role-pick');names.push(p?p.textContent:'');" +
+      "if(rows[i].querySelector('.zcwv-role-del'))del++;if(rows[i].querySelector('.zcwv-role-builtin'))builtin++}" +
       "var img=document.querySelector('img[src*=\"image.png\"]');" +
-      "return {hasX:hasX,hasW:hasW,nw:img?img.naturalWidth:0}})()",
+      "return {names:names,del:del,builtin:builtin,open:document.querySelector('.zcwv-roles').classList.contains('zcwv-roles-open')," +
+      "trigger:document.querySelector('.zcwv-role-name')?document.querySelector('.zcwv-role-name').textContent:''}})()",
     12000
   )
   check(
-    '角色下拉含小狐娘/小鲸鱼，默认形象图为小狐娘（608px）',
-    roleView && roleView.hasX === true && roleView.hasW === true && roleView.nw === 608,
+    '角色下拉：内置两项（无删除）+ 导入项（带 ×），触发器显示当前角色名',
+    roleView &&
+      roleView.names.indexOf('小狐娘') !== -1 &&
+      roleView.names.indexOf('小鲸鱼') !== -1 &&
+      roleView.names.indexOf('冒烟角色') !== -1 &&
+      roleView.del === 1 &&
+      roleView.builtin === 2 &&
+      roleView.open === true &&
+      roleView.trigger === '冒烟角色',
     JSON.stringify(roleView)
   )
+
+  // ⑦b 改名：点 ✎ 行内变输入框 → 回车提交 → 服务端与触发器同步
+  await cdp.eval(
+    "(function(){var rows=document.querySelectorAll('.zcwv-role-row');" +
+      "for(var i=0;i<rows.length;i++){var mini=rows[i].querySelectorAll('.zcwv-role-mini');" +
+      "if(mini.length&&mini[0]&&mini[0].textContent==='✎'){mini[0].click();return true}}return false})()"
+  )
+  const renameOk = await pollEval(
+    cdp,
+    "(function(){var inp=document.querySelector('.zcwv-role-rename');if(!inp)return null;" +
+      "inp.value='改过名的冒烟角色';inp.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}));return true})()",
+    5000
+  )
+  await new Promise((r) => setTimeout(r, 900))
+  const rolesAfterRename = await (await fetch('http://127.0.0.1:' + PORT + '/whale/roles.json')).json()
+  const renamed = (rolesAfterRename.roles || []).find((r) => r && r.name === '改过名的冒烟角色')
+  check('角色行内改名写入服务端', !!renameOk && !!renamed, JSON.stringify(renamed))
+
+  // ⑦c 删除：第一次点 × 只进入确认态（「再点删除」），第二次才真的删；
+  //     删掉的正好是当前形象 → 回落默认小狐娘（图片仍是 608px 的小狐娘）
+  const delArmed = await cdp.eval(
+    "(function(){var b=document.querySelector('.zcwv-role-del');if(!b)return null;b.click();" +
+      "return document.querySelector('.zcwv-role-del')?document.querySelector('.zcwv-role-del').textContent:null})()"
+  )
+  check('删除按钮两步确认（第一次点击进入「再点删除」）', delArmed === '再点删除', JSON.stringify(delArmed))
+  await cdp.eval("(function(){var b=document.querySelector('.zcwv-role-del');if(b)b.click();return true})()")
+  await new Promise((r) => setTimeout(r, 1200))
+  const rolesAfterDelete = await (await fetch('http://127.0.0.1:' + PORT + '/whale/roles.json')).json()
+  const imgAfterDelete = await cdp.eval(
+    "(function(){var img=document.querySelector('img[src*=\"image.png\"]');return img?img.naturalWidth:0})()"
+  )
+  check(
+    '删除导入角色后回落默认小狐娘（roles 只剩内置、图片 608px）',
+    rolesAfterDelete.roles.length === 2 && rolesAfterDelete.selected === 'xiaohuniang' && imgAfterDelete === 608,
+    JSON.stringify({ n: rolesAfterDelete.roles.length, selected: rolesAfterDelete.selected, nw: imgAfterDelete })
+  )
+
+  // ⑧ 主题：三个选项（浅色模式/深色模式/跟随系统），system 按系统偏好着色
+  const themeOpts = JSON.parse(
+    await cdp.eval(
+      "(function(){var ss=document.querySelectorAll('select'),out=null;for(var i=0;i<ss.length;i++){var vals=[],texts=[];" +
+        'for(var j=0;j<ss[i].options.length;j++){vals.push(ss[i].options[j].value);texts.push(ss[i].options[j].textContent)}' +
+        "if(vals.indexOf('system')!==-1){out={vals:vals,texts:texts};break}}return JSON.stringify(out)})()"
+    )
+  )
+  check(
+    '主题下拉：浅色模式 / 深色模式 / 跟随系统',
+    themeOpts &&
+      themeOpts.vals.indexOf('light') !== -1 &&
+      themeOpts.vals.indexOf('dark') !== -1 &&
+      themeOpts.vals.indexOf('system') !== -1 &&
+      themeOpts.texts.indexOf('浅色模式') !== -1 &&
+      themeOpts.texts.indexOf('深色模式') !== -1 &&
+      themeOpts.texts.indexOf('跟随系统') !== -1,
+    JSON.stringify(themeOpts)
+  )
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, theme: 'system' }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  const sysTheme = JSON.parse(
+    await cdp.eval(
+      "(function(){return JSON.stringify({dark:document.documentElement.classList.contains('zcw-theme-dark')," +
+        "prefers:window.matchMedia('(prefers-color-scheme: dark)').matches})})()"
+    )
+  )
+  check(
+    '主题「跟随系统」按 prefers-color-scheme 着色',
+    sysTheme.dark === sysTheme.prefers,
+    JSON.stringify(sysTheme)
+  )
+  // 后面的按钮配色断言针对深色主题，这里切回去（顺带验证 dark 仍能落盘生效）
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, theme: 'dark' }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+
+  // ⑨ 预警：DS¥/BM¥ 合并成同一行里的「余额¥」，与 Plan% 并列
+  const alertRow = JSON.parse(
+    await cdp.eval(
+      "(function(){var rows=document.querySelectorAll('.zcwv-menu-row'),hit=null;" +
+        "for(var i=0;i<rows.length;i++){var t=rows[i].textContent;" +
+        "if(t.indexOf('预警 Plan%')!==-1){hit={text:t,inputs:rows[i].querySelectorAll('input[type=number]').length}}}return JSON.stringify(hit)})()"
+    )
+  )
+  check(
+    '预警行：Plan% 与余额¥ 同一行、两个输入框',
+    alertRow && alertRow.text.indexOf('余额¥') !== -1 && alertRow.inputs === 2 && alertRow.text.indexOf('DS¥') === -1 && alertRow.text.indexOf('BM¥') === -1,
+    JSON.stringify(alertRow)
+  )
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, moneyAlert: 1.5 } }),
+  })
+  const alertBack = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check(
+    '余额预警阈值持久化（moneyAlert）',
+    alertBack.alerts && alertBack.alerts.planPct === 20 && alertBack.alerts.moneyAlert === 1.5,
+    JSON.stringify(alertBack.alerts)
+  )
+
+  // ⑩ 自定义气泡文字：首次点击显示自定义文字（占位符被替换），再点依次走队列，走完收起
+  await fetch('http://127.0.0.1:' + PORT + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: 1,
+      first: { text: '冒烟首屏 {time}', size: 'B' },
+      items: [{ text: '冒烟第二句', size: 'A' }, { text: '冒烟第三句', size: 'C' }],
+    }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  const whaleAt = JSON.parse(
+    await cdp.eval(
+      "(function(){var img=document.querySelector('.zcwv-img').getBoundingClientRect();" +
+        'return JSON.stringify({x:Math.round(img.left+img.width/2),y:Math.round(img.bottom-40)})})()'
+    )
+  )
+  async function clickWhale() {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: whaleAt.x, y: whaleAt.y, button: 'none', pointerType: 'mouse' })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: whaleAt.x, y: whaleAt.y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: whaleAt.x, y: whaleAt.y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  await clickWhale()
+  const firstText = await pollEval(
+    cdp,
+    "(function(){var a=document.querySelector('.zcwv-amount');return a&&a.style.display!=='none'?a.textContent:null})()",
+    8000
+  )
+  check(
+    '自定义「首次点击显示」渲染并替换占位符',
+    typeof firstText === 'string' && firstText.indexOf('冒烟首屏') === 0 && firstText.indexOf('{time}') === -1,
+    'first=' + JSON.stringify(firstText)
+  )
+  const bubbleRect = JSON.parse(
+    await cdp.eval(
+      "(function(){var b=document.querySelector('.zcwv-bubble').getBoundingClientRect();" +
+        'return JSON.stringify({x:Math.round(b.left+b.width/2),y:Math.round(b.top+40)})})()'
+    )
+  )
+  async function clickBubble() {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bubbleRect.x, y: bubbleRect.y, button: 'none', pointerType: 'mouse' })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: bubbleRect.x, y: bubbleRect.y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bubbleRect.x, y: bubbleRect.y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+    await new Promise((r) => setTimeout(r, 700))
+  }
+  const bubbleText = async () =>
+    cdp.eval(
+      "(function(){var t=document.querySelector('.zcwv-text');var parts=[];" +
+        "var ns=t.querySelectorAll('div');for(var i=0;i<ns.length;i++){if(ns[i].style.display!=='none'&&ns[i].textContent)parts.push(ns[i].textContent)}" +
+        "return parts.join('|')})()"
+    )
+  await clickBubble()
+  const step2 = await bubbleText()
+  await clickBubble()
+  const step3 = await bubbleText()
+  await clickBubble()
+  const step4 = await cdp.eval("document.querySelector('.zcwv-bubble').classList.contains('zcwv-bubble-open')")
+  check(
+    '自定义「再次点击显示」按队列推进并在走完后收起',
+    typeof step2 === 'string' && step2.indexOf('冒烟第二句') !== -1 && step3.indexOf('冒烟第三句') !== -1 && step4 === false,
+    JSON.stringify({ step2: step2, step3: step3, open: step4 })
+  )
+  await fetch('http://127.0.0.1:' + PORT + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 1, first: null, items: [] }),
+  })
   const btnStyle = JSON.parse(
     await cdp.eval(
       "(function(){var b=document.querySelector('.zcwv-menu-btn');" +

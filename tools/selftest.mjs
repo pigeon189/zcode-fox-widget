@@ -802,20 +802,34 @@ try {
     )
   }
 
-  // 预警设置归一：负数/非法值归 0，合法值保留
+  // 预警设置归一：DS/BM 两个阈值合并成单一 moneyAlert，负数/非法值归 0
   const putRes = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, bigmodelDaily: 5.5, deepseekBelow: -3 } }),
+    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, moneyAlert: 5.5, deepseekBelow: -3, bigmodelDaily: 9 } }),
   })
   const putBody = await putRes.json()
   check(
-    '预警设置写入并归一（负数归 0）',
-    putRes.ok && putBody.alerts && putBody.alerts.planPct === 20 && putBody.alerts.bigmodelDaily === 5.5 && putBody.alerts.deepseekBelow === 0,
+    '预警设置写入并归一（moneyAlert 生效，旧键不再各自保留）',
+    putRes.ok && putBody.alerts && putBody.alerts.planPct === 20 && putBody.alerts.moneyAlert === 5.5 && putBody.alerts.deepseekBelow === undefined,
     JSON.stringify(putBody.alerts)
   )
   const sizeBack = await getJson(port, '/whale/size.json')
   check('预警设置持久化回读', sizeBack && sizeBack.alerts && sizeBack.alerts.planPct === 20, JSON.stringify(sizeBack.alerts))
+  // 旧配置迁移：模拟升级用户的文件（只有 DS¥/BM¥ 旧键、没有 moneyAlert），
+  // 读出来应是 moneyAlert=deepseekBelow（先设过的那个），旧键不再保留
+  const legacyState = JSON.parse(fs.readFileSync(path.join(dataDir, 'widget-state.json'), 'utf8'))
+  legacyState.alerts = { planPct: 20, deepseekBelow: 7.5, bigmodelDaily: 3 }
+  fs.writeFileSync(path.join(dataDir, 'widget-state.json'), JSON.stringify(legacyState), 'utf8')
+  const legacyBack = await getJson(port, '/whale/size.json')
+  check(
+    '预警旧键迁移（deepseekBelow/bigmodelDaily → moneyAlert）',
+    legacyBack &&
+      legacyBack.alerts &&
+      legacyBack.alerts.moneyAlert === 7.5 &&
+      legacyBack.alerts.deepseekBelow === undefined,
+    JSON.stringify(legacyBack.alerts)
+  )
 
   // 角色库：内置小狐娘（默认）/小鲸鱼固定在前，上传件自动启用；未指定时默认小狐娘
   const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -865,6 +879,102 @@ try {
   const imgWhale = Buffer.from(await (await fetch('http://127.0.0.1:' + port + '/whale/image.png')).arrayBuffer())
   const whalePng = fs.readFileSync(path.join(PLUGIN_ROOT, 'assets', 'DSniang1.png'))
   check('切换小鲸鱼后 image.png 换成 DSniang1.png', imgWhale.equals(whalePng), 'len=' + imgWhale.length)
+
+  // 角色改名：导入件可改名，内置形象拒绝
+  const rnRes = await fetch('http://127.0.0.1:' + port + '/whale/role-rename.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: upBody.id, name: '改过名的鲸鱼' }),
+  })
+  const rnBody = await rnRes.json()
+  const rnHit = rnBody.roles ? rnBody.roles.find((r) => r && r.id === upBody.id) : null
+  check('导入角色改名成功', rnRes.ok && rnBody.ok === true && !!rnHit && rnHit.name === '改过名的鲸鱼', JSON.stringify(rnHit))
+  const rnBuiltin = await fetch('http://127.0.0.1:' + port + '/whale/role-rename.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'xiaohuniang', name: '不许改' }),
+  })
+  const rnBuiltinBody = await rnBuiltin.json()
+  check('内置形象不可改名', rnBuiltin.status === 400 && rnBuiltinBody.ok === false, JSON.stringify(rnBuiltinBody))
+
+  // 角色删除：索引 + 图片文件一起清；删掉的正好是当前形象时回落默认角色
+  const delUp = await fetch('http://127.0.0.1:' + port + '/whale/role-upload.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '待删除', dataUrl: tinyPng }),
+  })
+  const delUpBody = await delUp.json()
+  const beforeDel = await getJson(port, '/whale/roles.json')
+  const delRes = await fetch('http://127.0.0.1:' + port + '/whale/role-delete.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: delUpBody.id }),
+  })
+  const delBody = await delRes.json()
+  const afterIds = (delBody.roles || []).map((r) => r.id)
+  check(
+    '导入角色删除（索引 + 文件 + 选中回落默认小狐娘）',
+    delRes.ok &&
+      delBody.ok === true &&
+      afterIds.indexOf(delUpBody.id) === -1 &&
+      delBody.selected === 'xiaohuniang' &&
+      afterIds.length === beforeDel.roles.length - 1,
+    JSON.stringify({ selected: delBody.selected, n: afterIds.length })
+  )
+  const delImgRes = await fetch('http://127.0.0.1:' + port + '/whale/image.png')
+  check('删除当前形象后 image.png 仍可用（回落默认图）', delImgRes.ok, 'HTTP ' + delImgRes.status)
+  const delBuiltin = await fetch('http://127.0.0.1:' + port + '/whale/role-delete.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'whale' }),
+  })
+  const delBuiltinBody = await delBuiltin.json()
+  check('内置形象不可删除', delBuiltin.status === 400 && delBuiltinBody.ok === false, JSON.stringify(delBuiltinBody))
+
+  // 自定义气泡文字：默认空、写入归一（空白条目丢弃 / 条数与字数收敛 / 非法字号回 A）、回读一致
+  const bc0 = await getJson(port, '/whale/bubble-content.json')
+  check(
+    '气泡文字默认空（first=null, items=[]）',
+    bc0 && bc0.ok === true && bc0.first === null && Array.isArray(bc0.items) && bc0.items.length === 0,
+    JSON.stringify(bc0)
+  )
+  const manyItems = []
+  for (let i = 0; i < 20; i++) manyItems.push({ text: 'x'.repeat(300), size: 'Z' })
+  const bcPost = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: 1,
+      first: { text: '第一行\n第二行', size: 'B' },
+      items: [{ text: '   ', size: 'A' }].concat(manyItems),
+    }),
+  })
+  const bcBody = await bcPost.json()
+  check(
+    '气泡文字写入归一（空白丢弃 / 最多 12 条 / 每条 200 字 / 非法字号回 A）',
+    bcPost.ok &&
+      bcBody.ok === true &&
+      !!bcBody.first &&
+      bcBody.first.size === 'B' &&
+      bcBody.first.text === '第一行\n第二行' &&
+      bcBody.items.length === 12 &&
+      bcBody.items[0].size === 'A' &&
+      bcBody.items[0].text.length === 200,
+    JSON.stringify({ n: bcBody.items.length, len: bcBody.items[0].text.length, size: bcBody.items[0].size })
+  )
+  const bcBack = await getJson(port, '/whale/bubble-content.json')
+  check(
+    '气泡文字持久化回读一致',
+    bcBack && bcBack.first && bcBack.first.text === '第一行\n第二行' && bcBack.items.length === 12,
+    JSON.stringify(bcBack).slice(0, 120)
+  )
+  await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 1, first: null, items: [] }),
+  })
+  const bcReset = await getJson(port, '/whale/bubble-content.json')
+  check('气泡文字可恢复默认（清空）', bcReset && bcReset.first === null && bcReset.items.length === 0, JSON.stringify(bcReset).slice(0, 80))
 
   // 余额校正接口：GET 汇总 + POST 落账（自检环境无 DeepSeek 账本，应为空本形态）
   const adjGet = await getJson(port, '/whale/balance-adjustments.json')
