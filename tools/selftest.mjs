@@ -15,8 +15,9 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
 import { shapePlanPayload } from '../lib/plan-balance.mjs'
-import { getPath } from '../lib/vendors.mjs'
-import { matchTemplateId, buildProviderEntries } from '../lib/discover.mjs'
+import { getPath, TEMPLATES, fetchFromTemplate } from '../lib/vendors.mjs'
+import { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } from '../lib/discover.mjs'
+import { computeTodayUsage } from '../lib/balance.mjs'
 import { findApiKey, readPluginConfig } from '../lib/credentials.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 
@@ -617,9 +618,191 @@ function check(name, ok, detail) {
   check('MiMo 夜间时段判定（北京时间 0-8 点）', isNightOffpeak(atNight) === true && isNightOffpeak(atDay) === false)
 }
 
+// 实时·令牌模式的平台用量解析（computeTodayUsage）：接口只给 token 分桶，
+// 金额要按峰谷价自行换算，是「今日已用」在 token 模式下的唯一算法，必须有 fixture。
+{
+  const bucket = (time, hit, miss, out) => ({
+    time,
+    usage: { PROMPT_CACHE_HIT_TOKEN: hit, PROMPT_CACHE_MISS_TOKEN: miss, RESPONSE_TOKEN: out },
+  })
+  const wrap = (series) => ({ data: { biz_data: { series } } })
+  const p = priceFor('deepseek-flash')
+  // 峰谷价按 isPeakTime(b.time) 选档（b.time 是**秒**，idx=1 为高峰）。
+  // 高峰 = 工作日北京时间 9:00–12:00 / 14:00–18:00；2026-09-29 是周二。
+  const offSec = Date.UTC(2026, 8, 29, 4, 30, 0) / 1000 // 北京 12:30（空闲）
+  const peakSec = Date.UTC(2026, 8, 29, 2, 0, 0) / 1000 // 北京 10:00（高峰）
+  const offIdx = isPeakTime(offSec) ? 1 : 0
+  const peakIdx = isPeakTime(peakSec) ? 1 : 0
+  const rate = (idx) => ({ hit: p.hit[idx], miss: p.miss[idx], out: p.out[idx] })
+
+  const flat = computeTodayUsage(
+    wrap([
+      { model: 'deepseek-flash', buckets: [bucket(offSec, 400_000, 100_000, 50_000), bucket(offSec, 100_000, 0, 0)] },
+    ])
+  )
+  const r0 = rate(offIdx)
+  const expectFlat = (500_000 / 1e6) * r0.hit + (100_000 / 1e6) * r0.miss + (50_000 / 1e6) * r0.out
+  check(
+    'computeTodayUsage：多桶按命中/未命中/输出三档换算并求和',
+    flat && Math.abs(flat.amount - expectFlat) < 1e-9 && flat.tokens === 650_000,
+    flat ? '期望 ¥' + expectFlat.toFixed(6) + '，实际 ¥' + flat.amount.toFixed(6) + ' tokens=' + flat.tokens : '返回 null'
+  )
+
+  const peak = computeTodayUsage(wrap([{ model: 'deepseek-flash', buckets: [bucket(peakSec, 500_000, 100_000, 50_000)] }]))
+  const r1 = rate(peakIdx)
+  const expectPeak = (500_000 / 1e6) * r1.hit + (100_000 / 1e6) * r1.miss + (50_000 / 1e6) * r1.out
+  check(
+    'computeTodayUsage：高峰桶按高峰档计价',
+    peak && Math.abs(peak.amount - expectPeak) < 1e-9,
+    peak ? '期望 ¥' + expectPeak.toFixed(6) + '，实际 ¥' + peak.amount.toFixed(6) : '返回 null'
+  )
+  check(
+    'computeTodayUsage：峰谷档位确实不同（同一用量两种价）',
+    Math.abs(expectPeak - expectFlat) > 1e-6 && peakIdx !== offIdx,
+    '峰值索引 ' + peakIdx + ' vs 空闲索引 ' + offIdx
+  )
+
+  check(
+    'computeTodayUsage：全零用量/空结构 → null（不虚报 0 元）',
+    computeTodayUsage(wrap([{ model: 'deepseek-flash', buckets: [bucket(offSec, 0, 0, 0)] }])) === null &&
+      computeTodayUsage(wrap([])) === null &&
+      computeTodayUsage(null) === null
+  )
+  check(
+    'computeTodayUsage：data.series 直挂结构也被接受（接口版本差异兜底）',
+    !!computeTodayUsage({ data: { series: [{ model: 'deepseek-flash', buckets: [bucket(offSec, 1000, 0, 0)] }] } })
+  )
+}
+
+// 厂商模板出站白名单：host 必须是模板里的独立常量，不能从 url 现算（v1.3.0 复审 S2）
+{
+  const urlSections = Object.entries(TEMPLATES)
+    .map(([id, tpl]) => [id, tpl.kind === 'quota' ? tpl.quota : tpl.balance])
+    .filter(([, s]) => s && typeof s.url === 'string')
+  check(
+    '模板白名单：每个带 url 的模板都显式声明 host 且与 url 一致',
+    urlSections.length >= 4 &&
+      urlSections.every(([, s]) => typeof s.host === 'string' && s.host.trim().toLowerCase() === new URL(s.url).hostname.toLowerCase()),
+    urlSections.map(([id, s]) => id + '=' + s.host).join(', ')
+  )
+  const bad = await fetchFromTemplate({ kind: 'balance', balance: { url: 'https://api.moonshot.cn/v1/x', host: 'evil.example', pick: () => null } }, 'k')
+  check(
+    '模板白名单：host 与 url 不一致 → 拒绝（url 自证清白的漏洞已堵）',
+    bad && bad.ok === false && /白名单/.test(String(bad.reason)),
+    JSON.stringify(bad)
+  )
+  const noHost = await fetchFromTemplate({ kind: 'balance', balance: { url: 'https://api.moonshot.cn/v1/x', pick: () => null } }, 'k')
+  check('模板白名单：未声明 host → 拒绝（fail closed）', noHost && noHost.ok === false && /未声明 host/.test(String(noHost.reason)), JSON.stringify(noHost))
+  const loopback = await fetchFromTemplate(
+    { kind: 'balance', balance: { url: 'http://127.0.0.1:11435/v1/credits', host: '127.0.0.1', pick: () => null } },
+    'k'
+  )
+  check(
+    '模板白名单：环回地址即使 host 声明一致也被拒',
+    loopback && loopback.ok === false && /环回|私有|保留/.test(String(loopback.reason)),
+    JSON.stringify(loopback)
+  )
+}
+
+// 凭据发现的短 TTL 缓存（v1.3.0 复审 N3）：默认路径 5 秒内复用，显式失效后重扫
+{
+  const v2dir = path.join(tmpHome, '.zcode', 'v2')
+  const savedBase = process.env.ZCODE_DATA_BASE_DIR
+  process.env.ZCODE_DATA_BASE_DIR = tmpHome
+  try {
+    const probeId = 'n3-cache-probe'
+    const legacyFile = path.join(v2dir, 'config.json')
+    const saved = fs.existsSync(legacyFile) ? fs.readFileSync(legacyFile, 'utf8') : null
+    invalidateDiscoverCache()
+    const before = buildProviderEntries()
+    check('发现缓存：首次调用即全量扫描', Array.isArray(before) && !before.some((e) => e.providerId === probeId))
+    fs.writeFileSync(
+      legacyFile,
+      JSON.stringify({ provider: { [probeId]: { options: { baseURL: 'https://probe.example/v1' } } } }),
+      'utf8'
+    )
+    const cached = buildProviderEntries()
+    check(
+      '发现缓存：TTL 内新增配置不重扫（前端 3 秒轮询不再全量扫描）',
+      !cached.some((e) => e.providerId === probeId),
+      'entries=' + cached.length
+    )
+    check('发现缓存：命中时返回副本（调用方改不动缓存）', cached !== buildProviderEntries() && cached.length === buildProviderEntries().length)
+    invalidateDiscoverCache()
+    const fresh = buildProviderEntries()
+    check(
+      '发现缓存：显式失效后重扫并看到新配置',
+      fresh.some((e) => e.providerId === probeId && e.baseUrl === 'https://probe.example/v1'),
+      'entries=' + fresh.length
+    )
+    if (saved === null) fs.rmSync(legacyFile, { force: true })
+    else fs.writeFileSync(legacyFile, saved, 'utf8')
+    invalidateDiscoverCache()
+  } finally {
+    if (savedBase === undefined) delete process.env.ZCODE_DATA_BASE_DIR
+    else process.env.ZCODE_DATA_BASE_DIR = savedBase
+    invalidateDiscoverCache()
+  }
+}
+
 async function getJson(port, pathname) {
   const res = await fetch('http://127.0.0.1:' + port + pathname, { signal: AbortSignal.timeout(3000) })
   return res.json()
+}
+
+// CLI 文本出口（node lib/cli.mjs <args>）：v1.3.0 复审 N1 的回归面在这条路径上，
+// 之前的测试只覆盖 HTTP JSON 接口，币种就是从这里漏出去的。
+function runCli(args, env) {
+  return new Promise((resolve) => {
+    const c = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'cli.mjs'), ...args], {
+      cwd: PLUGIN_ROOT,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    c.stdout.on('data', (d) => (stdout += d))
+    c.stderr.on('data', (d) => (stderr += d))
+    c.on('close', (code) => resolve({ code, stdout, stderr }))
+    setTimeout(() => {
+      try {
+        c.kill()
+      } catch (err) {}
+    }, 8000)
+  })
+}
+
+// MCP（stdio NDJSON）：写请求后等一会儿收响应，再结束进程。
+function runMcp(requests, env, waitMs = 2500) {
+  return new Promise((resolve) => {
+    const c = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'mcp-server.mjs')], {
+      cwd: PLUGIN_ROOT,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let out = ''
+    c.stdout.on('data', (d) => (out += d))
+    c.stderr.on('data', () => {})
+    for (const r of requests) c.stdin.write(JSON.stringify(r) + '\n')
+    setTimeout(() => {
+      try {
+        c.kill()
+      } catch (err) {}
+      resolve(
+        out
+          .split('\n')
+          .filter((l) => l.trim())
+          .map((l) => {
+            try {
+              return JSON.parse(l)
+            } catch (err) {
+              return null
+            }
+          })
+          .filter(Boolean)
+      )
+    }, waitMs)
+  })
 }
 
 async function waitReady(port, deadlineMs) {
@@ -801,6 +984,55 @@ try {
         : '未找到含 GLM 的轮次'
     )
   }
+
+  // N1 回归（v1.3.0 复审）：多币种轮次的**文本出口**不能把美元写成人民币。
+  // cli.mjs / mcp-server.mjs 曾把 'CNY' 写死在金额格式化里，OpenAI/Claude 轮次会
+  // 显示成 ¥0.30（与真实价值差约 7 倍）。这里插一条 OpenAI 轮次，走真实 CLI 与
+  // MCP 文本路径核对，顺带核对 MCP 握手版本号与 plugin.json 一致（复审 N2）。
+  const atD = Date.now()
+  const USD_USAGE = { input_tokens: 120_000, cache_read_input_tokens: 20_000, output_tokens: 8_000, computed_total_tokens: 128_000 }
+  insertTurn('sess_selftest', 'turn_USD', USD_USAGE, atD, [{ model: 'gpt-5.6-terra', providerId: 'openai', usage: USD_USAGE }])
+  const usdExpected = costOfUsage('gpt-5.6-terra', USD_USAGE, atD, 'openai')
+  let usdTurn = null
+  const deadlineUsd = Date.now() + 6000
+  while (Date.now() < deadlineUsd) {
+    await new Promise((r) => setTimeout(r, 400))
+    usdTurn = await getJson(port, '/whale/last-turn.json')
+    if (usdTurn.seq > 2) break
+  }
+  check(
+    '多币种轮次被识别（seq 递增到 3，币种为 USD）',
+    usdTurn && usdTurn.seq === 3 && usdTurn.currency === 'USD' && Math.abs(usdTurn.amount - usdExpected.amount) < 1e-9,
+    usdTurn ? 'seq=' + usdTurn.seq + ' currency=' + usdTurn.currency + ' amount=' + usdTurn.amount : '无'
+  )
+  const cliEnv = { ...serverEnv }
+  const cliTurn = await runCli(['turn'], cliEnv)
+  check(
+    'CLI 每轮消耗按币种显示（USD 轮次出现 $，不再写成 ¥）',
+    cliTurn.code === 0 && /\$\s*\d/.test(cliTurn.stdout) && cliTurn.stdout.indexOf('¥') === -1,
+    cliTurn.stdout.split('\n').slice(0, 2).join(' | ') + (cliTurn.stderr ? ' [stderr] ' + cliTurn.stderr.slice(0, 120) : '')
+  )
+  check(
+    'CLI 逐档明细的单价也随币种（$ x/M 而非 ¥ x/M）',
+    cliTurn.stdout.indexOf('× $') !== -1,
+    cliTurn.stdout.split('\n').filter((l) => l.indexOf('×') !== -1).join(' | ').slice(0, 200)
+  )
+  const mcpOut = await runMcp([{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'selftest', version: '1' } } }, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'whale_last_turn', arguments: {} } }], cliEnv)
+  const mcpInit = mcpOut.find((m) => m.id === 1)
+  const mcpTurn = mcpOut.find((m) => m.id === 2)
+  const mcpText = mcpTurn && mcpTurn.result && mcpTurn.result.content && mcpTurn.result.content[0] ? mcpTurn.result.content[0].text : ''
+  check(
+    'MCP whale_last_turn 按币种显示（USD 轮次出现 $，不再写成 ¥）',
+    mcpText && mcpText.indexOf('$') !== -1 && mcpText.indexOf('¥') === -1,
+    mcpText.split('\n').slice(0, 2).join(' | ')
+  )
+  const pluginJson = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, '.zcode-plugin', 'plugin.json'), 'utf8'))
+  const mcpVersion = mcpInit && mcpInit.result && mcpInit.result.serverInfo ? mcpInit.result.serverInfo.version : null
+  check(
+    'MCP 握手版本号与 plugin.json 一致（单一来源）',
+    mcpVersion === pluginJson.version,
+    'mcp=' + mcpVersion + ' plugin.json=' + pluginJson.version
+  )
 
   // 预警设置归一：DS/BM 两个阈值合并成单一 moneyAlert，负数/非法值归 0
   const putRes = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
@@ -1047,6 +1279,7 @@ try {
 
   // 服务重启：seq 必须从持久化值续上——否则重启后已打开的页面对齐在旧计数上，
   // 新服务的每一轮都会被当成"旧轮次"，每轮消耗气泡静默失效
+  const seqBeforeRestart = (await getJson(port, '/whale/last-turn.json')).seq
   await new Promise((resolve) => {
     child.once('exit', resolve)
     child.kill()
@@ -1057,8 +1290,8 @@ try {
   const afterRestart = await getJson(port, '/whale/last-turn.json')
   check(
     '重启后 seq 从持久化值续上（对齐不回退）',
-    afterRestart && afterRestart.seq === 2 && afterRestart.turn === null,
-    JSON.stringify(afterRestart)
+    afterRestart && afterRestart.seq === seqBeforeRestart && afterRestart.turn === null,
+    '重启前 seq=' + seqBeforeRestart + '，重启后 ' + JSON.stringify(afterRestart)
   )
   insertTurn('sess_selftest', 'turn_D', USAGE_B, Date.now())
   let fourth = null
@@ -1066,11 +1299,11 @@ try {
   while (Date.now() < deadlineD) {
     await new Promise((r) => setTimeout(r, 400))
     fourth = await getJson(port, '/whale/last-turn.json')
-    if (fourth.seq > 2) break
+    if (fourth.seq > seqBeforeRestart) break
   }
   check(
     '重启后新一轮 seq 继续单调递增',
-    fourth && fourth.seq === 3 && fourth.turn === 'turn_D',
+    fourth && fourth.seq === seqBeforeRestart + 1 && fourth.turn === 'turn_D',
     JSON.stringify(fourth ? { seq: fourth.seq, turn: fourth.turn } : fourth)
   )
 

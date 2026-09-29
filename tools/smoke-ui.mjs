@@ -578,6 +578,90 @@ try {
     btnStyle.bg === 'rgba(43, 43, 43, 0.95)' && btnStyle.bar === 'rgb(212, 212, 212)',
     JSON.stringify(btnStyle)
   )
+
+  // ⑪ MiMo Token Plan 计费源：标题随源切换 + 时段行改用配额口径
+  // （复审缺失测试 #3：MiMo Plan 夜间 0.8x 只有服务端断言，前端展示无覆盖）
+  // 用 fetch 桩喂一个 mimo-plan 会话，Math.random 固定为 0 → 随机台词组必中 group1
+  // （权重 45 在第一位，r=0 必落它），于是时段行可确定性断言。
+  const stubScript = (withOpenAiUsage) =>
+    '(function(){var real=window.fetch;' +
+    'function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
+    'var S={ok:true,source:"mimo-plan",vendor:"mimo",label:"MiMo Token Plan",timeMode:"offpeak-x0.8",modelId:"mimo-v2.6-pro",currency:"CNY",from:"selection"};' +
+    'var U=' +
+    (withOpenAiUsage
+      ? '{ok:true,today:{total:1.2,tokens:1000,totals:{USD:1.2},models:[{model:"gpt-5.6-terra",vendorLabel:"OpenAI",amount:1.2,tokens:1000,currency:"USD"}]}}'
+      : '{ok:true,today:{total:0,tokens:0,totals:{},models:[]}}') +
+    ';Math.random=function(){return 0};' +
+    'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
+    'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
+    'if(s.indexOf("/whale/usage-records.json")!==-1)return json(U);' +
+    'return real.apply(this,arguments)}})()'
+
+  const putSize = (body) =>
+    fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => r.json())
+
+  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 0 } })
+  const stubA = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: stubScript(false) })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 4000))
+  const mimoLabel = await cdp.eval("(function(){var n=document.querySelector('.zcwv-label');return n?n.textContent:null})()")
+  check(
+    'MiMo Plan 计费源：气泡标题随源切换（MiMo Plan 今日消耗）',
+    mimoLabel === 'MiMo Plan 今日消耗',
+    'label=' + JSON.stringify(mimoLabel)
+  )
+  await clickWhale()
+  await clickBubble()
+  const mimoPeriod = await bubbleText()
+  check(
+    'MiMo Plan 时段行改用配额口径（常规时段 / 配额 0.8x），不出现高峰·空闲时段',
+    typeof mimoPeriod === 'string' &&
+      (mimoPeriod.indexOf('常规时段') !== -1 || mimoPeriod.indexOf('配额 0.8x') !== -1) &&
+      mimoPeriod.indexOf('高峰时段') === -1 &&
+      mimoPeriod.indexOf('空闲时段') === -1,
+    'text=' + JSON.stringify(mimoPeriod)
+  )
+  // size.json 的 PUT 要求带 scale（缺了会被 400 拒掉），其余字段才合并
+  await putSize({ scale: 1.5, displayMode: 'ds' })
+  // displayMode 由页面每 60 秒拉一次配置，改完必须重载才会生效
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3500))
+  await clickWhale()
+  await clickBubble()
+  const dsPeriod = await bubbleText()
+  check(
+    '对照：DeepSeek 峰谷源仍显示高峰/空闲时段（配额口径不外溢）',
+    typeof dsPeriod === 'string' && (dsPeriod.indexOf('高峰时段') !== -1 || dsPeriod.indexOf('空闲时段') !== -1),
+    'text=' + JSON.stringify(dsPeriod)
+  )
+  if (stubA && stubA.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubA.identifier })
+
+  // ⑫ 金额预警的币种口径（复审 N4）：阈值是「元」，美元厂商按近似汇率折算后比较。
+  // $1.2 撞 ¥5 阈值在纯数值比较下不会触发（漏报），折算后 ¥8.52 应当触发，
+  // 文案里给出原币与折算值。
+  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 5 } })
+  const stubB = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: stubScript(true) })
+  await cdp.send('Page.reload')
+  const alertText = await pollEval(
+    cdp,
+    "(function(){var l=document.querySelector('.zcwv-label');var p=document.querySelector('.zcwv-period');" +
+      "if(!l||!p)return null;if(l.textContent!=='余额预警')return null;" +
+      'return JSON.stringify({title:l.textContent,body:p.textContent})})()',
+    20000,
+    250
+  )
+  const alertObj = alertText ? JSON.parse(alertText) : null
+  check(
+    '金额预警：美元厂商折算成人民币后比较（$1.20 ≈ ¥8.52 ≥ ¥5.00 触发）',
+    !!alertObj && alertObj.body.indexOf('OpenAI 今日已用 $1.20') === 0 && alertObj.body.indexOf('约 ¥8.52') !== -1 && alertObj.body.indexOf('达到 ¥5.00') !== -1,
+    JSON.stringify(alertObj)
+  )
+  if (stubB && stubB.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubB.identifier })
+  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 0 } })
 } catch (err) {
   check('冒烟过程未抛异常', false, String((err && err.message) || err))
 } finally {
