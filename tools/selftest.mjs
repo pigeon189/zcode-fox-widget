@@ -241,7 +241,8 @@ function insertTurn(sessionId, turnId, usage, atMs, modelRows) {
 }
 
 // 轮次 A：服务启动时应当只做对齐，不当作"新的一轮"
-insertTurn('sess_selftest', 'turn_A', { ...USAGE_B, input_tokens: 1, output_tokens: 1 }, Date.now() - 60_000)
+const atA = Date.now() - 60_000
+insertTurn('sess_selftest', 'turn_A', { ...USAGE_B, input_tokens: 1, output_tokens: 1 }, atA)
 
 const results = []
 function check(name, ok, detail) {
@@ -513,6 +514,50 @@ try {
     byId['zcode-plan'] && byId['zcode-plan'].available === true && byId['zcode-plan'].kind === 'local-log',
     byId['zcode-plan'] ? 'available=' + byId['zcode-plan'].available : '缺失'
   )
+
+  // 用量记录：今日按模型聚合与逐条事件
+  const usage = await getJson(port, '/whale/usage-records.json')
+  const usageModels = usage && usage.ok ? usage.today.models.map((m) => m.model) : []
+  check(
+    '用量记录：今日含两个模型的聚合',
+    usage && usage.ok && usageModels.indexOf('GLM-5.3-Flash') !== -1 && usageModels.indexOf('deepseek-flash') !== -1,
+    'models=' + usageModels.join(',')
+  )
+  check(
+    '用量记录：今日金额与全部轮次一致（A+B+C）',
+    usage && usage.ok,
+    'total=' + (usage && usage.today ? usage.today.total : '无')
+  )
+  if (usage && usage.ok) {
+    const costA = costOfUsage('deepseek-flash', { input_tokens: 1, output_tokens: 1, computed_total_tokens: 2 }, atA, 'deepseek-test').amount
+    const costB = costOfUsage('deepseek-flash', USAGE_B, atB, 'deepseek-test').amount
+    const expectedToday = costA + costB + glmPart + dsPart
+    check(
+      '用量记录：今日金额 = 三轮之和',
+      Math.abs(usage.today.total - expectedToday) < 1e-9,
+      '期望 ¥' + expectedToday.toFixed(6) + '，实际 ¥' + usage.today.total.toFixed(6)
+    )
+  }
+  check(
+    '用量记录：带最近事件列表',
+    usage && usage.ok && Array.isArray(usage.events) && usage.events.length >= 2,
+    'events=' + (usage && usage.events ? usage.events.length : 0)
+  )
+
+  // 预警设置归一：负数/非法值归 0，合法值保留
+  const putRes = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, bigmodelDaily: 5.5, deepseekBelow: -3 } }),
+  })
+  const putBody = await putRes.json()
+  check(
+    '预警设置写入并归一（负数归 0）',
+    putRes.ok && putBody.alerts && putBody.alerts.planPct === 20 && putBody.alerts.bigmodelDaily === 5.5 && putBody.alerts.deepseekBelow === 0,
+    JSON.stringify(putBody.alerts)
+  )
+  const sizeBack = await getJson(port, '/whale/size.json')
+  check('预警设置持久化回读', sizeBack && sizeBack.alerts && sizeBack.alerts.planPct === 20, JSON.stringify(sizeBack.alerts))
 
   await new Promise((r) => setTimeout(r, 200))
   // 令牌关闭
