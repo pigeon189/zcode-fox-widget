@@ -374,11 +374,71 @@ function check(name, ok, detail) {
   // 供应商识别：网关 provider_id 不干扰，模型名优先；未知供应商不虚报金额
   check('网关里的 DeepSeek 模型按 DeepSeek 计价', resolveVendor('cmdgo-bridge', 'deepseek/deepseek-v4-flash') === 'deepseek')
   check('start-plan 账户的 GLM 模型识别为 GLM', resolveVendor('account:zai-start-plan', 'GLM-5.3') === 'glm')
+  // MiMo 已入价目表：mimo-v2.6-pro 平价 3/6（缓存命中 0.025）——glmUsage 口径
+  // = 90 万命中 + 10 万未命中 + 10 万输出 → 0.9×0.025 + 0.1×3 + 0.1×6
   const mimo = costOfUsage('mimo-v2.6-pro', glmUsage, at, 'xiaomi-mimo')
-  check('不可计价供应商金额为 0 且标记 billable=false', resolveVendor('xiaomi-mimo', 'mimo-v2.6-pro') === null && mimo.amount === 0 && mimo.billable === false && mimo.tokens > 0)
+  const mimoExpect = 0.9 * 0.025 + 0.1 * 3 + 0.1 * 6
+  check(
+    'MiMo 按官网平价计价并带币种',
+    resolveVendor('xiaomi-mimo', 'mimo-v2.6-pro') === 'mimo' && mimo.billable && mimo.currency === 'CNY' && Math.abs(mimo.amount - mimoExpect) < 1e-9,
+    '期望 ¥' + mimoExpect.toFixed(6) + '，实际 ' + mimo.amount.toFixed(6)
+  )
   // 网关私有 GLM 变体没有价目 → 不虚报
   const unknownGlm = costOfUsage('zai-org/GLM-5.2-Fast', glmUsage, at, 'cmdgo-bridge')
   check('未维护价目的 GLM 变体不虚报金额', unknownGlm.vendor === 'glm' && unknownGlm.billable === false && unknownGlm.amount === 0 && unknownGlm.tokens > 0)
+}
+
+// 六家厂商价目与特殊计价规则（GPT 长上下文档 / Qwen 输入档 / MiniMax 512K 档 /
+// Kimi 缓存写 TTL 档 / Claude 缓存写 1.25x / 未知模型不套 DeepSeek 价）
+{
+  const at = Date.now()
+  // OpenAI：272K 输入整单取档（>272K 输入×2 / 输出×1.5）
+  const gptLo = resolvePricing({ model: 'gpt-5.6-terra', inTokens: 200000 })
+  const gptHi = resolvePricing({ model: 'gpt-5.6-terra', inTokens: 300000 })
+  check(
+    'GPT-5.6 按 272K 输入整单分档（输入×2 / 输出×1.5）',
+    gptLo.miss[0] === 2 && gptHi.miss[0] === 4 && gptLo.out[0] === 12 && gptHi.out[0] === 18 && gptLo.currency === 'USD',
+    JSON.stringify({ lo: gptLo.miss, hi: gptHi.miss })
+  )
+  // Claude：平价 + 缓存写 1.25×输入；日期后缀模型名靠前缀匹配
+  const cl = costOfUsage(
+    'claude-sonnet-5-5-20260201',
+    { input_tokens: 1_000_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 1_000_000, output_tokens: 0 },
+    at
+  )
+  check(
+    'Claude 前缀匹配 + 缓存写 1.25×输入（USD）',
+    cl.vendor === 'anthropic' && cl.currency === 'USD' && Math.abs(cl.amount - (2 + 2.5)) < 1e-9,
+    'amount=' + cl.amount.toFixed(4)
+  )
+  // Qwen：按输入 token 分档整单取档（官方 K=1,000）
+  const qLo = resolvePricing({ model: 'qwen3-max', inTokens: 30000 })
+  const qHi = resolvePricing({ model: 'qwen3-max', inTokens: 200000 })
+  check(
+    'qwen3-max 输入分档（<=32K / 32K-128K / 128K-256K）',
+    qLo.tier === '<=32K' && qLo.miss[0] === 2.5 && qHi.tier === '128K-256K' && qHi.miss[0] === 7
+  )
+  // MiniMax：M3 以 512K 输入为界
+  const mmLo = resolvePricing({ model: 'MiniMax-M3', inTokens: 500000 })
+  const mmHi = resolvePricing({ model: 'MiniMax-M3', inTokens: 600000 })
+  check(
+    'MiniMax-M3 512K 分档',
+    mmLo.tier === '<=512K' && mmLo.miss[0] === 2.1 && mmHi.tier === '>512K' && mmHi.miss[0] === 4.2
+  )
+  // Kimi：缓存写按 TTL 计价，无 TTL 信息按默认 5min 档（k3 写价 20）
+  const kimi = costOfUsage(
+    'kimi-k3',
+    { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 1_000_000, output_tokens: 0 },
+    at
+  )
+  check('Kimi 缓存写按默认 5min TTL 档计价', kimi.billable && Math.abs(kimi.amount - 20) < 1e-9, 'amount=' + kimi.amount)
+  // 未知模型不套任何价目（含「仅 provider 名沾 DeepSeek」的误配场景）
+  const unknown = costOfUsage('mystery-9000', { input_tokens: 1000, output_tokens: 10 }, at, 'weird-corp')
+  const providerOnly = costOfUsage('totally-unknown', { input_tokens: 1000, output_tokens: 10 }, at, 'deepseek')
+  check(
+    '未知模型只计 tokens 不折算金额（不再套 DeepSeek 价）',
+    unknown.billable === false && unknown.amount === 0 && providerOnly.billable === false && providerOnly.amount === 0
+  )
 }
 
 // ZCode Plan 日志解析：纯函数校验 shapePlanPayload
