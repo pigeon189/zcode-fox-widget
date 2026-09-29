@@ -16,7 +16,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
 import { shapePlanPayload } from '../lib/plan-balance.mjs'
 import { getPath } from '../lib/vendors.mjs'
-import { matchTemplateId } from '../lib/discover.mjs'
+import { matchTemplateId, buildProviderEntries } from '../lib/discover.mjs'
+import { findApiKey, readPluginConfig } from '../lib/credentials.mjs'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-selftest-'))
@@ -111,7 +112,10 @@ const planLogLine =
 fs.writeFileSync(path.join(planLogDir, todayKeyForLog() + '.log'), planLogLine, 'utf8')
 
 // 厂商自动发现 fixture：一个 bigmodel 规则（应命中 bigmodel-glm），一个本地网关
-// 规则（baseURL 是环回地址，key 是网关鉴权用，必须被跳过，即使模型名含 deepseek）
+// 规则（baseURL 是环回地址，key 是网关鉴权用，必须被跳过，即使模型名含 deepseek），
+// 一个 enc:v1: 加密凭据规则（无法解密必须跳过，不能当明文 key 用）。
+// 注意：fixture 不放**明文** deepseek key——vendors.json 的 deepseek 模板拿到 key
+// 会真的出网查余额；findApiKey 的发现路径改在纯函数段用注入路径覆盖。
 fs.writeFileSync(
   path.join(tmpHome, '.zcode', 'v2', 'provider_config.json'),
   JSON.stringify({
@@ -135,6 +139,40 @@ fs.writeFileSync(
               access: { type: 'api-key', apiKey: 'selftest-fake-bridge-key' },
               api: { baseUrl: 'http://127.0.0.1:11435/v1' },
               modelOrder: ['deepseek/deepseek-v4-flash'],
+            },
+          },
+          {
+            providerId: 'deepseek-encrypted',
+            templateId: 'deepseek',
+            providerName: 'DeepSeek Encrypted',
+            config: {
+              access: { type: 'api-key', apiKey: 'enc:v1:selftest-ciphertext-not-a-key' },
+              api: { baseUrl: 'https://api.deepseek.com/anthropic' },
+              modelOrder: ['deepseek-flash'],
+            },
+          },
+        ],
+      },
+    },
+  }),
+  'utf8'
+)
+
+// 内置模板 fixture：规则没写 api.baseUrl 时有效 baseURL 要从这里继承
+fs.mkdirSync(path.join(tmpHome, '.zcode', 'v2', 'runtime', 'provider', 'test', '1.0.0', 'ep1'), { recursive: true })
+fs.writeFileSync(
+  path.join(tmpHome, '.zcode', 'v2', 'runtime', 'provider', 'test', '1.0.0', 'ep1', 'zcode-builtin.json'),
+  JSON.stringify({
+    schemaVersion: 1,
+    revision: 1,
+    config: {
+      providerConfigRules: {
+        templateRules: [
+          {
+            templateId: 'deepseek',
+            config: {
+              access: { type: 'api-key' },
+              api: { type: 'anthropic-messages', baseUrl: 'https://api.deepseek.com/anthropic' },
             },
           },
         ],
@@ -382,6 +420,97 @@ function check(name, ok, detail) {
   check('模板匹配：本地网关关键词不做 vendor 判定', matchTemplateId(['cmdgo-bridge']) === null)
 }
 
+// 凭据发现：有效 baseURL 继承内置模板、enc:v1: 密文跳过、本地网关标记
+{
+  const fx = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-cred-fx-'))
+  // fixture 布局对齐 v2DataDirCandidates()：<base>/.zcode/v2/，ZCODE_DATA_BASE_DIR=<base>
+  const fxV2 = path.join(fx, '.zcode', 'v2')
+  fs.mkdirSync(path.join(fxV2, 'runtime', 'provider', 'x', '1', 'e'), { recursive: true })
+  fs.writeFileSync(
+    path.join(fxV2, 'runtime', 'provider', 'x', '1', 'e', 'zcode-builtin.json'),
+    JSON.stringify({
+      revision: 1,
+      config: {
+        providerConfigRules: {
+          templateRules: [
+            { templateId: 'deepseek', config: { api: { baseUrl: 'https://api.deepseek.com/anthropic' } } },
+            { templateId: 'xiaomi-mimo', config: { api: { baseUrl: 'https://api.xiaomimimo.com/anthropic' } } },
+          ],
+        },
+      },
+    }),
+    'utf8'
+  )
+  fs.writeFileSync(
+    path.join(fxV2, 'provider_config.json'),
+    JSON.stringify({
+      config: {
+        providerConfigRules: {
+          providerRules: [
+            { providerId: 'deepseek', templateId: 'deepseek', config: { access: { type: 'api-key', apiKey: 'selftest-fake-key-aaaa' } } },
+            {
+              providerId: 'deepseek-enc',
+              templateId: 'deepseek',
+              config: { access: { type: 'api-key', apiKey: 'enc:v1:selftest-ciphertext' }, api: { baseUrl: 'https://api.deepseek.com/anthropic' } },
+            },
+            {
+              providerId: 'mimo-plan',
+              templateId: 'xiaomi-mimo',
+              config: { access: { type: 'api-key', apiKey: 'selftest-fake-key-bbbb' }, api: { baseUrl: 'https://token-plan-cn.xiaomimimo.com' } },
+            },
+          ],
+        },
+      },
+    }),
+    'utf8'
+  )
+  fs.writeFileSync(
+    path.join(fx, 'cli-config.json'),
+    JSON.stringify({ provider: { 'local-gw': { options: { baseURL: 'http://127.0.0.1:11435/v1', apiKey: 'selftest-fake-key-cccc' } } } }),
+    'utf8'
+  )
+  const entries = buildProviderEntries({ v2Dirs: [fxV2], cliConfigFile: path.join(fx, 'cli-config.json') })
+  const byId = {}
+  for (const e of entries) byId[e.providerId] = e
+  check(
+    '凭据发现：无 baseUrl 规则从内置模板继承有效 baseURL',
+    byId.deepseek && byId.deepseek.host === 'api.deepseek.com' && byId.deepseek.apiKey === 'selftest-fake-key-aaaa',
+    byId.deepseek ? 'host=' + byId.deepseek.host : '缺失'
+  )
+  check(
+    '凭据发现：enc:v1: 密文跳过（不当明文 key）',
+    byId['deepseek-enc'] && byId['deepseek-enc'].keyEncrypted === true && byId['deepseek-enc'].apiKey === ''
+  )
+  check(
+    '凭据发现：规则自带 baseUrl 覆盖模板（mimo plan 端点可辨识）',
+    byId['mimo-plan'] && byId['mimo-plan'].host === 'token-plan-cn.xiaomimimo.com'
+  )
+  check('凭据发现：本地网关标记 isLocal', byId['local-gw'] && byId['local-gw'].isLocal === true && byId['local-gw'].host === '127.0.0.1')
+
+  // findApiKey 端到端：ZCODE_DATA_BASE_DIR 注入后应命中 fixture 的 deepseek 规则
+  const savedBase = process.env.ZCODE_DATA_BASE_DIR
+  const savedEnvKey = process.env.DEEPSEEK_API_KEY
+  process.env.ZCODE_DATA_BASE_DIR = fx
+  delete process.env.DEEPSEEK_API_KEY
+  try {
+    const r = findApiKey()
+    if (readPluginConfig().apiKey) {
+      check('findApiKey 命中 ZCode provider（跳过：插件配置已设 apiKey）', true, 'source=' + r.source)
+    } else {
+      check(
+        'findApiKey 命中 ZCode provider（模板继承 baseURL 的 deepseek 规则）',
+        r.source === 'zcode-provider' && r.key === 'selftest-fake-key-aaaa',
+        'source=' + r.source
+      )
+    }
+  } finally {
+    if (savedBase === undefined) delete process.env.ZCODE_DATA_BASE_DIR
+    else process.env.ZCODE_DATA_BASE_DIR = savedBase
+    if (savedEnvKey !== undefined) process.env.DEEPSEEK_API_KEY = savedEnvKey
+  }
+  fs.rmSync(fx, { recursive: true, force: true })
+}
+
 async function getJson(port, pathname) {
   const res = await fetch('http://127.0.0.1:' + port + pathname, { signal: AbortSignal.timeout(3000) })
   return res.json()
@@ -419,6 +548,12 @@ try {
   const health = await waitReady(PORT, 8000)
   check('服务在临时端口就绪', !!health, health ? 'port=' + health.port + ' pid=' + health.pid : childLog.slice(0, 200))
   if (!health) throw new Error('服务未就绪')
+  check(
+    'health 带 key 探测诊断（列出 provider 条目，enc 密文被标记）',
+    health.keyProbe && Array.isArray(health.keyProbe.entries) &&
+      health.keyProbe.entries.some((e) => e.providerId === 'deepseek-encrypted' && e.keyEncrypted === true),
+    'keySource=' + health.keySource + ' entries=' + ((health.keyProbe && health.keyProbe.entries) || []).length
+  )
   const port = health.port
 
   const first = await getJson(port, '/whale/last-turn.json')
@@ -506,9 +641,9 @@ try {
     byId['bigmodel-glm'] ? JSON.stringify({ available: byId['bigmodel-glm'].available, keySource: byId['bigmodel-glm'].keySource }) : '缺失'
   )
   check(
-    '本地网关规则被跳过：deepseek 没有可用凭据',
-    byId['deepseek'] && byId['deepseek'].available === false,
-    byId['deepseek'] ? 'available=' + byId['deepseek'].available : '缺失'
+    '本地网关/加密凭据被跳过：deepseek 走 NO_KEY 快速路径不出网',
+    byId['deepseek'] && byId['deepseek'].available === false && String(byId['deepseek'].reason || '').indexOf('未找到 DeepSeek API Key') === 0,
+    byId['deepseek'] ? JSON.stringify({ available: byId['deepseek'].available, reason: byId['deepseek'].reason }).slice(0, 160) : '缺失'
   )
   check(
     '无凭据模板不可用且不虚报余额',
