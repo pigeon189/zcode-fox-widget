@@ -155,6 +155,10 @@ function startFollower() {
       hwnd,
       '-IntervalMs',
       String(followIntervalMs),
+      // 浮层窗口由本进程（Electron 主进程）持有，跟随脚本据此判断「前台是不是
+      // 浮层自己」，不必按进程名枚举 electron（其它 Electron 应用在前台时会误判）。
+      '-OverlayPid',
+      String(process.pid),
     ],
     { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
   )

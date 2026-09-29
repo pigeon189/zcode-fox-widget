@@ -31,7 +31,14 @@ param(
   # How often to re-read the ZCode window rectangle. Lower = snappier follow.
   [int]$IntervalMs = 40,
   # How often to refresh the expensive process/window-handle lookup.
-  [int]$ProcessCacheMs = 3000
+  [int]$ProcessCacheMs = 3000,
+  # Pid of the Electron main process that owns the overlay window. Matching the
+  # foreground window against this pid is how "the user clicked the whale" is
+  # recognised. Pass 0 to fall back to matching every process named "electron".
+  # The fallback is wrong in the other direction: any *other* Electron app in
+  # front would then look like the overlay, keeping the whale visible while
+  # ZCode is covered (v1.3.0 review S4), so a real pid is always preferable.
+  [int]$OverlayPid = 0
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -69,7 +76,7 @@ public static class WhaleFollow
     static IntPtr _targetHwnd = IntPtr.Zero;
 
     // Expensive: enumerates processes. Only called on the cache budget.
-    static void UpdateCache(string targetName)
+    static void UpdateCache(string targetName, int overlayPid)
     {
         IntPtr hwnd = IntPtr.Zero;
         HashSet<int> tids = new HashSet<int>();
@@ -88,16 +95,27 @@ public static class WhaleFollow
         _targetPids = tids;
 
         HashSet<int> eids = new HashSet<int>();
-        try
+        if (overlayPid > 0)
         {
-            Process[] procs = Process.GetProcessesByName("electron");
-            foreach (Process p in procs) { eids.Add(p.Id); p.Dispose(); }
+            // Known owner of the overlay window: no enumeration needed, and no
+            // risk of matching unrelated Electron apps. GetWindowThreadProcessId
+            // reports the toplevel window's process, which is the Electron main
+            // process for both the frame and the renderer's content.
+            eids.Add(overlayPid);
         }
-        catch (Exception) { }
+        else
+        {
+            try
+            {
+                Process[] procs = Process.GetProcessesByName("electron");
+                foreach (Process p in procs) { eids.Add(p.Id); p.Dispose(); }
+            }
+            catch (Exception) { }
+        }
         _electronPids = eids;
     }
 
-    public static void Run(IntPtr overlay, int intervalMs, int cacheMs, string targetName)
+    public static void Run(IntPtr overlay, int intervalMs, int cacheMs, string targetName, int overlayPid)
     {
         // GetWindowRect coordinates depend on this process's DPI awareness: a
         // DPI-unaware process receives virtualized ("logical") rects, e.g. a
@@ -115,8 +133,9 @@ public static class WhaleFollow
         catch { SetProcessDPIAware(); }
         Console.Error.WriteLine(
             "follow-start overlay=" + overlay.ToInt64() + " valid=" + IsWindow(overlay) +
-            " interval=" + intervalMs + " cache=" + cacheMs + " target=" + targetName);
-        UpdateCache(targetName);
+            " interval=" + intervalMs + " cache=" + cacheMs + " target=" + targetName +
+            " overlay-pid=" + overlayPid);
+        UpdateCache(targetName, overlayPid);
         // TickCount is an int millisecond counter (wraps every ~49 days). Plain
         // int subtraction stays correct across the wrap, and TickCount64 does not
         // exist on the .NET Framework that Windows PowerShell 5.1 compiles against.
@@ -131,7 +150,7 @@ public static class WhaleFollow
             if (!IsWindow(overlay)) return;
 
             int now = Environment.TickCount;
-            if (now - lastCache >= cacheMs) { UpdateCache(targetName); lastCache = now; }
+            if (now - lastCache >= cacheMs) { UpdateCache(targetName, overlayPid); lastCache = now; }
 
             // Cheap path: reuse the cached handle while it is still valid.
             IntPtr z = (_targetHwnd != IntPtr.Zero && IsWindow(_targetHwnd)) ? _targetHwnd : IntPtr.Zero;
@@ -205,7 +224,7 @@ try {
 }
 
 try {
-  [WhaleFollow]::Run([IntPtr][long]$OverlayHwnd, $IntervalMs, $ProcessCacheMs, $targetProcess)
+  [WhaleFollow]::Run([IntPtr][long]$OverlayHwnd, $IntervalMs, $ProcessCacheMs, $targetProcess, $OverlayPid)
 } catch {
   [Console]::Error.WriteLine('follow-loop-error: ' + $_.Exception.Message)
   exit 1
