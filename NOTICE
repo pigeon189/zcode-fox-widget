@@ -59,10 +59,20 @@ ZCode 版 DeepSeek 余额小鲸鱼挂件（zcode-whale-widget）是以下项目�
   「当日起点 + 累计到账 − 非调用扣减 − 当前余额」、换 key 分本（旧账归档不混算）
   均沿用上游 0.3.x 记账内核的语义。
 - **自定义角色**：上传/选择/恢复默认的能力参考上游角色系统，实现改为本地目录 + 索引。
+  v1.3.0 的改名 / 删除是本地扩展（上游没有对应交互）。
+- **自定义气泡文字（v1.3.0）**：功能对应上游主菜单「按压泡泡设置 → 自定义泡泡」的
+  「首次点击弹出内容 + 再次点击弹出内容（点完上一个显示下一个）」与 `{cost}` 一类
+  占位符插值；上游是模块化编辑器（字体/底色/随机语句加权/随机图片/模块库），
+  本移植只落地「文字 + 三档字号 + 占位符 + 队列」，配置拆成独立的
+  `~/.zcode/whale/bubble-content.json`（文件划分沿用上游 `.dshw-bubble.json`
+  与 `.dshw-usage.json` 分离的做法）。
 - **ZCode 特有（无上游对应）**：GLM 平价分档价目表（来源 docs.bigmodel.cn，
   2026-09-29 版）；ZCode Plan 套餐配额的日志尾随读取（lib/plan-balance.mjs）；
   基于 session_entry「runtime/model_selection」的计费源智能切换；ZCode 深浅
-  主题配色（取自 ZCode 客户端 .theme-zai-dark/light 的实测 token）。
+  主题配色（取自 ZCode 客户端 .theme-zai-dark/light 的实测 token）；
+  「跟随系统」主题（prefers-color-scheme）；浮层窗口的不可激活方案
+  （Electron focusable:false + 按键类控件时才临时接管键盘焦点），上游是网页版
+  挂件、没有窗口激活这层问题。
 
 - **v1.2.0 价目与素材来源**：GPT/Claude/Qwen/MiniMax/MiMo/Kimi 六家价目取自
   各厂商官网 2026-09-29 版——OpenAI 为 community.openai.com 官方员工帖与

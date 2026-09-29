@@ -1,6 +1,6 @@
 ---
 name: zcode-whale-widget
-description: 操作与排查 ZCode 版 DeepSeek 余额小鲸鱼挂件。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止鲸鱼挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭）；配置 DeepSeek API Key、用量统计模式（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；以及界面看不到挂件、余额获取失败、今日已用为 0、每轮消耗不弹窗、峰谷判定不对等问题。
+description: 操作与排查 ZCode 版 DeepSeek 余额小鲸鱼挂件。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止鲸鱼挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭）；配置 DeepSeek API Key、用量统计模式（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；调整主题（浅色/深色/跟随系统）、角色（导入图片、改名、删除）、预警阈值（Plan 剩余% 与余额）、自定义气泡文字；以及界面看不到挂件、余额获取失败、今日已用为 0、每轮消耗不弹窗、峰谷判定不对、和挂件互动后 ZCode 画面卡住等问题。
 ---
 
 # ZCode 版 DeepSeek 余额小鲸鱼挂件
@@ -64,7 +64,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" window stop     # 关闭浮层
 node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行时（浮层前置，一次性）
 ```
 
-服务接口（排查时可直接 curl）：`/whale/health`、`/whale/balance.json`、`/whale/last-turn.json`、`/whale/size.json`（GET/PUT）、`/whale/image.png`、`/whale/rua.gif`、`/whale/sound/press.mp3?set=duck|fx1`、`/whale/widget.js`。
+服务接口（排查时可直接 curl）：`/whale/health`、`/whale/balance.json`、`/whale/last-turn.json`、`/whale/size.json`（GET/PUT）、`/whale/session.json`、`/whale/plan.json`、`/whale/usage-records.json`、`/whale/roles.json`、`/whale/role-upload.json`、`/whale/role-rename.json`（POST）、`/whale/role-delete.json`（POST）、`/whale/bubble-content.json`（GET/POST）、`/whale/balance-adjustments.json`（GET/POST）、`/whale/image.png`、`/whale/rua.gif`、`/whale/sound/press.mp3?set=duck|fx1`、`/whale/widget.js`。
 
 ## 配置字段（`~/.zcode/whale/config.json`）
 
@@ -78,7 +78,11 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | `autoStartOverlay` | 默认 `true`，会话启动时是否顺带拉起桌面浮层（Electron 运行时未安装时静默跳过） |
 | `followIntervalMs` | 跟随探测间隔（毫秒），默认 40；越小鲸鱼跟得越紧。挂件菜单里的「跟随延迟」会覆盖它 |
 
-挂件自身的外观与开关（大小、音效、音量、气泡、每轮消耗提示与自动关闭秒数、避让滚动条）在 `~/.zcode/whale/widget-state.json`，由挂件菜单直接写入。
+挂件自身的外观与开关（大小、音效、音量、主题、气泡、每轮消耗提示与自动关闭秒数、避让滚动条、预警阈值、角色选择、显示跟随）在 `~/.zcode/whale/widget-state.json`，由挂件菜单直接写入：
+- `theme`：`light` / `dark` / `system`（跟随系统偏好）。
+- `alerts`：`planPct`（Plan 剩余% 阈值）与 `moneyAlert`（金额阈值，对所有按金额结算的源生效；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。
+- `roleId`：当前形象（内置 `xiaohuniang` 小狐娘 / `whale` 小鲸鱼，或导入件 id；导入件的索引与图片在 `roles.json` + `roles/`），未指定即小狐娘。
+- 自定义气泡文字在 `~/.zcode/whale/bubble-content.json`：`{v, first:{text,size}|null, items:[{text,size}]}`（`size`：B 大字 / A 中字 / C 小字；`first` 留空显示默认余额视图，`items` 留空用内置随机台词）。
 
 ## 故障排查
 
@@ -91,12 +95,14 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | 探测脚本秒退 / 浮层跟着消失 | 多为 `follow-window.ps1` 里的 C# 编译失败或脚本被写成非 ASCII。`overlay-debug.log` 里搜 `csharp-compile-failed` / `follow-loop-error`；该文件必须保持纯 ASCII（PS 5.1 按 ANSI 代码页读） |
 | 鲸鱼位置错乱 / 跑到窗口外 | 透明窗口的合成层错位，通常是有人重新打开了定位过渡或改回 `setBounds` 贴窗口。见 README「与上游的差异」里的两条踩坑记录 |
 | 浮层起来了但点不动鲸鱼 | 浮层默认鼠标穿透，指针必须先停在鲸鱼上（此时光标变 `grab`、右上角出现菜单按钮）才能点。若整块区域都点不动，检查是否被其它置顶窗口压住 |
-| 浮层里菜单的数字框打不了字 | 透明浮层窗口默认不抢键盘焦点，用上下箭头或滑块调整；或改用网页版直接键入 |
+| 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框/下拉就能打字（浮层在输入类控件上临时接管键盘焦点，离开即交还）。还不行就确认浮层是 1.3.0（`window status`），或改用网页版直接键入 |
+| **和挂件互动后 ZCode 画面卡住（点一下 ZCode 才恢复）** | v1.3.0 已修：浮层窗口设为不可激活（Windows `focusable:false` → Electron 带 `WS_EX_NOACTIVATE`），普通交互不再把前台从 ZCode 抢走；ZCode 失去前台会停止刷新自身画面，这就是「卡住」的来源。复查手法：`GetForegroundWindow` 不该是浮层；浮层的 ex-style 应含 `WS_EX_NOACTIVATE`、`WM_MOUSEACTIVATE` 返回 4（MA_NOACTIVATEANDEAT）。改动 `desktop/main.cjs` 的窗口选项后必须 `window stop` + `window start` 才生效 |
 | 浮层启动失败 | `node lib/cli.mjs window status` 看运行时是否已安装；未安装则 `desktop install`。Electron 约 150MB，装到 `~/.zcode/whale/desktop-runtime` |
 | 改完 follow-window.ps1 后行为没变 | 该脚本是常驻子进程，改完要 `window stop` + `window start` 才会重新加载 |
 | 余额显示「未找到 DeepSeek API Key」 | 三条凭据来源都没命中：环境变量 `DEEPSEEK_API_KEY`、`~/.zcode/whale/config.json`、ZCode provider 配置（含数据目录迁移后的 `$ZCODE_DATA_BASE_DIR/.zcode/v2/provider_config.json`，规则没写 baseUrl 时端点从 zcode-builtin 模板继承）。错误文案带探测摘要，逐条明细看 `/whale/health` 的 `keyProbe`（标明本地网关/加密凭据为何被跳过）。也可用 `key` 子命令写入 |
 | 切了模型气泡还是旧源 / 一直显示 DeepSeek 余额 | v1.2.0 起主显示随计费源切换（3 秒轮询输入框选择，读不到时回落最近一次真实模型调用）。MiMo 按端点区分：`api.xiaomimimo.com` 计量、`token-plan-cn.xiaomimimo.com` 订阅额度。手动锁定用菜单「显示」 |
-| 点击挂件/气泡没声音 | 检查菜单音量是否为 0、音效组是否已选；音频页面加载时预热，输出设备切换后若无声重启浮层。v1.2.0 起鲸鱼/气泡/菜单按钮点击均有按压音 |
+| 点击挂件/气泡没声音 | 检查菜单音量是否为 0、音效组是否已选；音频页面加载时预热，输出设备切换后若无声重启浮层。按压音只对「按鲸鱼」与「点气泡」发声 |
+| 点设置键却有音效（v1.3.0 起不应出现） | 菜单按钮的 click 里不该有 `playPress()`；按压音只属于角色本体（鲸鱼/气泡）两种操作 |
 | 余额显示旧值并带 `stale` | 接口瞬时失败（网络/5xx），服务在回退缓存。4xx 不会回退，会直接报错 |
 | 今日已用一直 0 | 记账模式只统计「观测到的余额下降」：还没产生消费，或期间的消耗发生在服务未运行时。要精确数字改用 `mode token` |
 | **每轮消耗金额离谱（虚高十几倍）** | 多半是计价口径又踩了「input 含缓存」这个坑：缓存命中的 token 被按未命中价重复算了一遍。核对 `lib/pricing.mjs` 的 `splitInputTokens()` 是否被 `costOfUsage()` 使用，并跑 `node tools/selftest.mjs`（内含两种口径的回归断言）。用 `node lib/cli.mjs turn` 看逐档明细即可判断 |
