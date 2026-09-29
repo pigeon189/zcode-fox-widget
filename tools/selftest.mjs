@@ -13,6 +13,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing } from '../lib/pricing.mjs'
+import { shapePlanPayload, normalizeModelKey } from '../lib/plan-balance.mjs'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-selftest-'))
@@ -20,6 +21,96 @@ const dbDir = path.join(tmpHome, 'cli', 'db')
 const dataDir = path.join(tmpHome, 'whale')
 fs.mkdirSync(dbDir, { recursive: true })
 fs.mkdirSync(dataDir, { recursive: true })
+
+// Plan 配额日志的 fixture：写进 tmpHome/.zcode/v2/logs/<今天>.log，
+// 服务进程以 ZCODE_DATA_BASE_DIR=tmpHome 启动，plan-balance 会优先读这里。
+// 形状对齐真实日志：顶层 balances 是摘要（无 capabilities），模型映射在
+// plans[].entitlements[].capabilities 里；另放一条带内联 capabilities 的桶测兜底路径。
+const PLAN_FIXTURE = {
+  balanceCount: 3,
+  balances: [
+    {
+      entitlement_id: 'ent-flash',
+      show_name: 'GLM-5.3-Flash',
+      total_units: 100_000_000,
+      used_units: 10_000_000,
+      remaining_units: 90_000_000,
+      available_units: 90_000_000,
+      reserved_units: null,
+    },
+    {
+      entitlement_id: 'ent-5p3',
+      show_name: 'GLM-5.3',
+      total_units: 3_000_000,
+      used_units: 0,
+      remaining_units: 3_000_000,
+      available_units: 3_000_000,
+      reserved_units: null,
+    },
+    {
+      // 测试「balances 内联 capabilities」的兜底路径（部分版本可能带）
+      entitlement_id: 'ent-extra',
+      show_name: 'GLM-4.7-Flash',
+      total_units: 1_000_000,
+      used_units: 1_000_000,
+      remaining_units: 0,
+      available_units: 0,
+      reserved_units: null,
+      capabilities: ['model:glm-4.7-flash'],
+    },
+  ],
+  code: 0,
+  msg: '',
+  payload: {
+    code: 0,
+    msg: '',
+    data: {
+      server_time: Math.floor(Date.now() / 1000),
+      plans: [
+        {
+          plan_id: 'plan-fixture',
+          name: 'ZCode Start',
+          status: 'active',
+          starts_at: Math.floor(Date.now() / 1000) - 86400,
+          ends_at: Math.floor(Date.now() / 1000) + 86400,
+          entitlements: [
+            {
+              entitlement_id: 'ent-flash',
+              show_name: 'GLM-5.3-Flash',
+              meter: 'model_usage',
+              unit_type: 'token',
+              capabilities: ['model:glm-5.3-flash'],
+              grant_units: 100_000_000,
+              period: 'one_time',
+            },
+            {
+              entitlement_id: 'ent-5p3',
+              show_name: 'GLM-5.3',
+              meter: 'model_usage',
+              unit_type: 'token',
+              capabilities: ['model:glm-5.3'],
+              grant_units: 3_000_000,
+              period: 'one_time',
+            },
+          ],
+        },
+      ],
+      balances: [],
+    },
+  },
+}
+const planLogDir = path.join(tmpHome, '.zcode', 'v2', 'logs')
+fs.mkdirSync(planLogDir, { recursive: true })
+const planLogLine =
+  '[2026-09-29 08:42:27.092] [info] [pid:1] [main] [host-log] (local-1) [host] [2026-09-29 08:42:27.091] [pid:2] [usage-stats] billing/balance 请求完成 ' +
+  JSON.stringify(PLAN_FIXTURE) +
+  '\n'
+fs.writeFileSync(path.join(planLogDir, todayKeyForLog() + '.log'), planLogLine, 'utf8')
+
+function todayKeyForLog(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
 
 const PORT = 39100 + Math.floor(Math.random() * 500)
 fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port: PORT }), 'utf8')
@@ -208,6 +299,30 @@ function check(name, ok, detail) {
   check('未维护价目的 GLM 变体不虚报金额', unknownGlm.vendor === 'glm' && unknownGlm.billable === false && unknownGlm.amount === 0 && unknownGlm.tokens > 0)
 }
 
+// ZCode Plan 日志解析：纯函数校验 shapePlanPayload
+{
+  const today = todayKeyForLog()
+  const shaped = shapePlanPayload(PLAN_FIXTURE, today, Date.now())
+  check(
+    'Plan 日志解析：总量/剩余/百分比',
+    shaped && shaped.ok && shaped.remaining === 93_000_000 && shaped.total === 104_000_000 && Math.abs(shaped.percentRemaining - 93 / 104) < 1e-9,
+    shaped ? 'remaining=' + shaped.remaining + ' total=' + shaped.total : '解析失败'
+  )
+  check(
+    'Plan 日志解析：按模型桶映射（entitlements capabilities + show_name 兜底）',
+    shaped && shaped.byModel.length === 3 && normalizeModelKey('GLM-5.3-Flash') === 'glm-5.3-flash' && shaped.byModel[0].model === 'glm-5.3-flash' && shaped.byModel[0].totalUnits === 100_000_000,
+    shaped ? JSON.stringify(shaped.byModel.map((b) => b.model)) : ''
+  )
+  check(
+    'Plan 日志解析：到期时间取 active 套餐 ends_at',
+    shaped && shaped.nextResetAt === PLAN_FIXTURE.payload.data.plans[0].ends_at * 1000,
+    shaped ? String(shaped.nextResetAt) : ''
+  )
+  check('Plan 日志解析：当天数据不标 stale', shaped && shaped.stale === false)
+  const staleShaped = shapePlanPayload(PLAN_FIXTURE, '2026-01-01', Date.now())
+  check('Plan 日志解析：非当天的观测标记 stale', staleShaped && staleShaped.stale === true)
+}
+
 async function getJson(port, pathname) {
   const res = await fetch('http://127.0.0.1:' + port + pathname, { signal: AbortSignal.timeout(3000) })
   return res.json()
@@ -227,7 +342,7 @@ async function waitReady(port, deadlineMs) {
 
 const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'server.mjs')], {
   cwd: PLUGIN_ROOT,
-  env: { ...process.env, ZCODE_HOME: tmpHome },
+  env: { ...process.env, ZCODE_HOME: tmpHome, ZCODE_DATA_BASE_DIR: tmpHome },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let childLog = ''
@@ -297,6 +412,20 @@ try {
     '期望 ¥' + (glmPart + dsPart).toFixed(6) + '，实际 ¥' + Number(third && third.amount).toFixed(6) + '，models=' + (third && third.models ? third.models.length : '无')
   )
   check('混合轮次的金额构成两种厂商', glmPart > 0 && dsPart > 0, 'GLM ¥' + glmPart.toFixed(4) + ' + DeepSeek ¥' + dsPart.toFixed(4))
+
+  // Plan 配额端到端：/whale/plan.json 读 fixture 日志；GLM 轮次的 quotaPct 用主模型桶算
+  const plan = await getJson(port, '/whale/plan.json')
+  check(
+    'Plan 配额接口返回 fixture 观测',
+    plan && plan.ok && plan.remaining === 93_000_000 && plan.total === 104_000_000,
+    JSON.stringify(plan).slice(0, 160)
+  )
+  const expectPct = Math.round((550_000 / 100_000_000) * 10000) / 100
+  check(
+    '套餐轮次带「占配额百分比」',
+    third && third.quotaPct === expectPct,
+    '期望 ' + expectPct + '%，实际 ' + (third && third.quotaPct)
+  )
 
   await new Promise((r) => setTimeout(r, 200))
   // 令牌关闭
