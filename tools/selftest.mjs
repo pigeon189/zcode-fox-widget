@@ -538,11 +538,22 @@ try {
       '期望 ¥' + expectedToday.toFixed(6) + '，实际 ¥' + usage.today.total.toFixed(6)
     )
   }
+  // 明细按轮聚合：一轮 = session/turn 相同的全部模型行之和
   check(
-    '用量记录：带最近事件列表',
-    usage && usage.ok && Array.isArray(usage.events) && usage.events.length >= 2,
-    'events=' + (usage && usage.events ? usage.events.length : 0)
+    '用量记录：带最近轮次列表（按轮聚合）',
+    usage && usage.ok && Array.isArray(usage.turns) && usage.turns.length >= 2,
+    'turns=' + (usage && usage.turns ? usage.turns.length : '无')
   )
+  if (usage && usage.ok && Array.isArray(usage.turns)) {
+    const turnC = usage.turns.find((t) => (t.models || []).some((m) => m.model === 'GLM-5.3-Flash'))
+    check(
+      '用量记录：多模型轮次归并为一条且金额 = 两模型之和',
+      turnC && turnC.calls === 2 && turnC.models.length === 2 && Math.abs(turnC.amount - (glmPart + dsPart)) < 1e-9,
+      turnC
+        ? 'calls=' + turnC.calls + ' models=' + turnC.models.length + ' ¥' + turnC.amount.toFixed(6)
+        : '未找到含 GLM 的轮次'
+    )
+  }
 
   // 预警设置归一：负数/非法值归 0，合法值保留
   const putRes = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
