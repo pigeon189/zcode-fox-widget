@@ -559,6 +559,53 @@ try {
   const sizeBack = await getJson(port, '/whale/size.json')
   check('预警设置持久化回读', sizeBack && sizeBack.alerts && sizeBack.alerts.planPct === 20, JSON.stringify(sizeBack.alerts))
 
+  // 自定义角色：上传 1x1 png → 列表带 selected；恢复默认后 selected 为 null
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const upRes = await fetch('http://127.0.0.1:' + port + '/whale/role-upload.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '自检鲸鱼', dataUrl: tinyPng }),
+  })
+  const upBody = await upRes.json()
+  check('角色上传成功并自动启用', upRes.ok && upBody.ok && typeof upBody.id === 'string', JSON.stringify(upBody))
+  const roles1 = await getJson(port, '/whale/roles.json')
+  check(
+    '角色列表带 selected',
+    roles1 && roles1.ok && roles1.roles.length === 1 && roles1.selected === upBody.id,
+    JSON.stringify(roles1)
+  )
+  const imgRes = await fetch('http://127.0.0.1:' + port + '/whale/image.png')
+  check('启用角色后 image.png 仍可用', imgRes.ok && (imgRes.headers.get('content-type') || '').indexOf('image/png') === 0, 'HTTP ' + imgRes.status)
+  await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, roleId: null }),
+  })
+  const roles2 = await getJson(port, '/whale/roles.json')
+  check('恢复默认形象（selected=null）', roles2 && roles2.ok && roles2.selected === null, JSON.stringify(roles2.selected))
+
+  // 余额校正接口：GET 汇总 + POST 落账（自检环境无 DeepSeek 账本，应为空本形态）
+  const adjGet = await getJson(port, '/whale/balance-adjustments.json')
+  check('余额校正 GET 返回汇总', adjGet && adjGet.ok === true && adjGet.hasBook === false, JSON.stringify(adjGet))
+  const adjPost = await fetch('http://127.0.0.1:' + port + '/whale/balance-adjustments.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credits: 10, otherDebits: 2 }),
+  })
+  const adjBody = await adjPost.json()
+  check(
+    '余额校正 POST 落账（credits=10/otherDebits=2）',
+    adjPost.ok && adjBody.ok && adjBody.credits === 10 && adjBody.otherDebits === 2 && adjBody.needsReview === false,
+    JSON.stringify(adjBody)
+  )
+  const adjBad = await fetch('http://127.0.0.1:' + port + '/whale/balance-adjustments.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credits: -5, otherDebits: 0 }),
+  })
+  const adjBadBody = await adjBad.json()
+  check('负数金额被拒绝', adjBad.ok && adjBadBody.ok === false, JSON.stringify(adjBadBody))
+
   await new Promise((r) => setTimeout(r, 200))
   // 令牌关闭
   const info = JSON.parse(fs.readFileSync(path.join(dataDir, 'server.json'), 'utf8'))
