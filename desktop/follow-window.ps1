@@ -61,6 +61,8 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hWnd);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] static extern IntPtr SetProcessDpiAwarenessContext(IntPtr ctx);
 
     static HashSet<int> _targetPids = new HashSet<int>();
     static HashSet<int> _electronPids = new HashSet<int>();
@@ -97,6 +99,20 @@ public static class WhaleFollow
 
     public static void Run(IntPtr overlay, int intervalMs, int cacheMs, string targetName)
     {
+        // GetWindowRect coordinates depend on this process's DPI awareness: a
+        // DPI-unaware process receives virtualized ("logical") rects, e.g. a
+        // 2560px physical window reports 2048 at 125% scaling. The Electron
+        // main process always treats our output as physical pixels and converts
+        // it to DIP itself, so without opting in here the whale's viewport gets
+        // scaled down a second time on scaled displays and it can never reach
+        // the bottom-right corner of the ZCode window.
+        try
+        {
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2; on older Windows the
+            // export is missing and we fall back to system-level awareness.
+            if (SetProcessDpiAwarenessContext((IntPtr)(-4)) == IntPtr.Zero) SetProcessDPIAware();
+        }
+        catch { SetProcessDPIAware(); }
         Console.Error.WriteLine(
             "follow-start overlay=" + overlay.ToInt64() + " valid=" + IsWindow(overlay) +
             " interval=" + intervalMs + " cache=" + cacheMs + " target=" + targetName);
