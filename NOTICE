@@ -44,5 +44,25 @@ ZCode 版 DeepSeek 余额小鲸鱼挂件（zcode-whale-widget）是以下项目�
   （lib/cli.mjs）、/whale 命令与 skill，均为 ZCode 平台适配新增。
 - 台词中指向 DSH 的文案改为 ZCode（`.zcode` 目录、平台令牌说明）。
 
+2026-09-29 起新增的移植与改造（v1.1.0）
+--------------------------------------
+
+- **厂商模板框架**（lib/vendors.mjs）：沿用上游 API_TEMPLATES 的思路与 schema 形态
+  （kind: balance/quota、字段路径、probeUrl、多窗口订阅），首批模板中的
+  OpenRouter / Kimi(Moonshot) 国内国际 / 智谱 Coding Plan 配额窗口的接口与字段
+  取自上游模板表。凭据处理与上游不同：不把密钥写进模板，改为「发现引用 + 现读」。
+- **用量记录窗口**：面板形态与「今日 / 近 7 天 / 按日展开 / 模型占比」的能力划分
+  参考上游 usage-records 实现；数据源改为直读 ZCode 的 model_usage 库。
+- **余额预警 / 今日预算**：阈值设置、每日一次去重、气泡提醒的交互参考上游
+  checkUsageAlerts 机制，阈值口径扩展为「Plan 剩余配额百分比」等 ZCode 特有来源。
+- **充值检测与余额校正**：余额上升不冲减消费并标记「待核对余额调整」、校正公式
+  「当日起点 + 累计到账 − 非调用扣减 − 当前余额」、换 key 分本（旧账归档不混算）
+  均沿用上游 0.3.x 记账内核的语义。
+- **自定义角色**：上传/选择/恢复默认的能力参考上游角色系统，实现改为本地目录 + 索引。
+- **ZCode 特有（无上游对应）**：GLM 平价分档价目表（来源 docs.bigmodel.cn，
+  2026-09-29 版）；ZCode Plan 套餐配额的日志尾随读取（lib/plan-balance.mjs）；
+  基于 session_entry「runtime/model_selection」的计费源智能切换；ZCode 深浅
+  主题配色（取自 ZCode 客户端 .theme-zai-dark/light 的实测 token）。
+
 上游许可为 MIT，允许使用、复制、修改、合并、发布、分发、再许可和/或销售本软件的
 副本，前提是保留上述版权声明与许可声明。本目录内 LICENSE 即为上游许可原文。

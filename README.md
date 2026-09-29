@@ -61,6 +61,21 @@
 
 ---
 
+## v1.1.0 新增：多厂商计费与 ZCode 深度集成
+
+- **多厂商计价**：按模型/供应商自动识别 DeepSeek（峰谷价）与 GLM（平价，按输入 32K / 输出 0.2K 分档，价目取自 docs.bigmodel.cn 2026-09-29 版）；识别不出或无价目的供应商只统计 tokens，不虚报金额。每轮消耗按 `model_usage` **逐模型行**聚合计价。
+- **ZCode Plan 配额（零密钥）**：尾随客户端日志读取套餐余额（剩余 tokens、百分比、到期时间），套餐扣费的轮次气泡显示「本轮 tokens · 占当前配额 Y%」。
+- **厂商模板**：`node lib/cli.mjs vendors` 或 `/whale/vendors.json` 查看 7 家模板状态（DeepSeek / ZCode Plan / GLM 按量 / OpenRouter / Kimi 国内国际 / 智谱 Coding Plan 配额窗口）。凭据自动发现自 `v2/provider_config.json` 与 `cli/config.json`（本地网关自动跳过、密钥不复制进挂件配置），也可在 `~/.zcode/whale/config.json` 的 `vendorKeys` 手动填写。
+- **用量记录**：菜单「用量记录」打开面板——今日金额与模型占比条、近 7 天逐日、最近 50 条明细。
+- **预警**：菜单三阈值（0 关闭）——Plan 剩余%、DeepSeek 余额¥、GLM 按量今日¥；每日一次去重，恢复后自动重新武装。
+- **余额校正与充值检测**：余额上升不冲减消费并提示「待核对余额调整」；菜单「余额校正」按「当日起点 + 累计到账 − 非调用扣减 − 当前余额」重算；换 key 自动分本（旧账归档不混算）。
+- **自定义角色**：菜单「角色」可上传本地图片（png/gif/jpeg ≤3MB）或切换形象，「恢复默认」随时回退。
+- **主题**：菜单「主题」切换浅色（原版蓝系）/ 深色（取自 ZCode 客户端 zai-dark 的实测配色 token）。
+- **智能切换**：菜单「显示」默认「自动跟随」——轮询输入框当前供应商选择（选定当下即更新，无需发起对话），气泡口径随之切换为 Plan 配额 / GLM 金额 / DeepSeek 今日已用。
+- **新增路由**：`/whale/plan.json`、`/whale/session.json`、`/whale/usage-records.json`、`/whale/vendors.json`、`/whale/roles.json`、`/whale/role-upload.json`、`/whale/balance-adjustments.json`。
+
+---
+
 ## 两种显示方式
 
 ### 1. 桌面浮层（推荐）
