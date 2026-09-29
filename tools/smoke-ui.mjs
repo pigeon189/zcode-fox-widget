@@ -251,6 +251,20 @@ try {
     'hint=' + JSON.stringify(hint2)
   )
 
+  // ①b 智能跟随主显示：selection 缺失时回落 model_usage（account:zai-start-plan
+  // → Plan 配额口径），主数字是剩余百分比而不是 DeepSeek 余额
+  const planView = await pollEval(
+    cdp,
+    "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount');" +
+      "return l&&a&&l.textContent==='Plan 配额'?(l.textContent+' | '+a.textContent):null})()",
+    15000
+  )
+  check(
+    'auto 跟随回落 model_usage：主显示切到 Plan 配额（百分比主数字）',
+    typeof planView === 'string' && planView.indexOf('%') !== -1,
+    'view=' + JSON.stringify(planView)
+  )
+
   // ② displayMode：模拟菜单选择 → size.json 落盘 → 刷新后保持
   const picked = await cdp.eval(
     "(function(){var ss=document.querySelectorAll('select');for(var i=0;i<ss.length;i++){var s=ss[i],vals=[];" +
@@ -305,6 +319,41 @@ try {
       'return null})()'
   )
   check('刷新后 displayMode 保持 Plan 配额', reloaded === 'plan', 'value=' + JSON.stringify(reloaded))
+
+  // ⑤ 手动切 DeepSeek 源：无 key 时错误文案必须完整换行显示
+  // ——回归 slice(0,14) 把「未找到 DeepSeek API Key…」截成「未找到DeepSeek A」的缺陷
+  await cdp.eval(
+    "(function(){var ss=document.querySelectorAll('select');for(var i=0;i<ss.length;i++){var s=ss[i],vals=[];" +
+      'for(var j=0;j<s.options.length;j++)vals.push(s.options[j].value);' +
+      "if(vals.indexOf('plan')!==-1&&vals.indexOf('glm')!==-1&&vals.indexOf('ds')!==-1){" +
+      "s.value='ds';s.dispatchEvent(new Event('change'));return true}}return false})()"
+  )
+  const dsView = await pollEval(
+    cdp,
+    "(function(){var l=document.querySelector('.zcwv-label'),h=document.querySelector('.zcwv-hint');" +
+      "if(!l||!h||l.textContent!=='DeepSeek 余额')return null;" +
+      "return {hint:h.textContent,wrap:h.className.indexOf('zcwv-wrap')!==-1}})()",
+    12000
+  )
+  check(
+    'DeepSeek 源错误文案完整显示（不截断 + 换行样式）',
+    dsView && typeof dsView.hint === 'string' && dsView.hint.indexOf('未找到 DeepSeek API Key') !== -1 && dsView.wrap === true,
+    JSON.stringify(dsView).slice(0, 160)
+  )
+
+  // ⑥ 手动切 GLM 按量：主显示标题换成 GLM 今日已用（不再是 DeepSeek 余额）
+  await cdp.eval(
+    "(function(){var ss=document.querySelectorAll('select');for(var i=0;i<ss.length;i++){var s=ss[i],vals=[];" +
+      'for(var j=0;j<s.options.length;j++)vals.push(s.options[j].value);' +
+      "if(vals.indexOf('plan')!==-1&&vals.indexOf('glm')!==-1&&vals.indexOf('ds')!==-1){" +
+      "s.value='glm';s.dispatchEvent(new Event('change'));return true}}return false})()"
+  )
+  const glmView = await pollEval(
+    cdp,
+    "(function(){var l=document.querySelector('.zcwv-label');return l&&l.textContent==='GLM 今日已用'?l.textContent:null})()",
+    12000
+  )
+  check('GLM 按量源主显示标题切换', glmView === 'GLM 今日已用', 'label=' + JSON.stringify(glmView))
   const btnStyle = JSON.parse(
     await cdp.eval(
       "(function(){var b=document.querySelector('.zcwv-menu-btn');" +

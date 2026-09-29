@@ -18,6 +18,7 @@ import { shapePlanPayload } from '../lib/plan-balance.mjs'
 import { getPath } from '../lib/vendors.mjs'
 import { matchTemplateId, buildProviderEntries } from '../lib/discover.mjs'
 import { findApiKey, readPluginConfig } from '../lib/credentials.mjs'
+import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-selftest-'))
@@ -222,6 +223,11 @@ db.exec(`
     cache_creation_input_tokens integer not null default 0,
     cache_read_input_tokens integer not null default 0,
     computed_total_tokens integer not null default 0
+  );
+  CREATE TABLE session_entry (
+    type text not null,
+    data text not null,
+    time_updated integer not null
   );
 `)
 
@@ -509,6 +515,46 @@ function check(name, ok, detail) {
     if (savedEnvKey !== undefined) process.env.DEEPSEEK_API_KEY = savedEnvKey
   }
   fs.rmSync(fx, { recursive: true, force: true })
+}
+
+// 计费源解析：智能跟随的统一判据（providerId / modelId / 有效 baseURL）
+{
+  const r = (pid, model, url) => resolveBillingSource(pid, model, url).source
+  check(
+    '计费源：订阅套餐 provider → Plan 配额',
+    r('account:zai-start-plan', 'GLM-5.3') === 'plan' && r('x:coding-plan', 'any') === 'plan'
+  )
+  check(
+    '计费源：MiMo 双端点按 URL 区分（token-plan vs api）',
+    r('xiaomi-mimo', 'mimo-v2.6-pro', 'https://token-plan-cn.xiaomimimo.com') === 'mimo-plan' &&
+      r('xiaomi-mimo', 'mimo-v2.6-pro', 'https://api.xiaomimimo.com/anthropic') === 'mimo-api'
+  )
+  check(
+    '计费源：DeepSeek / GLM / 其它厂商按 URL 与模型名识别',
+    r('deepseek', 'deepseek-v4-pro', 'https://api.deepseek.com/anthropic') === 'ds' &&
+      r('bigmodel-standard-api', 'GLM-5.3', 'https://open.bigmodel.cn/api/paas/v4') === 'glm' &&
+      r('openai-p', 'gpt-5.6-terra', 'https://api.openai.com/v1') === 'openai' &&
+      r('moonshot-kimi', 'kimi-k3', 'https://api.moonshot.cn/anthropic') === 'kimi'
+  )
+  check(
+    '计费源：网关转发靠模型名兜底（deepseek/、xiaomi/mimo-）',
+    r('cmdgo-bridge', 'deepseek/deepseek-v4-flash', 'http://127.0.0.1:11435/v1') === 'ds' &&
+      r('cmdgo-bridge', 'xiaomi/mimo-v2.6-pro', 'http://127.0.0.1:11435/v1') === 'mimo-api'
+  )
+  check(
+    '计费源：全未知 → tokens（不冒充任何厂商）',
+    r('mystery-corp', 'totally-unknown-9000') === 'tokens' && resolveBillingSource('', '', '').source === 'tokens'
+  )
+  check(
+    '计费源：timeMode 标记（DeepSeek 峰谷 / MiMo Plan 夜间系数 / 平价 none）',
+    resolveBillingSource('deepseek', 'deepseek-flash').timeMode === 'peak-valley' &&
+      resolveBillingSource('xiaomi-mimo', 'mimo-v2.6-pro', 'https://token-plan-cn.xiaomimimo.com').timeMode === 'offpeak-x0.8' &&
+      resolveBillingSource('bigmodel-standard-api', 'GLM-5.3').timeMode === 'none'
+  )
+  // isNightOffpeak：北京时间 0–8 点（构造两个确定时刻验证）
+  const atNight = Date.UTC(2026, 8, 29, 20, 0, 0) // 北京 09-30 04:00
+  const atDay = Date.UTC(2026, 8, 29, 6, 0, 0) // 北京 09-29 14:00
+  check('MiMo 夜间时段判定（北京时间 0-8 点）', isNightOffpeak(atNight) === true && isNightOffpeak(atDay) === false)
 }
 
 async function getJson(port, pathname) {
@@ -841,6 +887,44 @@ try {
     '重启后新一轮 seq 继续单调递增',
     fourth && fourth.seq === 3 && fourth.turn === 'turn_D',
     JSON.stringify(fourth ? { seq: fourth.seq, turn: fourth.turn } : fourth)
+  )
+
+  // 智能跟随：selection 优先；不可识别时回落最近 model_usage（对话发起时识别）
+  db.prepare('INSERT INTO session_entry (type, data, time_updated) VALUES (?, ?, ?)').run(
+    'runtime/model_selection',
+    JSON.stringify({ modelSelection: { providerId: 'bigmodel-standard-api', modelId: 'GLM-5.3-Flash' } }),
+    Date.now()
+  )
+  const sel1 = await getJson(port, '/whale/session.json')
+  check(
+    'session.json：输入框选择即生效（bigmodel URL → glm 源）',
+    sel1 && sel1.ok && sel1.from === 'selection' && sel1.source === 'glm' && sel1.label === 'GLM 按量',
+    JSON.stringify(sel1).slice(0, 160)
+  )
+  db.prepare('UPDATE session_entry SET data = ?, time_updated = ? WHERE type = ?').run(
+    JSON.stringify({ modelSelection: { providerId: 'xiaomi-mimo', modelId: 'mimo-v2.6-pro' } }),
+    Date.now() + 1,
+    'runtime/model_selection'
+  )
+  const sel2 = await getJson(port, '/whale/session.json')
+  check(
+    'session.json：MiMo 无 URL 信息默认 mimo-api（平价无时段行）',
+    sel2 && sel2.ok && sel2.source === 'mimo-api' && sel2.timeMode === 'none',
+    JSON.stringify(sel2).slice(0, 160)
+  )
+  insertTurn('sess_sel', 'turn_sel', { input_tokens: 1000, output_tokens: 100 }, Date.now() + 10, [
+    { model: 'kimi-k3', providerId: 'moonshot-kimi', usage: { input_tokens: 1000, output_tokens: 100 } },
+  ])
+  db.prepare('UPDATE session_entry SET data = ?, time_updated = ? WHERE type = ?').run(
+    JSON.stringify({ modelSelection: { providerId: 'mystery-corp', modelId: 'totally-unknown-9000' } }),
+    Date.now() + 2,
+    'runtime/model_selection'
+  )
+  const sel3 = await getJson(port, '/whale/session.json')
+  check(
+    'session.json：selection 不可识别时回落 model_usage（kimi-k3 → kimi 源）',
+    sel3 && sel3.ok && sel3.from === 'model-usage' && sel3.source === 'kimi' && sel3.modelId === 'kimi-k3',
+    JSON.stringify(sel3).slice(0, 160)
   )
 
   await new Promise((r) => setTimeout(r, 200))
