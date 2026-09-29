@@ -64,5 +64,14 @@ ZCode 版 DeepSeek 余额小鲸鱼挂件（zcode-whale-widget）是以下项目�
   基于 session_entry「runtime/model_selection」的计费源智能切换；ZCode 深浅
   主题配色（取自 ZCode 客户端 .theme-zai-dark/light 的实测 token）。
 
+- **v1.2.0 价目与素材来源**：GPT/Claude/Qwen/MiniMax/MiMo/Kimi 六家价目取自
+  各厂商官网 2026-09-29 版——OpenAI 为 community.openai.com 官方员工帖与
+  LiteLLM 注册表交叉验证（platform.openai.com 反爬未能直取，建议人工复核）；
+  Claude 来自 claude.com/pricing；Qwen 来自 help.aliyun.com 模型服务计费页
+  （华北2北京价）；MiniMax 来自 platform.minimaxi.com；MiMo 来自
+  platform.xiaomimimo.com / mimo.mi.com（双端点拆分与 Token Plan 夜间 0.8x
+  消耗系数依官方 FAQ）；Kimi 来自 platform.kimi.com。小狐娘形象 `GLM.png`
+  为用户提供素材，非上游资产。
+
 上游许可为 MIT，允许使用、复制、修改、合并、发布、分发、再许可和/或销售本软件的
 副本，前提是保留上述版权声明与许可声明。本目录内 LICENSE 即为上游许可原文。

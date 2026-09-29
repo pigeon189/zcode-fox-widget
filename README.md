@@ -25,7 +25,7 @@
 
 **沿用自上游（保持一致，含数值）**
 
-- `assets/` 下全部素材：鲸鱼形象 `DSniang1.png` / `DSniang02.png`、`rua.gif`、两套音效（`Ya1/Ya2`、`D1/D2`），原样复制。
+- `assets/` 下全部素材：鲸鱼形象 `DSniang1.png` / `DSniang02.png`、`rua.gif`、两套音效（`Ya1/Ya2`、`D1/D2`），原样复制。（`GLM.png` 小狐娘形象为本版新增，用户供图。）
 - 气泡 SVG 几何（1026×700 画布上的大椭圆、尾巴半椭圆、两个小气泡）、描边色与线宽。
 - 字号档（A/B/P/C 四档与 `--zcw-u` 联动变量）、金额格式、文字块定位。
 - 动画参数：数字滚动 700ms ease-out、按压 `scaleY(0.88) scaleX(1.05)` 与 `cubic-bezier(.34,1.56,.64,1)`、气泡 5 秒自动收起、60 秒自动刷新。
@@ -73,6 +73,19 @@
 - **主题**：菜单「主题」切换浅色（原版蓝系）/ 深色（取自 ZCode 客户端 zai-dark 的实测配色 token）。
 - **智能切换**：菜单「显示」默认「自动跟随」——轮询输入框当前供应商选择（选定当下即更新，无需发起对话），气泡口径随之切换为 Plan 配额 / GLM 金额 / DeepSeek 今日已用。
 - **新增路由**：`/whale/plan.json`、`/whale/session.json`、`/whale/usage-records.json`、`/whale/vendors.json`、`/whale/roles.json`、`/whale/role-upload.json`、`/whale/balance-adjustments.json`。
+
+---
+
+## v1.2.0 新增：计费源随模型切换 + 六家厂商价目 + 小狐娘角色
+
+- **DeepSeek key 发现修复**：凭据发现改为统一 provider 枚举——覆盖数据目录迁移后的 `ZCODE_DATA_BASE_DIR/.zcode/v2/provider_config.json`、旧式 `v2/config.json` 与 `cli/config.json`，且规则不写 `api.baseUrl` 时按 `zcode-builtin.json` 内置模板继承有效端点（DeepSeek 规则即靠继承命中 api.deepseek.com）。`enc:v1:` 加密凭据跳过并明示、本地网关照旧跳过；找不到 key 时错误文案带探测诊断（明细在 `/whale/health` 的 `keyProbe`）。
+- **主显示随计费源切换**（问题「一直显示 DeepSeek 余额」的根治）：气泡的标题+主数字+小字全部按当前计费源渲染——Plan 配额显示剩余百分比、DeepSeek 显示余额、GLM/MiMo/Kimi/OpenAI/Claude/Qwen/MiniMax 显示今日已用金额（¥/$ 分币种不混加）、识别不出时只显示今日 tokens。切模型后 3 秒内自动跟随；输入框选择读不到时回落最近一次真实模型调用（对话发起时识别）。
+- **MiMo 双源拆分**：`api.xiaomimimo.com`（按量平价）与 `token-plan-cn.xiaomimimo.com`（Token Plan 订阅）按 provider 的有效端点区分——Plan 源带「夜间 0–8 点配额 0.8x」时段提示，API 源为平价不显示时段。Token Plan 端点没有公开余额查询接口，主显示按今日消耗折算。
+- **六家厂商价目**（2026-09-29 官网实测，URL 见 `lib/pricing.mjs` 注释）：OpenAI（GPT-5.x 272K 输入整单分档，输入×2/输出×1.5）、Claude（缓存写 1.25×输入）、Qwen（按输入 K=1,000 分档）、MiniMax（M3 512K 分档）、MiMo（平价）、Kimi（缓存写按 TTL 档）。**未知模型一律只计 tokens 不折算金额**——不再出现「GLM 轮次按 DeepSeek 价计价」的虚高。
+- **时段台词门控**：「当前时间段为:」只对真正分时计价的源出现（DeepSeek 峰谷 / MiMo Plan 夜间系数），平价厂商不再弹空闲/高峰。
+- **错误文案不截断**：气泡错误提示完整换行显示（此前被硬截成「未找到DeepSeek A」）。
+- **角色库**：内置「小狐娘」（默认形象）与「小鲸鱼」（原「默认」鲸鱼），角色下拉直接选择；上传件照旧支持。未指定角色即默认小狐娘。
+- **点击音效全覆盖**：点气泡、菜单按钮也带按压音反馈（此前只有按鲸鱼有声）；音频预加载 + 浮层 autoplay 加固，消除「有时点了没声音」。
 
 ---
 
@@ -289,7 +302,7 @@ node lib/cli.mjs json            # 结构化输出，便于脚本消费
 
 ### 每轮消耗
 
-按 ZCode 记录的 token 分档计价：**缓存命中**走「命中」价、**未命中输入**与**缓存写入**走「未命中」价、**输出与思考**走「输出」价，再按该轮所处时段选高峰或谷价。
+按 ZCode 记录的 token 分档计价：**缓存命中**走「命中」价、**未命中输入**走「未命中」价、**缓存写入**走「缓存写」价（DeepSeek 与未命中同价、GLM 限时免费记 0、Kimi 按 TTL 档、Claude/Qwen 1.25×输入，以各家官网为准）、**输出与思考**走「输出」价；DeepSeek 再按该轮所处时段选高峰或谷价，其余厂商平价。档位一律「整单取档」（档位由单次请求输入 token 总量决定，与 OpenAI/阿里云/MiniMax 官方口径一致）。金额按币种分列（¥/$ 不混加）；未维护价目的模型只计 tokens，不折算金额。
 
 > **一个必须注意的口径**：ZCode 记录的 `input_tokens` 是**含缓存的总输入**（实测 `computed_total_tokens = input + output` 且 `input ≥ cache_read`）。计价前必须减掉命中部分，否则缓存那 99% 会被按未命中价重复计费——实测同一轮会从 ¥3.05 虚高到 ¥76.95（约 25 倍）。代码用 `lib/pricing.mjs` 的 `splitInputTokens()` 统一处理，并用总量字段自动识别 Anthropic 那种「input 不含缓存」的口径。`tools/selftest.mjs` 里有针对两种口径的回归断言。
 
@@ -316,7 +329,9 @@ DeepSeek 调价时改 `lib/pricing.mjs` 顶部的 `PEAK_HOURS` / `BASE_PRICE` / 
 |---|---|
 | 界面上看不到挂件 | ZCode 客户端不提供界面注入点，必须走桌面浮层：`desktop install` 装运行时，再 `window start` |
 | 打开 ZCode 没有自动出现 | 看 `~/.zcode/whale/autostart.log` 最后一行。没有新行说明 hook 没加载（插件未启用，或改完配置后没重启会话）；`overlay=skipped:no-runtime` 说明运行时没装；`overlay=failed:...` 看括号里的原因 |
-| 余额显示「未找到 DeepSeek API Key」 | 三条凭据来源都没命中。用 `key` 子命令写入，或在 ZCode 里加 DeepSeek provider |
+| 余额显示「未找到 DeepSeek API Key」 | 三条凭据来源都没命中：环境变量 `DEEPSEEK_API_KEY`、`~/.zcode/whale/config.json`、ZCode provider 配置（含数据目录迁移后的 `$ZCODE_DATA_BASE_DIR/.zcode/v2/provider_config.json`；规则没写 baseUrl 时端点从 zcode-builtin 模板继承）。错误文案带探测摘要，逐条明细看 `/whale/health` 的 `keyProbe`（会标明本地网关/加密凭据为何被跳过）。也可用 `key` 子命令写入 |
+| 点击挂件/气泡没声音 | 检查菜单音量是否为 0、音效组是否已选；音频在页面加载时预热，系统输出设备切换后若无声，重启浮层即可。v1.2.0 起鲸鱼/气泡/菜单按钮点击均有按压音 |
+| 切了模型气泡还是旧源 | 自动跟随 3 秒轮询一次输入框选择；选择读不到时回落最近一次真实模型调用。菜单「显示」手动锁定可立即切换 |
 | 余额显示旧值并带 `stale` | 接口瞬时失败（网络/5xx），服务在回退缓存；4xx 不会回退，会直接报错 |
 | 今日已用一直是 0 | 记账模式只统计观测到的余额下降：还没产生消费，或消耗发生在服务未运行时。要精确数字改用 `mode token` |
 | 每轮消耗不弹窗 | 需要 ZCode 至少完成过一轮对话（`turn_usage` 有 `completed` 行）；另外菜单里「每轮消耗提示」必须开着 |

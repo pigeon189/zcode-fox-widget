@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "zcode-whale-widget",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "description": "ZCode 版 DeepSeek 余额小鲸鱼挂件：余额、今日已用、峰谷定价与每轮对话消耗。",
       "source": "."
     }
