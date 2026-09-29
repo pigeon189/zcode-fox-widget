@@ -18,6 +18,10 @@ const os = require('node:os')
 const PORT = Number(process.env.WHALE_PORT) || 39321
 const TARGET_URL = 'http://127.0.0.1:' + PORT + '/'
 
+// 按压/松手音效走 HTMLAudio 播放。Electron 默认 autoplay 策略在部分环境会拦
+// 非手势起播（表现为「点击有时没声音」），显式放开（须在 app ready 前设置）。
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 // 排查用日志：只有开启调试端口时才写，平时零开销。
 const DEBUG_LOG = process.env.WHALE_DEBUG_PORT
   ? path.join(os.homedir(), '.zcode', 'whale', 'overlay-debug.log')
