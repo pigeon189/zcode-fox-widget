@@ -264,6 +264,38 @@ try {
   const saved = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
   check('displayMode 已持久化到 widget-state', saved.displayMode === 'plan', 'displayMode=' + saved.displayMode)
 
+  // ③ 菜单按钮可点：悬停出现 → 真实点击打开设置菜单。
+  // 回归：按钮压在鲸鱼不透明像素上，onDocClickStopper 曾在捕获层吃掉 click。
+  const bp = JSON.parse(
+    await cdp.eval(
+      "(function(){var b=document.querySelector('.zcwv-menu-btn').getBoundingClientRect();" +
+        'return JSON.stringify({x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)})})()'
+    )
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bp.x, y: bp.y, button: 'none', pointerType: 'mouse' })
+  const btnVisible = await pollEval(
+    cdp,
+    "document.querySelector('.zcwv-menu-btn').classList.contains('zcwv-menu-btn-visible') ? true : null",
+    5000
+  )
+  check('悬停后菜单按钮出现', !!btnVisible)
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: bp.x, y: bp.y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bp.x, y: bp.y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+  const menuOpen = await pollEval(
+    cdp,
+    "document.querySelector('.zcwv-menu').classList.contains('zcwv-menu-open') ? true : null",
+    5000
+  )
+  check('点击菜单按钮打开设置菜单', !!menuOpen)
+
+  // ④ 按钮配色跟随 ZCode 深色主题（中性表面，不是旧版亮蓝）。
+  // applyConfig 只在页面加载时跑，所以先落盘再统一刷新。
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, theme: 'dark' }),
+  })
+
   await cdp.send('Page.reload')
   await new Promise((r) => setTimeout(r, 3000))
   const reloaded = await cdp.eval(
@@ -273,6 +305,17 @@ try {
       'return null})()'
   )
   check('刷新后 displayMode 保持 Plan 配额', reloaded === 'plan', 'value=' + JSON.stringify(reloaded))
+  const btnStyle = JSON.parse(
+    await cdp.eval(
+      "(function(){var b=document.querySelector('.zcwv-menu-btn');" +
+        'return JSON.stringify({bg:getComputedStyle(b).backgroundColor,bar:getComputedStyle(b.querySelector("span")).backgroundColor})})()'
+    )
+  )
+  check(
+    '深色主题菜单按钮为中性表面（#2b2b2b 底 + 浅灰横杠）',
+    btnStyle.bg === 'rgba(43, 43, 43, 0.95)' && btnStyle.bar === 'rgb(212, 212, 212)',
+    JSON.stringify(btnStyle)
+  )
 } catch (err) {
   check('冒烟过程未抛异常', false, String((err && err.message) || err))
 } finally {
