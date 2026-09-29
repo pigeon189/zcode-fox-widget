@@ -574,6 +574,15 @@ try {
     roles1 && roles1.ok && roles1.roles.length === 1 && roles1.selected === upBody.id,
     JSON.stringify(roles1)
   )
+  // 超过旧版全局 8KB body 上限的上传也应成功（真实头像截图普遍几十 KB 起）
+  const bigDataUrl = 'data:image/png;base64,' + Buffer.alloc(15000, 97).toString('base64')
+  const upBigRes = await fetch('http://127.0.0.1:' + port + '/whale/role-upload.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'big-selftest', dataUrl: bigDataUrl }),
+  })
+  const upBigBody = await upBigRes.json()
+  check('超过 8KB 的角色上传成功', upBigRes.ok && upBigBody.ok === true, JSON.stringify(upBigBody))
   const imgRes = await fetch('http://127.0.0.1:' + port + '/whale/image.png')
   check('启用角色后 image.png 仍可用', imgRes.ok && (imgRes.headers.get('content-type') || '').indexOf('image/png') === 0, 'HTTP ' + imgRes.status)
   await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
