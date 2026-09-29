@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing } from '../lib/pricing.mjs'
 import { shapePlanPayload, normalizeModelKey } from '../lib/plan-balance.mjs'
+import { getPath } from '../lib/vendors.mjs'
+import { matchTemplateId } from '../lib/discover.mjs'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-selftest-'))
@@ -106,6 +108,40 @@ const planLogLine =
   JSON.stringify(PLAN_FIXTURE) +
   '\n'
 fs.writeFileSync(path.join(planLogDir, todayKeyForLog() + '.log'), planLogLine, 'utf8')
+
+// 厂商自动发现 fixture：一个 bigmodel 规则（应命中 bigmodel-glm），一个本地网关
+// 规则（baseURL 是环回地址，key 是网关鉴权用，必须被跳过，即使模型名含 deepseek）
+fs.writeFileSync(
+  path.join(tmpHome, '.zcode', 'v2', 'provider_config.json'),
+  JSON.stringify({
+    config: {
+      providerConfigRules: {
+        providerRules: [
+          {
+            providerId: 'bigmodel-standard-api',
+            templateId: 'bigmodel-standard-api',
+            providerName: 'BigModel API',
+            config: {
+              access: { type: 'api-key', apiKey: 'selftest-fake-bigmodel-key' },
+              api: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+              modelOrder: ['GLM-5.3', 'GLM-5.3-Flash'],
+            },
+          },
+          {
+            providerId: 'cmdgo-bridge',
+            providerName: 'CommandCode Go (cmdgo-bridge)',
+            config: {
+              access: { type: 'api-key', apiKey: 'selftest-fake-bridge-key' },
+              api: { baseUrl: 'http://127.0.0.1:11435/v1' },
+              modelOrder: ['deepseek/deepseek-v4-flash'],
+            },
+          },
+        ],
+      },
+    },
+  }),
+  'utf8'
+)
 
 function todayKeyForLog(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0')
@@ -323,6 +359,27 @@ function check(name, ok, detail) {
   check('Plan 日志解析：非当天的观测标记 stale', staleShaped && staleShaped.stale === true)
 }
 
+// 厂商模板框架：字段路径求值与模板匹配
+{
+  const obj = { a: { b: [{ c: 42 }], d: 'x' } }
+  check('字段路径求值 a.b[0].c', getPath(obj, 'a.b[0].c') === 42)
+  check('字段路径求值：取不到返回 undefined', getPath(obj, 'a.b[9].c') === undefined && getPath(obj, 'a.b[0].c.d') === undefined)
+  check(
+    '模板匹配：bigmodel/glm/智谱关键词 → bigmodel-glm',
+    matchTemplateId(['bigmodel-standard-api', 'BigModel API']) === 'bigmodel-glm' &&
+      matchTemplateId(['some', 'GLM-5.3']) === 'bigmodel-glm' &&
+      matchTemplateId(['zhipu-coding']) === 'bigmodel-glm'
+  )
+  check(
+    '模板匹配：deepseek / openrouter / kimi 国内国际',
+    matchTemplateId(['deepseek-test']) === 'deepseek' &&
+      matchTemplateId(['openrouter']) === 'openrouter' &&
+      matchTemplateId(['moonshot-cn', 'Kimi 国内']) === 'moonshot-cn' &&
+      matchTemplateId(['moonshot-intl']) === 'moonshot-intl'
+  )
+  check('模板匹配：本地网关关键词不做 vendor 判定', matchTemplateId(['cmdgo-bridge']) === null)
+}
+
 async function getJson(port, pathname) {
   const res = await fetch('http://127.0.0.1:' + port + pathname, { signal: AbortSignal.timeout(3000) })
   return res.json()
@@ -425,6 +482,36 @@ try {
     '套餐轮次带「占配额百分比」',
     third && third.quotaPct === expectPct,
     '期望 ' + expectPct + '%，实际 ' + (third && third.quotaPct)
+  )
+
+  // 厂商模板端到端：自动发现命中 bigmodel 规则、跳过本地网关；无 key 的模板不可用
+  const vendors = await getJson(port, '/whale/vendors.json')
+  const byId = {}
+  for (const v of (vendors && vendors.vendors) || []) byId[v.id] = v
+  check(
+    '厂商模板清单完整（7 家）',
+    vendors && vendors.ok && ['deepseek', 'zcode-plan', 'bigmodel-glm', 'openrouter', 'moonshot-cn', 'moonshot-intl', 'zhipu-quota'].every((id) => byId[id]),
+    vendors && vendors.vendors ? vendors.vendors.map((v) => v.id).join(',') : '无'
+  )
+  check(
+    '自动发现命中 bigmodel 规则（key 来自 v2 provider_config）',
+    byId['bigmodel-glm'] && byId['bigmodel-glm'].available === true && String(byId['bigmodel-glm'].keySource || '').indexOf('v2-provider-config') === 0,
+    byId['bigmodel-glm'] ? JSON.stringify({ available: byId['bigmodel-glm'].available, keySource: byId['bigmodel-glm'].keySource }) : '缺失'
+  )
+  check(
+    '本地网关规则被跳过：deepseek 没有可用凭据',
+    byId['deepseek'] && byId['deepseek'].available === false,
+    byId['deepseek'] ? 'available=' + byId['deepseek'].available : '缺失'
+  )
+  check(
+    '无凭据模板不可用且不虚报余额',
+    byId['openrouter'] && byId['openrouter'].available === false && byId['openrouter'].balance === undefined,
+    byId['openrouter'] ? 'available=' + byId['openrouter'].available : '缺失'
+  )
+  check(
+    'Plan 模板走日志源',
+    byId['zcode-plan'] && byId['zcode-plan'].available === true && byId['zcode-plan'].kind === 'local-log',
+    byId['zcode-plan'] ? 'available=' + byId['zcode-plan'].available : '缺失'
   )
 
   await new Promise((r) => setTimeout(r, 200))
