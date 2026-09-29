@@ -79,6 +79,12 @@ function createWindow() {
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
+    // Windows 上必须不可激活：可激活的浮层被点一下就会把前台从 ZCode 抢走，
+    // 而 ZCode 失去前台后画面会停止更新——实测点完挂件后 GetForegroundWindow
+    // 变成浮层、WM_MOUSEACTIVATE 返回 MA_ACTIVATE，症状是「和挂件互动后 ZCode
+    // 像卡住一样，再点一下 ZCode 才恢复」。菜单里的文本框需要键盘时，由页面
+    // 通过 whale:keyboard-focus 临时打开（见下方 ipcMain 处理）。
+    focusable: process.platform !== 'win32',
     show: false,
     alwaysOnTop: true,
     title: 'DeepSeek 余额小鲸鱼',
@@ -282,6 +288,29 @@ ipcMain.on('whale:follow-interval', (_event, value) => {
 ipcMain.handle('whale:follow-interval-get', () => followIntervalMs)
 ipcMain.on('whale:quit', () => app.quit())
 ipcMain.handle('whale:workarea', () => screen.getPrimaryDisplay().workArea)
+
+// 不可激活的窗口拿不到键盘输入。页面在指针按到菜单里的文本框/下拉时才请求
+// 临时恢复可激活并主动取一次焦点，离开后立刻交还前台（回到不可激活），
+// 这样「点鲸鱼 / 拖拽 / 开菜单 / 点气泡」都不会打断 ZCode 的前台状态。
+let keyboardFocus = false
+ipcMain.on('whale:keyboard-focus', (_event, value) => {
+  if (!win || win.isDestroyed()) return
+  const want = !!value
+  if (want === keyboardFocus) return
+  keyboardFocus = want
+  try {
+    if (want) {
+      win.setFocusable(true)
+      win.focus()
+    } else {
+      win.setFocusable(false)
+      win.blur()
+    }
+  } catch (err) {
+    log('keyboard-focus-failed', String((err && err.message) || err))
+  }
+  log('keyboard-focus', String(want))
+})
 
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
