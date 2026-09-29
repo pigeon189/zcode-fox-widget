@@ -43,7 +43,13 @@ db.exec(`
     session_id text not null,
     turn_id text,
     model_id text not null,
-    started_at integer not null
+    started_at integer not null,
+    input_tokens integer not null default 0,
+    output_tokens integer not null default 0,
+    reasoning_tokens integer not null default 0,
+    cache_creation_input_tokens integer not null default 0,
+    cache_read_input_tokens integer not null default 0,
+    computed_total_tokens integer not null default 0
   );
 `)
 
@@ -64,8 +70,20 @@ function insertTurn() {
      VALUES ('sess_demo', ?, 'completed', ?, ?, ?, ?, 0, 0, ?)`
   ).run(turnId, now - 3000, now, usage.input, usage.output, usage.cacheRead)
   db.prepare(
-    'INSERT INTO model_usage (id, session_id, turn_id, model_id, started_at) VALUES (?, ?, ?, ?, ?)'
-  ).run('mu-' + turnId, 'sess_demo', turnId, MODEL, now - 3000)
+    `INSERT INTO model_usage (id, session_id, turn_id, model_id, started_at,
+      input_tokens, output_tokens, reasoning_tokens, cache_creation_input_tokens, cache_read_input_tokens, computed_total_tokens)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
+  ).run(
+    'mu-' + turnId,
+    'sess_demo',
+    turnId,
+    MODEL,
+    now - 3000,
+    usage.input,
+    usage.output,
+    usage.cacheRead,
+    usage.input + usage.cacheRead + usage.output
+  )
   console.log('  + 新增一轮 ' + turnId + '：输入 ' + usage.input + '、缓存读 ' + usage.cacheRead + '、输出 ' + usage.output)
 }
 

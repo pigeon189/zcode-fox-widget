@@ -8,12 +8,13 @@
 //   node tools/selftest.mjs
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
-import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing } from '../lib/pricing.mjs'
-import { shapePlanPayload, normalizeModelKey } from '../lib/plan-balance.mjs'
+import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
+import { shapePlanPayload } from '../lib/plan-balance.mjs'
 import { getPath } from '../lib/vendors.mjs'
 import { matchTemplateId } from '../lib/discover.mjs'
 
@@ -347,7 +348,7 @@ function check(name, ok, detail) {
   )
   check(
     'Plan 日志解析：按模型桶映射（entitlements capabilities + show_name 兜底）',
-    shaped && shaped.byModel.length === 3 && normalizeModelKey('GLM-5.3-Flash') === 'glm-5.3-flash' && shaped.byModel[0].model === 'glm-5.3-flash' && shaped.byModel[0].totalUnits === 100_000_000,
+    shaped && shaped.byModel.length === 3 && normalizeModelId('GLM-5.3-Flash') === 'glm-5.3-flash' && shaped.byModel[0].model === 'glm-5.3-flash' && shaped.byModel[0].totalUnits === 100_000_000,
     shaped ? JSON.stringify(shaped.byModel.map((b) => b.model)) : ''
   )
   check(
@@ -398,14 +399,19 @@ async function waitReady(port, deadlineMs) {
   return null
 }
 
-const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'server.mjs')], {
-  cwd: PLUGIN_ROOT,
-  env: { ...process.env, ZCODE_HOME: tmpHome, ZCODE_DATA_BASE_DIR: tmpHome },
-  stdio: ['ignore', 'pipe', 'pipe'],
-})
+const serverEnv = { ...process.env, ZCODE_HOME: tmpHome, ZCODE_DATA_BASE_DIR: tmpHome }
 let childLog = ''
-child.stdout.on('data', (c) => (childLog += c))
-child.stderr.on('data', (c) => (childLog += c))
+function spawnServer() {
+  const c = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'server.mjs')], {
+    cwd: PLUGIN_ROOT,
+    env: serverEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  c.stdout.on('data', (chunk) => (childLog += chunk))
+  c.stderr.on('data', (chunk) => (childLog += chunk))
+  return c
+}
+let child = spawnServer()
 
 try {
   console.log('🐳 挂件自检（临时 ZCODE_HOME=' + tmpHome + '）\n')
@@ -625,6 +631,82 @@ try {
   })
   const adjBadBody = await adjBad.json()
   check('负数金额被拒绝', adjBad.ok && adjBadBody.ok === false, JSON.stringify(adjBadBody))
+
+  // 挂件配置：displayMode（智能切换的手动覆盖）写读往返；非法值回落 auto
+  const dmPut = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, displayMode: 'plan' }),
+  })
+  const dmGet = await getJson(port, '/whale/size.json')
+  check('displayMode 写入并持久化回读', dmPut.ok && dmGet.displayMode === 'plan', 'displayMode=' + dmGet.displayMode)
+  await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, displayMode: 'hacker' }),
+  })
+  const dmBad = await getJson(port, '/whale/size.json')
+  check('displayMode 非法值被丢弃（保留原值）', dmBad.displayMode === 'plan', 'displayMode=' + dmBad.displayMode)
+
+  // 安全路由：Host 校验（防 DNS rebinding）/ Origin 校验（防跨站写）/ 关闭令牌
+  function rawRequest(method, requestPath, headers, body) {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { host: '127.0.0.1', port, method, path: requestPath, headers: headers || {}, timeout: 3000 },
+        (res) => {
+          let buf = ''
+          res.on('data', (c) => (buf += c))
+          res.on('end', () => resolve({ status: res.statusCode, body: buf }))
+        }
+      )
+      req.on('timeout', () => req.destroy(new Error('timeout')))
+      req.on('error', reject)
+      if (body) req.write(body)
+      req.end()
+    })
+  }
+  const badHost = await rawRequest('GET', '/whale/health', { host: 'evil.example:' + port })
+  check('伪造 Host 头被 403', badHost.status === 403, 'HTTP ' + badHost.status)
+  const crossOrigin = await rawRequest(
+    'PUT',
+    '/whale/size.json',
+    { host: '127.0.0.1:' + port, origin: 'http://evil.example', 'content-type': 'application/json' },
+    JSON.stringify({ scale: 2 })
+  )
+  check('跨 Origin 写请求被 403', crossOrigin.status === 403, 'HTTP ' + crossOrigin.status)
+  const badToken = await rawRequest('POST', '/whale/shutdown', { host: '127.0.0.1:' + port, 'x-whale-token': 'wrong-token' })
+  check('错误令牌关闭被 403', badToken.status === 403, 'HTTP ' + badToken.status)
+  const noToken = await rawRequest('POST', '/whale/shutdown', { host: '127.0.0.1:' + port })
+  check('无令牌关闭被 403', noToken.status === 403, 'HTTP ' + noToken.status)
+
+  // 服务重启：seq 必须从持久化值续上——否则重启后已打开的页面对齐在旧计数上，
+  // 新服务的每一轮都会被当成"旧轮次"，每轮消耗气泡静默失效
+  await new Promise((resolve) => {
+    child.once('exit', resolve)
+    child.kill()
+  })
+  child = spawnServer()
+  const health2 = await waitReady(port, 8000)
+  check('重启后服务重新就绪', !!health2, health2 ? 'pid=' + health2.pid : childLog.slice(-200))
+  const afterRestart = await getJson(port, '/whale/last-turn.json')
+  check(
+    '重启后 seq 从持久化值续上（对齐不回退）',
+    afterRestart && afterRestart.seq === 2 && afterRestart.turn === null,
+    JSON.stringify(afterRestart)
+  )
+  insertTurn('sess_selftest', 'turn_D', USAGE_B, Date.now())
+  let fourth = null
+  const deadlineD = Date.now() + 6000
+  while (Date.now() < deadlineD) {
+    await new Promise((r) => setTimeout(r, 400))
+    fourth = await getJson(port, '/whale/last-turn.json')
+    if (fourth.seq > 2) break
+  }
+  check(
+    '重启后新一轮 seq 继续单调递增',
+    fourth && fourth.seq === 3 && fourth.turn === 'turn_D',
+    JSON.stringify(fourth ? { seq: fourth.seq, turn: fourth.turn } : fourth)
+  )
 
   await new Promise((r) => setTimeout(r, 200))
   // 令牌关闭

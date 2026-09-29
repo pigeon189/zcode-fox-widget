@@ -327,13 +327,17 @@ DeepSeek 调价时改 `lib/pricing.mjs` 顶部的 `PEAK_HOURS` / `BASE_PRICE` / 
 | 浮层启动失败 | `cli.mjs window status` 看运行时是否已装 |
 | 峰谷判定不对 | 看 `lib/pricing.mjs` 的 `PEAK_HOURS` 等常量；工作日高峰为北京时间 9–12、14–18，2026-08-23 起周末全天谷价 |
 | 换了图片/音效不生效 | 资产路由每次读盘且 `no-store`，强刷即可；确认替换的是 `assets/` 下的同名文件 |
+| Plan 剩余配额不显示 / 提示「Plan 日志未找到」 | 多半是数据目录迁移后的机器在**普通终端**里手动跑服务：没有 `ZCODE_DATA_BASE_DIR`，只会在 `~/.zcode/v2/logs` 下找日志（旧目录可能只剩迁移前的残留）。由 ZCode 进程拉起的服务不受影响；终端调试请先设置该变量。`/whale/plan.json` 的 `no-plan-log` 响应带 `probedDirs`（实际探测了哪些目录、各目录最新日志是哪天），照着看即可 |
 
 ---
 
 ## 自助排查工具
 
+> 运行环境：Node >= 22.5（依赖内置 `node:sqlite`）。`server.json` 含关停令牌，POSIX 下以 0600 落盘；Windows 靠用户目录 ACL 限制其他用户读取。
+
 ```bash
 node tools/selftest.mjs        # 计价口径回归 + 每轮消耗链路端到端自检（不碰真实数据）
+node tools/smoke-ui.mjs        # 前端冒烟：headless Edge/Chrome + CDP 跑真实页面（气泡 hint、displayMode 持久化）
 node tools/demo.mjs            # 用假数据起一个服务并周期性产生新轮次，用于观察消耗气泡
 node tools/debug-overlay.mjs   # 连进浮层页面（需以 WHALE_DEBUG_PORT 启动）排查渲染/交互
 ```

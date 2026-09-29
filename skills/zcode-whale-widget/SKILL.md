@@ -100,6 +100,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | **每轮消耗金额离谱（虚高十几倍）** | 多半是计价口径又踩了「input 含缓存」这个坑：缓存命中的 token 被按未命中价重复算了一遍。核对 `lib/pricing.mjs` 的 `splitInputTokens()` 是否被 `costOfUsage()` 使用，并跑 `node tools/selftest.mjs`（内含两种口径的回归断言）。用 `node lib/cli.mjs turn` 看逐档明细即可判断 |
 | 每轮消耗不弹窗 | 需要 ZCode 至少完成过一轮对话（`turn_usage` 有 `completed` 行）；另外菜单里「每轮消耗提示」必须开着 |
 | 挂件服务打不开 | `node lib/cli.mjs status` 看是否运行；未运行则 `start`。端口被占用会自动顺延，以 `status` 输出的地址为准 |
+| Plan 配额不显示 / 提示「Plan 日志未找到」 | 数据目录迁移后的机器在普通终端手动跑 `node lib/cli.mjs status/vendors` 时没有 `ZCODE_DATA_BASE_DIR`，只会探 `~/.zcode/v2/logs`（可能只剩迁移前残留）。终端调试先 `set ZCODE_DATA_BASE_DIR=<数据盘根目录>`；`/whale/plan.json` 的 `no-plan-log` 带 `probedDirs` 可看实际探测结果 |
 | 峰谷判定不对 | 检查 `lib/pricing.mjs` 的 `PEAK_HOURS` / `BASE_PRICE` / `PRO_PRICE`；北京时间工作日上午 9–12、下午 14–18 为高峰，2026-08-23 起周末全天谷价 |
 | 换了图片/音效不生效 | 资产路由每次读盘且 `no-store`，浏览器强刷即可；同时确认替换的是 `assets/` 下的同名文件 |
 
