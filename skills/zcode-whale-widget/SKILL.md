@@ -104,7 +104,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | 改完 follow-window.ps1 后行为没变 | 该脚本是常驻子进程，改完要 `window stop` + `window start` 才会重新加载 |
 | 余额显示「未找到 DeepSeek API Key」 | 三条凭据来源都没命中：环境变量 `DEEPSEEK_API_KEY`、`~/.zcode/whale/config.json`、ZCode provider 配置（含数据目录迁移后的 `$ZCODE_DATA_BASE_DIR/.zcode/v2/provider_config.json`，规则没写 baseUrl 时端点从 zcode-builtin 模板继承）。错误文案带探测摘要，逐条明细看 `/whale/health` 的 `keyProbe`（标明本地网关/加密凭据为何被跳过）。也可用 `key` 子命令写入 |
 | 切了模型气泡还是旧源 / 一直显示 DeepSeek 余额 | v1.2.0 起主显示随计费源切换（3 秒轮询输入框选择，读不到时回落最近一次真实模型调用）。MiMo 按端点区分：`api.xiaomimimo.com` 计量、`token-plan-cn.xiaomimimo.com` 订阅额度。手动锁定用菜单「显示」 |
-| 点击挂件/气泡没声音 | 检查菜单音量是否为 0、音效组是否已选；音频页面加载时预热，输出设备切换后若无声重启浮层。按压音只对「按鲸鱼」与「点气泡」发声 |
+| 点击挂件/气泡没声音 | 检查菜单音量是否为 0、音效组是否已选；音频页面加载时预热，输出设备切换后若无声重启浮层。按压/松手音只属于鲸鱼本体；点气泡不出声（随上游原版行为，v1.3.2 起回退） |
 | 点设置键却有音效（v1.3.0 起不应出现） | 菜单按钮的 click 里不该有 `playPress()`；按压音只属于角色本体（鲸鱼/气泡）两种操作 |
 | 余额显示旧值并带 `stale` | 接口瞬时失败（网络/5xx），服务在回退缓存。4xx 不会回退，会直接报错 |
 | 今日已用一直 0 | 记账模式只统计「观测到的余额下降」：还没产生消费，或期间的消耗发生在服务未运行时。要精确数字改用 `mode token` |
