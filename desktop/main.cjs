@@ -360,8 +360,14 @@ function reviveInputAfterShow() {
   log('input-revive')
   try {
     win.setFocusable(true)
-    win.setFocusable(false)
   } catch (err) {}
+  setTimeout(() => {
+    try {
+      if (!win || win.isDestroyed()) return
+      if (keyboardFocus) return
+      win.setFocusable(false)
+    } catch (err) {}
+  }, 100)
 }
 
 ipcMain.on('whale:interactive', (_event, value) => {
