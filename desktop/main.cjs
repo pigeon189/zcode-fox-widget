@@ -344,26 +344,24 @@ function applyInteractive(next) {
 // 可激活化 + focus / blur 循环能把管线踢活（实测有效，且因前台锁通常并不
 // 真的抢走 ZCode 前台，follower 全程无状态变化）。重现时无条件做一次，
 // 把「切回后点击无响应」压成零。
+// 原生输入复活。实测（2026-10-01）：浮层经历 hide→showInactive 后，哪怕
+// Electron 侧 interactive/setIgnoreMouseEvents/WS_EX_TRANSPARENT 全部正确、
+// WindowFromPoint 也指向浮层，物理点击仍然到不了渲染器（CDP 注入点击正常、
+// 光标轮询正常）——输入卡死在 Chromium 的原生输入管线里。
+//
+// 复活手法是对 WS_EX_NOACTIVATE 做一次翻转：setFocusable 的样式重写会强迫
+// Chromium 的 HWNDMessageHandler 重走一遍窗口属性/输入状态初始化。第一版
+// 还配了 focus()/blur()——实测 focus() 会真的激活浮层（抢走 ZCode 前台），
+// 300ms 后 blur() 又把前台交给 shell（explorer），浮层随即被跟随逻辑藏起，
+// 等于复活流程自己复刻了一次「切走」。所以这里只翻转样式、绝不碰焦点。
 function reviveInputAfterShow() {
   if (!win || win.isDestroyed()) return
   if (keyboardFocus) return // 页面正要键盘时绝不能拆它的可激活态
   log('input-revive')
   try {
     win.setFocusable(true)
-    win.focus()
+    win.setFocusable(false)
   } catch (err) {}
-  setTimeout(() => {
-    try {
-      if (!win || win.isDestroyed()) return
-      if (keyboardFocus) return // 同上：定时器期间页面要了键盘就别动
-      log('input-revive-t2', 'focused=' + (win.isFocused() ? 1 : 0))
-      if (win.isFocused()) {
-        win.blur()
-      }
-      win.setFocusable(false)
-      log('input-revive-t3', 'focused=' + (win.isFocused() ? 1 : 0))
-    } catch (err) {}
-  }, 300)
 }
 
 ipcMain.on('whale:interactive', (_event, value) => {
