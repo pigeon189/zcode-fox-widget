@@ -95,8 +95,10 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | 探测脚本秒退 / 浮层跟着消失 | 多为 `follow-window.ps1` 里的 C# 编译失败或脚本被写成非 ASCII。`overlay-debug.log` 里搜 `csharp-compile-failed` / `follow-loop-error`；该文件必须保持纯 ASCII（PS 5.1 按 ANSI 代码页读） |
 | 鲸鱼位置错乱 / 跑到窗口外 | 透明窗口的合成层错位，通常是有人重新打开了定位过渡或改回 `setBounds` 贴窗口。见 README「与上游的差异」里的两条踩坑记录 |
 | 浮层起来了但点不动鲸鱼 | 浮层默认鼠标穿透，指针必须先停在鲸鱼上（此时光标变 `grab`、右上角出现菜单按钮）才能点。若整块区域都点不动，检查是否被其它置顶窗口压住 |
-| 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框/下拉就能打字（浮层在输入类控件上临时接管键盘焦点，离开即交还）。还不行就确认浮层版本与插件一致（`window status` 或 `/whale/health` 的 `version`），或改用网页版直接键入 |
+| 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框就能打字（浮层在文本类控件上临时接管键盘焦点，离开即交还；v1.3.2 起下拉也换成自定义组件，不再走系统弹窗、不再需要这条路）。还不行就确认浮层版本与插件一致（`window status` 或 `/whale/health` 的 `version`），或改用网页版直接键入 |
 | **和挂件互动后 ZCode 画面卡住（点一下 ZCode 才恢复）** | v1.3.0 已修：浮层窗口设为不可激活（Windows `focusable:false` → Electron 带 `WS_EX_NOACTIVATE`），普通交互不再把前台从 ZCode 抢走；ZCode 失去前台会停止刷新自身画面，这就是「卡住」的来源。复查手法：`GetForegroundWindow` 不该是浮层；浮层的 ex-style 应含 `WS_EX_NOACTIVATE`、`WM_MOUSEACTIVATE` 返回 4（MA_NOACTIVATEANDEAT）。改动 `desktop/main.cjs` 的窗口选项后必须 `window stop` + `window start` 才生效 |
+| **开着「用量记录」时 ZCode 点不动 / 下拉展开后鲸鱼全点不动** | v1.3.2 已修的两个整窗接管缺陷：用量记录面板打开时曾让浮层整窗吞掉 ZCode 的鼠标（画面像停住，关掉面板才恢复）；原生 `<select>` 的系统下拉弹出期间会模态捕获全屏鼠标、焦点滞留（`WS_EX_NOACTIVATE` 不恢复），表现为点击挂件和菜单完全没响应。现在面板只是普通区域（指针压上才接管，面板外 ZCode 随便用）、下拉全部换成角色下拉同款的自定义列表。若复发，带 `WHALE_DEBUG_PORT` 重启浮层，在面板外查 ex-style 的 `WS_EX_TRANSPARENT` 位是否被错误清掉 |
+| 菜单下拉的箭头会「从左边飞到右边」或消失 | v1.3.2 已修：hover 样式用了 `background:` 简写，把手绘箭头的 `background-image/position` 一并清掉，配合 `transition:background` 出现飞动。现在过渡只挂 `background-color`，且下拉整体换成自定义组件（没有原生箭头可飞）。以后给带自绘箭头的控件写 hover，只准用 `background-color` |
 | 浮层启动失败 | `node lib/cli.mjs window status` 看运行时是否已安装；未安装则 `desktop install`。Electron 约 150MB，装到 `~/.zcode/whale/desktop-runtime` |
 | **ZCode 被别的窗口盖住，鲸鱼却还置顶显示** | v1.3.1 已修：跟随脚本原来靠 `GetProcessesByName("electron")` 认「前台是浮层自己」，任何 Electron 应用在前台都会被误判。现在由 `main.cjs` 传入浮层主进程 pid（`-OverlayPid`），只认这一个进程。改动后要 `window stop` + `window start` 才生效 |
 | 改完 follow-window.ps1 后行为没变 | 该脚本是常驻子进程，改完要 `window stop` + `window start` 才会重新加载 |

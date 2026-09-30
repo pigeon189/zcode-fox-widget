@@ -316,6 +316,20 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
   log('keyboard-focus', String(want))
 })
 
+// 页面的指针跟踪依赖「穿透时 forward 的 pointermove」与「接管时的真实鼠标事件」，
+// 这条事件流在个别场景会断：系统原生下拉弹出期间模态捕获全屏鼠标、窗口
+// 隐藏-显示、焦点切换失败等。事件流一断，页面就再也感知不到指针移动，
+// 鲸鱼会永远点不到（表现为「点击完全没有响应」）。主进程按 200ms 轮询一次
+// 真实光标位置兜底发给页面：页面把它当低频位置修正，真事件仍占主导。
+setInterval(() => {
+  if (!win || win.isDestroyed() || !win.isVisible()) return
+  try {
+    const p = screen.getCursorScreenPoint()
+    const b = win.getContentBounds()
+    win.webContents.send('whale:cursor', { x: Math.round(p.x - b.x), y: Math.round(p.y - b.y) })
+  } catch (err) {}
+}, 200)
+
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
   app.isQuitting = true

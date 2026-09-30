@@ -369,13 +369,18 @@ try {
   await new Promise((r) => setTimeout(r, 3000))
   const roleView = await pollEval(
     cdp,
-    "(function(){var t=document.querySelector('.zcwv-role-trigger');if(!t)return null;t.click();" +
-      "var rows=document.querySelectorAll('.zcwv-role-row'),names=[],del=0,builtin=0;" +
+    // v1.3.2 起通用下拉（音效/主题等）复用 .zcwv-role-trigger 样式，必须按
+    // title「选择形象」锁定角色触发器；列表按内容含「小狐娘」锁定角色列表
+    "(function(){var ts=document.querySelectorAll('.zcwv-role-trigger'),t=null;" +
+      "for(var i=0;i<ts.length;i++){if((ts[i].title||'').indexOf('\\u9009\\u62e9\\u5f62\\u8c61')===0){t=ts[i];break}}" +
+      'if(!t)return null;t.click();' +
+      "var ls=document.querySelectorAll('.zcwv-roles'),list=null;" +
+      "for(var i=0;i<ls.length;i++){if(ls[i].textContent.indexOf('\\u5c0f\\u72d0\\u5a18')!==-1){list=ls[i];break}}" +
+      'var rows=list?list.querySelectorAll(\'.zcwv-role-row\'):[],names=[],del=0,builtin=0;' +
       "for(var i=0;i<rows.length;i++){var p=rows[i].querySelector('.zcwv-role-pick');names.push(p?p.textContent:'');" +
-      "if(rows[i].querySelector('.zcwv-role-del'))del++;if(rows[i].querySelector('.zcwv-role-builtin'))builtin++}" +
-      "var img=document.querySelector('img[src*=\"image.png\"]');" +
-      "return {names:names,del:del,builtin:builtin,open:document.querySelector('.zcwv-roles').classList.contains('zcwv-roles-open')," +
-      "trigger:document.querySelector('.zcwv-role-name')?document.querySelector('.zcwv-role-name').textContent:''}})()",
+      'if(rows[i].querySelector(\'.zcwv-role-del\'))del++;if(rows[i].querySelector(\'.zcwv-role-builtin\'))builtin++}' +
+      'return {names:names,del:del,builtin:builtin,open:!!(list&&list.classList.contains(\'zcwv-roles-open\')),' +
+      "trigger:t.querySelector('.zcwv-role-name').textContent}})()",
     12000
   )
   check(
@@ -464,6 +469,149 @@ try {
     sysTheme.dark === sysTheme.prefers,
     JSON.stringify(sysTheme)
   )
+
+  // ⑧b 主题下拉已换成自定义组件（与角色下拉同款触发器 + 主题化列表）。
+  // 回归：原生 select 的系统弹窗不吃主题，且弹出期间模态捕获全屏鼠标
+  // （浮层里鲸鱼/菜单全点不动）；换自定义列表后整条链路走真实点击验证。
+  // 菜单若没开，先真实点击菜单按钮（坐标都在页面里取好）
+  const menuState = JSON.parse(
+    await cdp.eval(
+      "(function(){var open=document.querySelector('.zcwv-menu').classList.contains('zcwv-menu-open');" +
+        'var b=document.querySelector(\'.zcwv-menu-btn\').getBoundingClientRect();' +
+        'return JSON.stringify({open:open,x:b.left+b.width/2,y:b.top+b.height/2})})()'
+    )
+  )
+  if (!menuState.open) {
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: Math.round(menuState.x),
+      y: Math.round(menuState.y),
+      button: 'none',
+      pointerType: 'mouse',
+    })
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: Math.round(menuState.x),
+      y: Math.round(menuState.y),
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+      pointerType: 'mouse',
+    })
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: Math.round(menuState.x),
+      y: Math.round(menuState.y),
+      button: 'left',
+      buttons: 0,
+      clickCount: 1,
+      pointerType: 'mouse',
+    })
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  const themeTrigger = JSON.parse(
+    await cdp.eval(
+      "(function(){var ts=document.querySelectorAll('.zcwv-role-trigger');" +
+        "for(var i=0;i<ts.length;i++){if((ts[i].title||'').indexOf('\\u9009\\u62e9\\u4e3b\\u9898')===0){" +
+        'var r=ts[i].getBoundingClientRect();' +
+        'return JSON.stringify({open:true,x:r.left+r.width/2,y:r.top+r.height/2,' +
+        "label:ts[i].querySelector('.zcwv-role-name').textContent})}}return JSON.stringify({open:false})})()"
+    )
+  )
+  check('找到主题下拉触发器（角色下拉同款）', themeTrigger && themeTrigger.open, JSON.stringify(themeTrigger))
+  if (themeTrigger && themeTrigger.open) {
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: Math.round(themeTrigger.x),
+      y: Math.round(themeTrigger.y),
+      button: 'none',
+      pointerType: 'mouse',
+    })
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: Math.round(themeTrigger.x),
+      y: Math.round(themeTrigger.y),
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+      pointerType: 'mouse',
+    })
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: Math.round(themeTrigger.x),
+      y: Math.round(themeTrigger.y),
+      button: 'left',
+      buttons: 0,
+      clickCount: 1,
+      pointerType: 'mouse',
+    })
+    await new Promise((r) => setTimeout(r, 300))
+    const ddState = JSON.parse(
+      await cdp.eval(
+        "(function(){var ls=document.querySelectorAll('.zcwv-roles.zcwv-roles-open'),hit=null;" +
+          'for(var i=0;i<ls.length;i++){var head=ls[i].querySelector(\'.zcwv-roles-head\');' +
+          "if(head&&head.textContent==='\\u4e3b\\u9898'){" +
+          'var picks=ls[i].querySelectorAll(\'.zcwv-role-pick\'),texts=[],on=0;' +
+          'for(var j=0;j<picks.length;j++){texts.push(picks[j].textContent);' +
+          "if(picks[j].parentNode.className.indexOf('zcwv-role-row-on')!==-1)on++}" +
+          'hit={n:picks.length,texts:texts,onRow:on}}}return JSON.stringify(hit)})()'
+      )
+    )
+    check(
+      '主题下拉打开为主题化列表（3 项 + 当前项高亮）',
+      ddState && ddState.n === 3 && ddState.onRow === 1 && ddState.texts.indexOf('深色模式') !== -1,
+      JSON.stringify(ddState)
+    )
+    const darkPick = JSON.parse(
+      await cdp.eval(
+        "(function(){var ls=document.querySelectorAll('.zcwv-roles.zcwv-roles-open');" +
+          'for(var i=0;i<ls.length;i++){var head=ls[i].querySelector(\'.zcwv-roles-head\');' +
+          "if(head&&head.textContent==='\\u4e3b\\u9898'){var picks=ls[i].querySelectorAll('.zcwv-role-pick');" +
+          "for(var j=0;j<picks.length;j++){if(picks[j].textContent==='\\u6df1\\u8272\\u6a21\\u5f0f'){" +
+          'var r=picks[j].getBoundingClientRect();' +
+          'return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2})}}}}return null})()'
+      )
+    )
+    if (darkPick) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: Math.round(darkPick.x),
+        y: Math.round(darkPick.y),
+        button: 'left',
+        buttons: 1,
+        clickCount: 1,
+        pointerType: 'mouse',
+      })
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: Math.round(darkPick.x),
+        y: Math.round(darkPick.y),
+        button: 'left',
+        buttons: 0,
+        clickCount: 1,
+        pointerType: 'mouse',
+      })
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    const ddResult = JSON.parse(
+      await cdp.eval(
+        "(function(){var ts=document.querySelectorAll('.zcwv-role-trigger'),label=null;" +
+          "for(var i=0;i<ts.length;i++){if((ts[i].title||'').indexOf('\\u9009\\u62e9\\u4e3b\\u9898')===0){" +
+          "label=ts[i].querySelector('.zcwv-role-name').textContent}}" +
+          "var ss=document.querySelectorAll('select'),val=null;" +
+          "for(var k=0;k<ss.length;k++){var vs=[];for(var j=0;j<ss[k].options.length;j++)vs.push(ss[k].options[j].value);" +
+          "if(vs.indexOf('system')!==-1)val=ss[k].value}" +
+          'return JSON.stringify({dark:document.documentElement.classList.contains(\'zcw-theme-dark\'),' +
+          'label:label,val:val,listClosed:document.querySelectorAll(\'.zcwv-roles.zcwv-roles-open\').length===0})})()'
+      )
+    )
+    check(
+      '点「深色模式」后主题生效、触发器文字与 select.value 同步、列表收起',
+      ddResult && ddResult.dark === true && ddResult.label === '深色模式' && ddResult.val === 'dark' && ddResult.listClosed === true,
+      JSON.stringify(ddResult)
+    )
+  }
+
   // 后面的按钮配色断言针对深色主题，这里切回去（顺带验证 dark 仍能落盘生效）
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',

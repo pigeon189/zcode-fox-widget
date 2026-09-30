@@ -14,6 +14,14 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
       } catch (err) {}
     })
   },
+  // 主进程低频轮询的真实光标位置（页面坐标）。指针事件流异常中断时用它兜底。
+  onCursor: (callback) => {
+    ipcRenderer.on('whale:cursor', (_event, pt) => {
+      try {
+        callback(pt)
+      } catch (err) {}
+    })
+  },
   // 跟随探测间隔（毫秒）：值越小鲸鱼跟得越紧
   setFollowInterval: (ms) => ipcRenderer.send('whale:follow-interval', Number(ms)),
   getFollowInterval: () => ipcRenderer.invoke('whale:follow-interval-get'),
