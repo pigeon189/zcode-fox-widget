@@ -63,6 +63,12 @@ if (DEBUG_PORT > 0) {
 
 let win = null
 let interactive = false
+// 浮层「应显示」状态：true=透明度 1 跟随中，false=透明度 0 隐身。
+// 隐身/重现刻意**不做** win.hide()/showInactive()——窗口生命周期切换会把
+// 原生输入管线卡死（重现后物理点击到不了渲染器，2026-10-01 实测），而
+// 透明度切换不触碰窗口生命周期。首次显示仍是真正的 showInactive（每条
+// 窗口生命周期只有一次，实测无此问题）。
+let overlayShown = false
 let follower = null
 let pageReady = false // 页面已加载出真实内容（此前上屏只会是一帧空透明画面）
 
@@ -174,6 +180,7 @@ function createWindow() {
     // 其它平台没有窗口跟随，直接铺满工作区
     win.once('ready-to-show', () => {
       win.show()
+      overlayShown = true
       win.setIgnoreMouseEvents(true, { forward: true })
     })
   }
@@ -269,9 +276,15 @@ function applyZCodeBounds(msg) {
     app.quit()
     return
   }
-  // show=false：ZCode 最小化、被别的应用盖住，或窗口暂时找不到
+  // show=false：ZCode 最小化、被别的应用盖住，或窗口暂时找不到。
+  // 透明度隐身（而非 win.hide()），原因见 overlayShown 处的注释。
   if (msg.hide || msg.show === false) {
-    if (win.isVisible()) win.hide()
+    if (overlayShown) {
+      overlayShown = false
+      interactive = false
+      win.setIgnoreMouseEvents(true) // 无 forward：隐身期间页面不许再驱动接管
+      win.setOpacity(0)
+    }
     log('hidden', msg.hide ? 'window-missing' : 'zcode-not-foreground')
     return
   }
@@ -293,27 +306,37 @@ function applyZCodeBounds(msg) {
     height: Math.round(rect.height),
   }
 
+  let reshowTransition = false
   if (!win.isVisible()) {
     // 页面没加载完就上屏，只会把一帧空透明画面交给合成器——首帧必须是
-    // 真实内容，宁可晚几毫秒出现（did-finish-load 后下一拍跟随消息自然放行）
+    // 真实内容，宁可晚几毫秒出现（did-finish-load 后下一拍跟随消息自然放行）。
+    // 这是窗口生命周期里唯一一次真正的 show 过渡，实测无输入问题。
     if (!pageReady) return
     win.showInactive()
-    // 无条件重写输入状态：旧的半重放只在 interactive=false 时生效，true 时
-    // 什么都不做，hide→show 循环后 OS 层输入样式可能与 API 值脱节
+    overlayShown = true
+    win.setOpacity(1)
     win.setIgnoreMouseEvents(!interactive, { forward: !interactive })
     kickPresentation('reshow')
-    reviveInputAfterShow()
-    // 重置冻结检测的观测窗：pixSamples 里可能还压着隐藏期的「浮层不在场」
-    // 恒定哈希，healthySince 也停留在隐藏前——不清掉，重现后的第一拍就会
-    // 被过期数据判成冻结。真冻结最多晚 4 秒发现，可接受。
-    pixSamples.length = 0
-    healthySince = Date.now()
-    lastSeenPhase = liveRect ? liveRect.phase : null
+    resetDetectorWindow()
     log('shown-at', JSON.stringify(lastViewport))
+  } else if (!overlayShown) {
+    // 透明度隐身后的重现：只恢复透明度与输入状态，不做任何 show 过渡
+    reshowTransition = true
+    overlayShown = true
+    win.setOpacity(1)
+    win.setIgnoreMouseEvents(!interactive, { forward: !interactive })
+    kickPresentation('reshow')
+    resetDetectorWindow()
+    log('reshown-at', JSON.stringify(lastViewport))
   }
 
   try {
-    win.webContents.send('whale:viewport', lastViewport)
+    // fresh 标记：重现瞬间页面的指针结论（lastPointer/迟滞残留）全部作废，
+    // 页面据此清空并强制重算，避免隐藏期陈旧状态维持错误的接管/穿透
+    win.webContents.send(
+      'whale:viewport',
+      reshowTransition ? Object.assign({ fresh: 1 }, lastViewport) : lastViewport
+    )
   } catch (err) {}
 }
 
@@ -321,6 +344,12 @@ function applyZCodeBounds(msg) {
 function applyInteractive(next) {
   if (!win || win.isDestroyed()) {
     log('interactive-ignored', String(next))
+    return
+  }
+  // 隐身期间页面不许驱动接管：invisible 窗口一旦接管会把本该落到 ZCode
+  // 的点击整个吃掉（页面在透明度 0 下照常运行，会拿陈旧指针位置翻状态）
+  if (!overlayShown) {
+    log('interactive-ignored-hidden', String(next))
     return
   }
   const want = !!next
@@ -335,39 +364,6 @@ function applyInteractive(next) {
     win.setIgnoreMouseEvents(true, { forward: true })
   }
   log('interactive-applied', String(want))
-}
-
-// 原生输入复活。实测（2026-10-01）：浮层经历 hide→showInactive 后，哪怕
-// Electron 侧 interactive/setIgnoreMouseEvents/WS_EX_TRANSPARENT 全部正确、
-// WindowFromPoint 也指向浮层，物理点击仍然到不了渲染器（CDP 注入点击正常、
-// 光标轮询正常）——输入卡死在 Chromium 的原生输入管线里。对窗口做一次
-// 可激活化 + focus / blur 循环能把管线踢活（实测有效，且因前台锁通常并不
-// 真的抢走 ZCode 前台，follower 全程无状态变化）。重现时无条件做一次，
-// 把「切回后点击无响应」压成零。
-// 原生输入复活。实测（2026-10-01）：浮层经历 hide→showInactive 后，哪怕
-// Electron 侧 interactive/setIgnoreMouseEvents/WS_EX_TRANSPARENT 全部正确、
-// WindowFromPoint 也指向浮层，物理点击仍然到不了渲染器（CDP 注入点击正常、
-// 光标轮询正常）——输入卡死在 Chromium 的原生输入管线里。
-//
-// 复活手法是对 WS_EX_NOACTIVATE 做一次翻转：setFocusable 的样式重写会强迫
-// Chromium 的 HWNDMessageHandler 重走一遍窗口属性/输入状态初始化。第一版
-// 还配了 focus()/blur()——实测 focus() 会真的激活浮层（抢走 ZCode 前台），
-// 300ms 后 blur() 又把前台交给 shell（explorer），浮层随即被跟随逻辑藏起，
-// 等于复活流程自己复刻了一次「切走」。所以这里只翻转样式、绝不碰焦点。
-function reviveInputAfterShow() {
-  if (!win || win.isDestroyed()) return
-  if (keyboardFocus) return // 页面正要键盘时绝不能拆它的可激活态
-  log('input-revive')
-  try {
-    win.setFocusable(true)
-  } catch (err) {}
-  setTimeout(() => {
-    try {
-      if (!win || win.isDestroyed()) return
-      if (keyboardFocus) return
-      win.setFocusable(false)
-    } catch (err) {}
-  }, 100)
 }
 
 ipcMain.on('whale:interactive', (_event, value) => {
@@ -414,7 +410,7 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
 // 鲸鱼会永远点不到（表现为「点击完全没有响应」）。主进程按 200ms 轮询一次
 // 真实光标位置兜底发给页面：页面把它当低频位置修正，真事件仍占主导。
 setInterval(() => {
-  if (!win || win.isDestroyed() || !win.isVisible()) return
+  if (!overlayShown || !win || win.isDestroyed()) return
   try {
     const p = screen.getCursorScreenPoint()
     const b = win.getContentBounds()
@@ -425,7 +421,7 @@ setInterval(() => {
 // 兜底自愈：对可见中的窗口定期做一次出帧保险。若画面真的冻结在旧帧，
 // 最迟 60 秒内被踢回正常，不需要手动 window stop/start。
 setInterval(() => {
-  if (!win || win.isDestroyed() || !win.isVisible()) return
+  if (!overlayShown || !win || win.isDestroyed()) return
   kickPresentation('periodic')
 }, 60000)
 
@@ -435,8 +431,9 @@ setInterval(() => {
 // 旧帧），唯一真相是合成后的桌面像素。页面在鲸鱼身体上放了一个 6px 活性
 // 点（黑白交替翻转，见 widget.js），并把物理矩形经 whale:live-rect 报上来；
 // dxgi-watch.ps1 用桌面复制采样该处像素输出哈希。判定：页面在翻（phase
-// 推进）而采样哈希持续不变 = 冻结。解冻阶梯：先最小化+还原（2026-09-30
-// 实测对非 DPI 触发的冻结有效），无效再整窗重建（对 DPI 变更型有效）。
+// 推进）而采样哈希持续不变 = 冻结。解冻阶梯：先透明度闪烁（逼迫合成器重
+// 推一帧），无效再整窗重建。曾经的 min/restore 已废弃——窗口生命周期过渡
+// 会把原生输入管线卡死（见 overlayShown 处注释）。
 let liveRect = null
 let liveRectAt = 0
 let lastSeenPhase = null
@@ -446,6 +443,15 @@ let healLevel = 0
 const pixSamples = []
 const LIVE_RECT_FILE = path.join(os.homedir(), '.zcode', 'whale', 'live-rect.json')
 
+// 重现/自愈后重置检测观测窗：隐藏期的样本是「浮层不在场」的静态哈希，
+// healthySince/lastSeenPhase 也停留在隐藏前——不清掉，重现后的第一拍就会
+// 被过期数据判成冻结。真冻结最多晚 4 秒发现，可接受。
+function resetDetectorWindow() {
+  pixSamples.length = 0
+  healthySince = Date.now()
+  lastSeenPhase = null
+}
+
 ipcMain.on('whale:live-rect', (_event, rect) => {
   if (!rect || typeof rect.x !== 'number' || !(rect.w > 0)) return
   // 隐藏期间页面的 visibilityState 不会变 hidden（Electron 怪癖，实测活性点
@@ -453,7 +459,7 @@ ipcMain.on('whale:live-rect', (_event, rect) => {
   // 的是它身后的静态背景——拿这些报告刷新 liveRectAt，会让重现瞬间检测器
   // 踩着「隐藏期恒定哈希」误判冻结（2026-09-30/10-01 黑匣子两度实锤，且
   // 60s 内两次会升级成整窗重建）。隐藏期一律不收。
-  if (!win || win.isDestroyed() || !win.isVisible()) return
+  if (!overlayShown || !win || win.isDestroyed()) return
   liveRect = rect
   liveRectAt = Date.now()
   try {
@@ -511,17 +517,19 @@ function healFreeze() {
   healthySince = now
   if (healLevel === 0) {
     healLevel = 1
-    log('freeze-heal', 'min-restore')
+    log('freeze-heal', 'opacity-flicker')
     try {
-      win.minimize()
+      // 透明度 0→1 闪烁逼迫合成器重推一帧；刻意不做 min/restore——窗口
+      // 生命周期过渡会把原生输入管线卡死（本文件 overlayShown 处注释）
+      win.setOpacity(0)
       setTimeout(() => {
         try {
           if (win && !win.isDestroyed()) {
-            win.restore()
-            reviveInputAfterShow() // min/restore 与 hide/show 同族，会同样打断原生输入
+            win.setOpacity(1)
+            kickPresentation('heal')
           }
         } catch (err) {}
-      }, 300)
+      }, 120)
     } catch (err) {
       log('freeze-heal-failed', String((err && err.message) || err))
     }
@@ -534,7 +542,7 @@ function healFreeze() {
 
 setInterval(() => {
   if (!watcher && Date.now() > watcherRespawnAt) startFreezeWatcher()
-  if (!win || win.isDestroyed() || !win.isVisible()) return
+  if (!overlayShown || !win || win.isDestroyed()) return
   if (!liveRect || Date.now() - liveRectAt > 5000) return // 页面没在报（未加载/被覆盖/隐藏）
   const now = Date.now()
   while (pixSamples.length && now - pixSamples[0].t > 10000) pixSamples.shift()
@@ -584,6 +592,7 @@ function recreateWindow(reason) {
   // 交互与检测状态全部回到与「全新窗口」一致的起点。
   interactive = false
   keyboardFocus = false
+  overlayShown = false
   liveRect = null
   liveRectAt = 0
   lastSeenPhase = null
