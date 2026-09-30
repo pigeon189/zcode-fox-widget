@@ -116,7 +116,7 @@ public static class DxgiWatch {
   [DllImport("kernel32.dll")] static extern IntPtr LoadLibraryA(string name);
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
 
-  const int WAIT_TIMEOUT = unchecked((int)0x87A00027);
+  const int WAIT_TIMEOUT = unchecked((int)0x887A0027); // DXGI_ERROR_WAIT_TIMEOUT (MAKE_DXGI_HRESULT(7))
   const uint DXGI_FORMAT_B8G8R8A8_UNORM = 87;
   const uint D3D11_USAGE_STAGING = 3;
   const uint D3D11_CPU_ACCESS_READ = 0x20000;
