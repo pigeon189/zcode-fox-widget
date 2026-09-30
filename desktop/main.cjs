@@ -303,6 +303,12 @@ function applyZCodeBounds(msg) {
     win.setIgnoreMouseEvents(!interactive, { forward: !interactive })
     kickPresentation('reshow')
     reviveInputAfterShow()
+    // 重置冻结检测的观测窗：pixSamples 里可能还压着隐藏期的「浮层不在场」
+    // 恒定哈希，healthySince 也停留在隐藏前——不清掉，重现后的第一拍就会
+    // 被过期数据判成冻结。真冻结最多晚 4 秒发现，可接受。
+    pixSamples.length = 0
+    healthySince = Date.now()
+    lastSeenPhase = liveRect ? liveRect.phase : null
     log('shown-at', JSON.stringify(lastViewport))
   }
 
@@ -434,6 +440,12 @@ const LIVE_RECT_FILE = path.join(os.homedir(), '.zcode', 'whale', 'live-rect.jso
 
 ipcMain.on('whale:live-rect', (_event, rect) => {
   if (!rect || typeof rect.x !== 'number' || !(rect.w > 0)) return
+  // 隐藏期间页面的 visibilityState 不会变 hidden（Electron 怪癖，实测活性点
+  // 相位在隐藏期照常推进），上报会一直来。但此时浮层根本不在屏幕上，采样
+  // 的是它身后的静态背景——拿这些报告刷新 liveRectAt，会让重现瞬间检测器
+  // 踩着「隐藏期恒定哈希」误判冻结（2026-09-30/10-01 黑匣子两度实锤，且
+  // 60s 内两次会升级成整窗重建）。隐藏期一律不收。
+  if (!win || win.isDestroyed() || !win.isVisible()) return
   liveRect = rect
   liveRectAt = Date.now()
   try {
@@ -567,7 +579,7 @@ function recreateWindow(reason) {
   liveRect = null
   liveRectAt = 0
   lastSeenPhase = null
-  healthySince = 0
+  healthySince = Date.now()
   healLevel = 0
   pixSamples.length = 0
   createWindow()
@@ -582,7 +594,12 @@ app.whenReady().then(() => {
     setTimeout(() => recreateWindow('display-metrics-changed ' + JSON.stringify(metrics || [])), 500)
   })
 })
-app.on('window-all-closed', () => app.quit())
+app.on('window-all-closed', () => {
+  // recreateWindow 会先 destroy 再 createWindow，中间窗口数为零——这一拍
+  // 绝不能退出（2026-10-01 实测：重建路径首秀被这条竞态整锅端掉，浮层直接
+  // 消失）。只有主动退出或非重建状态才允许 quit。
+  if (!app.isQuitting && !recreating) app.quit()
+})
 app.on('before-quit', () => {
   app.isQuitting = true
   if (watcher) {
