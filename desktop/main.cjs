@@ -22,6 +22,13 @@ const TARGET_URL = 'http://127.0.0.1:' + PORT + '/'
 // 非手势起播（表现为「点击有时没声音」），显式放开（须在 app ready 前设置）。
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
+// 透明置顶窗口被全屏应用（游戏/视频）完全覆盖后，Chromium 的原生窗口遮挡
+// 计算可能把「被完全遮挡 → 停止向屏幕出帧」的判定卡死：遮挡消失后页面逻辑
+// 照常运行，但画面永远停在旧帧（实测表现为挂件冻结，重建窗口才能恢复）。
+// 关掉这条计算——代价只是被覆盖期间也照常出帧，而浮层本来就常年被 ZCode
+// 透过来看，这份开销是设计内的。（须在 app ready 前设置）
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+
 // 排查用日志：只有开启调试端口时才写，平时零开销。
 const DEBUG_LOG = process.env.WHALE_DEBUG_PORT
   ? path.join(os.homedir(), '.zcode', 'whale', 'overlay-debug.log')
@@ -47,6 +54,18 @@ if (DEBUG_PORT > 0) {
 let win = null
 let interactive = false
 let follower = null
+let pageReady = false // 页面已加载出真实内容（此前上屏只会是一帧空透明画面）
+
+// 出帧保险：强制合成器重新送一帧 + 把窗口顶回最上层。零视觉变化，
+// 用于对抗「合成视觉脱钩后画面停在旧帧」的偶发状态（见上面的 disable-features）。
+function kickPresentation(reason) {
+  if (!win || win.isDestroyed()) return
+  try {
+    win.webContents.invalidate()
+    win.moveTop()
+    log('kick', reason)
+  } catch (err) {}
+}
 
 // 跟随探测间隔（毫秒）。越小越跟手，代价是探测脚本醒来更频繁——它每次只做
 // 几个微秒级的 Win32 调用，所以即使是 16ms 也不构成负担。默认 40ms（约 25 次/秒）。
@@ -105,6 +124,7 @@ function createWindow() {
 
   // 页面加载完成后补发一次视口，避免启动早期的 rect 消息丢失
   win.webContents.on('did-finish-load', () => {
+    pageReady = true
     if (!lastViewport) return
     try {
       win.webContents.send('whale:viewport', lastViewport)
@@ -248,8 +268,12 @@ function applyZCodeBounds(msg) {
   }
 
   if (!win.isVisible()) {
+    // 页面没加载完就上屏，只会把一帧空透明画面交给合成器——首帧必须是
+    // 真实内容，宁可晚几毫秒出现（did-finish-load 后下一拍跟随消息自然放行）
+    if (!pageReady) return
     win.showInactive()
     if (!interactive) win.setIgnoreMouseEvents(true, { forward: true })
+    kickPresentation('reshow')
     log('shown-at', JSON.stringify(lastViewport))
   }
 
@@ -329,6 +353,13 @@ setInterval(() => {
     win.webContents.send('whale:cursor', { x: Math.round(p.x - b.x), y: Math.round(p.y - b.y) })
   } catch (err) {}
 }, 200)
+
+// 兜底自愈：对可见中的窗口定期做一次出帧保险。若画面真的冻结在旧帧，
+// 最迟 60 秒内被踢回正常，不需要手动 window stop/start。
+setInterval(() => {
+  if (!win || win.isDestroyed() || !win.isVisible()) return
+  kickPresentation('periodic')
+}, 60000)
 
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
