@@ -138,6 +138,22 @@ function createWindow() {
     }, 2000)
   })
 
+  // 页面侧黑匣子：把页面 console（含 [zcw] 埋点与未捕获异常）转进调试日志。
+  // 「点击没反应」「画面冻结」这类状态性问题复发时，这里是第一现场。
+  // 只有调试模式下才挂（DEBUG_LOG 为 null 时零开销）。
+  if (DEBUG_LOG) {
+    win.webContents.on('console-message', (...args) => {
+      try {
+        const d = args[0]
+        if (d && typeof d === 'object' && 'message' in d) {
+          log('page-l' + (d.level != null ? d.level : '?'), String(d.message).slice(0, 300))
+        } else {
+          log('page-l' + args[1], String(args[2]).slice(0, 300))
+        }
+      } catch (err) {}
+    })
+  }
+
   win.on('closed', () => {
     win = null
   })
@@ -361,6 +377,40 @@ setInterval(() => {
   kickPresentation('periodic')
 }, 60000)
 
+// DPI/显示缩放变更后，透明置顶窗口的交换链可能整体死掉：页面活着、渲染器
+// 照常出帧（CDP 截图正常），但屏幕停在旧帧，invalidate/moveTop 的出帧保险
+// 也救不回来（实测 2026-09-30：缩放 125%→150% 后冻结复发，kick periodic
+// 每 60s 都在打但画面不动）。唯一可靠的恢复是重建窗口——与其等用户发现
+// 卡住再手动 window restart，不如在指标变更的当下自动重建一次，把状态性
+// 冻结压成一次无感重启。
+let recreating = false
+function recreateWindow(reason) {
+  if (recreating) return
+  recreating = true
+  log('recreate-window', reason)
+  const old = follower
+  follower = null
+  if (old) {
+    try {
+      old.kill()
+    } catch (err) {}
+  }
+  try {
+    if (win && !win.isDestroyed()) win.destroy()
+  } catch (err) {}
+  win = null
+  pageReady = false
+  createWindow()
+  recreating = false
+}
+
+app.whenReady().then(() => {
+  createWindow()
+  screen.on('display-metrics-changed', (_event, _display, metrics) => {
+    // 稍等一拍再动手，让系统先把显示器拓扑稳定下来
+    setTimeout(() => recreateWindow('display-metrics-changed ' + JSON.stringify(metrics || [])), 500)
+  })
+})
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
   app.isQuitting = true
@@ -371,5 +421,3 @@ app.on('before-quit', () => {
     follower = null
   }
 })
-
-app.whenReady().then(createWindow)

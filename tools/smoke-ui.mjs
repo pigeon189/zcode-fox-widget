@@ -880,6 +880,35 @@ try {
   )
   if (stubB && stubB.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubB.identifier })
   await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 0 } })
+
+  // ⑬ Plan 观测 stale（客户端今天还没刷新过日志）：显示旧值 + 「数据截至」
+  //    日期标注，而不是一直挂在「加载中…」（v1.4.1）
+  const staleStub = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source:
+      '(function(){var real=window.fetch;function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
+      'var S={ok:true,source:"plan",vendor:"zcode-plan",label:"Plan 配额",timeMode:"none",modelId:"GLM-5.3-Flash",currency:"CNY",from:"selection"};' +
+      'var P={ok:true,source:"plan-log",logDate:"2026-09-01",stale:true,observedAt:Date.now(),serverTime:Math.floor(Date.now()/1000),remaining:240000,total:10000000,used:9760000,percentRemaining:0.024,percentUsed:0.976,nextResetAt:null,byModel:[],plans:[]};' +
+      'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
+      'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
+      'if(s.indexOf("/whale/plan.json")!==-1)return json(P);' +
+      'return real.apply(this,arguments)}})()',
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3500))
+  const staleView = await pollEval(
+    cdp,
+    "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
+      "if(!l||!a||l.textContent!=='Plan 配额')return null;" +
+      "return JSON.stringify({amount:a.textContent,hint:h.textContent})})()",
+    15000
+  )
+  const staleObj = staleView ? JSON.parse(staleView) : null
+  check(
+    'Plan 观测 stale 时显示旧值并标注数据日期（不再永远「加载中…」）',
+    !!staleObj && staleObj.amount === '2.4%' && String(staleObj.hint).indexOf('数据截至 09-01') !== -1,
+    JSON.stringify(staleObj)
+  )
+  if (staleStub && staleStub.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: staleStub.identifier })
 } catch (err) {
   check('冒烟过程未抛异常', false, String((err && err.message) || err))
 } finally {
