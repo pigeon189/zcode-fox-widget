@@ -28,4 +28,7 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
   // 窗口默认不可激活（否则点挂件会抢走 ZCode 的前台、让它停止刷新）。
   // 菜单里的文本框/下拉需要键盘时才临时打开，用完立刻交还。
   setKeyboardFocus: (value) => ipcRenderer.send('whale:keyboard-focus', !!value),
+  // 冻结检测：页面把「活性点」的物理屏幕矩形持续报上来，主进程用 DXGI
+  // 桌面复制采样该处像素做对账（页面在翻、屏幕不动 = 合成器冻结）
+  sendLiveRect: (rect) => ipcRenderer.send('whale:live-rect', rect),
 })

@@ -377,6 +377,123 @@ setInterval(() => {
   kickPresentation('periodic')
 }, 60000)
 
+// ---------- 冻结检测：活性点像素对账 ----------
+//
+// 合成器级冻结的页面侧永远发现不了（rAF/事件/气泡全活着，只有屏幕停在
+// 旧帧），唯一真相是合成后的桌面像素。页面在鲸鱼身体上放了一个 6px 活性
+// 点（黑白交替翻转，见 widget.js），并把物理矩形经 whale:live-rect 报上来；
+// dxgi-watch.ps1 用桌面复制采样该处像素输出哈希。判定：页面在翻（phase
+// 推进）而采样哈希持续不变 = 冻结。解冻阶梯：先最小化+还原（2026-09-30
+// 实测对非 DPI 触发的冻结有效），无效再整窗重建（对 DPI 变更型有效）。
+let liveRect = null
+let liveRectAt = 0
+let lastSeenPhase = null
+let healthySince = 0
+let lastHealAt = 0
+let healLevel = 0
+const pixSamples = []
+const LIVE_RECT_FILE = path.join(os.homedir(), '.zcode', 'whale', 'live-rect.json')
+
+ipcMain.on('whale:live-rect', (_event, rect) => {
+  if (!rect || typeof rect.x !== 'number' || !(rect.w > 0)) return
+  liveRect = rect
+  liveRectAt = Date.now()
+  try {
+    fs.mkdirSync(path.dirname(LIVE_RECT_FILE), { recursive: true })
+    fs.writeFileSync(LIVE_RECT_FILE, JSON.stringify({ x: rect.x, y: rect.y, w: rect.w, h: rect.h }))
+  } catch (err) {}
+})
+
+let watcher = null
+let watcherRespawnAt = 0
+let watcherBlindLogged = 0
+function startFreezeWatcher() {
+  if (process.platform !== 'win32' || watcher) return
+  try {
+    watcher = spawn(
+      'powershell',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'dxgi-watch.ps1'), '-RectFile', LIVE_RECT_FILE],
+      { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
+    )
+  } catch (err) {
+    watcher = null
+    watcherRespawnAt = Date.now() + 60000
+    return
+  }
+  let buf = ''
+  watcher.stdout.on('data', (chunk) => {
+    buf += chunk.toString('utf8')
+    let idx
+    while ((idx = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, idx).trim()
+      buf = buf.slice(idx + 1)
+      if (line.indexOf('pix ') === 0) {
+        pixSamples.push({ h: line.slice(4, 12), t: Date.now() })
+      } else if (line.indexOf('blind ') === 0) {
+        // 传感器不可用（无 D3D/被占用等）：检测自动失效，只在调试日志留痕
+        if (watcherBlindLogged < 3 || watcherBlindLogged % 100 === 0) log('watcher-blind', line.slice(0, 80))
+        watcherBlindLogged += 1
+      }
+    }
+  })
+  watcher.stderr.on('data', (chunk) => log('watcher-stderr', chunk.toString('utf8').slice(0, 200)))
+  watcher.on('exit', (code) => {
+    watcher = null
+    watcherRespawnAt = Date.now() + 15000
+    log('watcher-exit', String(code))
+  })
+}
+
+function healFreeze() {
+  const now = Date.now()
+  // 60 秒内反复冻结才升级；隔久了从头来（新触发因素从最轻的一档试起）
+  if (now - lastHealAt > 60000) healLevel = 0
+  lastHealAt = now
+  pixSamples.length = 0
+  healthySince = now
+  if (healLevel === 0) {
+    healLevel = 1
+    log('freeze-heal', 'min-restore')
+    try {
+      win.minimize()
+      setTimeout(() => {
+        try {
+          if (win && !win.isDestroyed()) win.restore()
+        } catch (err) {}
+      }, 300)
+    } catch (err) {
+      log('freeze-heal-failed', String((err && err.message) || err))
+    }
+  } else {
+    healLevel = 0
+    log('freeze-heal', 'recreate')
+    recreateWindow('freeze-detected')
+  }
+}
+
+setInterval(() => {
+  if (!watcher && Date.now() > watcherRespawnAt) startFreezeWatcher()
+  if (!win || win.isDestroyed() || !win.isVisible()) return
+  if (!liveRect || Date.now() - liveRectAt > 5000) return // 页面没在报（未加载/被覆盖/隐藏）
+  const now = Date.now()
+  while (pixSamples.length && now - pixSamples[0].t > 10000) pixSamples.shift()
+  const recent = pixSamples.filter((s) => now - s.t <= 4000)
+  if (recent.length < 5) return
+  // 页面活性：phase 在推进（页面活着）；phase 也停了说明是页面挂死，不是合成器冻结
+  const pageAlive = liveRect.phase !== lastSeenPhase
+  lastSeenPhase = liveRect.phase
+  if (!pageAlive) return
+  const allSame = recent.every((s) => s.h === recent[0].h)
+  if (!allSame) {
+    healthySince = now
+    return
+  }
+  // 连续 4 秒以上：页面在翻、屏幕像素纹丝不动
+  if (now - healthySince < 4000) return
+  log('freeze-detected', 'samples=' + recent.length + ' phase=' + liveRect.phase)
+  healFreeze()
+}, 1000)
+
 // DPI/显示缩放变更后，透明置顶窗口的交换链可能整体死掉：页面活着、渲染器
 // 照常出帧（CDP 截图正常），但屏幕停在旧帧，invalidate/moveTop 的出帧保险
 // 也救不回来（实测 2026-09-30：缩放 125%→150% 后冻结复发，kick periodic
@@ -406,6 +523,7 @@ function recreateWindow(reason) {
 
 app.whenReady().then(() => {
   createWindow()
+  startFreezeWatcher()
   screen.on('display-metrics-changed', (_event, _display, metrics) => {
     // 稍等一拍再动手，让系统先把显示器拓扑稳定下来
     setTimeout(() => recreateWindow('display-metrics-changed ' + JSON.stringify(metrics || [])), 500)
@@ -414,6 +532,12 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
   app.isQuitting = true
+  if (watcher) {
+    try {
+      watcher.kill()
+    } catch (err) {}
+    watcher = null
+  }
   if (follower) {
     try {
       follower.kill()

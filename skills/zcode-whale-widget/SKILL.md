@@ -114,6 +114,10 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | 每轮消耗不弹窗 | 需要 ZCode 至少完成过一轮对话（`turn_usage` 有 `completed` 行）；另外菜单里「每轮消耗提示」必须开着 |
 | **套餐轮（Start plan 等）每轮消耗显示了 ¥ 金额** | v1.4.0 起按「本轮消耗余额: x%」口径（与主显示 Plan 剩余同基数，占配额总量），混合轮次 hint 补「另耗 ¥」；CLI `turn` 同口径。若又看到金额：查 `lib/plan-balance.mjs` 的 `turnPlanUsage()` 是否被 `server.mjs` 的 `pollTurnCost` 调用、`widget.js` 的 `showCostBubble` 是否先判 `planPct` 再判 `billable`。读不到配额观测时按 tokens 口径显示，属预期 |
 | **气泡文字顶出色泡** | v1.4.0 起 `widget.js` 的 `fitBubbleLines()` 在每次气泡内容变化后逐行缩字（等比缩放，下限 62%）+ 换行兜底，覆盖余额视图/每轮消耗/预警/自定义台词。宽度测量用 Range（行元素是 block，`scrollWidth` 会被最宽兄弟行撑大导致短行越缩越小）——改这段别换回 `scrollWidth`；安全行宽常数 560u 与 `.zcwv-wrap`/gif 上限同源 |
+| **每轮消耗显示旧套餐的残值%（如 2.4%）** | v1.4.2 前的形态：会话高峰期 host-log 刷屏把余额标记挤出 512KB 尾窗 → 今天文件被误判无观测 → 回退读到旧套餐期末残值。修复 = `plan-balance.mjs` 的 `TAIL_STEPS` 逐级扩窗（512KB→4MB→32MB）+ `shapePlanPayload` 只统计 active 套餐名下的桶 + 日期外层循环。若复发先看 `/whale/plan.json` 的 `logDate` |
+| **每轮消耗的 % 明显偏小** | v1.4.2 前取「最大单行」；`model_usage` 一行是一次请求，长 agent 轮几十行。`turnPlanUsage()` 必须 `reduce` 全行求和（selftest 有「多行套餐轮求和」断言） |
+| **消耗气泡渐隐中内容闪变成余额** | `hideCostBubble()` 设 `costBubbleFadeUntil = now+350ms`，`render()` 在此窗口内只登记补渲染不改写文字。若复发查这两处守卫是否还在 |
+| **浮层整窗冻住但点击有响应**（页面活、屏幕停旧帧） | v1.4.2 起自动检测自愈：页面活性点（`#__zcwLive`，黑白翻转）+ `desktop/dxgi-watch.ps1` 桌面复制采样像素哈希，页面在翻而像素 4s 不变即判冻结，阶梯自愈 = 最小化+还原 → 重建窗口。传感器 stdout 是 `pix <hash>` 行，`blind` 开头 = 桌面复制不可用（检测自动失效）；黑匣子看 `freeze-detected` / `freeze-heal` / `watcher-*` 行 |
 | 挂件服务打不开 | `node lib/cli.mjs status` 看是否运行；未运行则 `start`。端口被占用会自动顺延，以 `status` 输出的地址为准 |
 | Plan 配额不显示 / 提示「Plan 日志未找到」 | 数据目录迁移后的机器在普通终端手动跑 `node lib/cli.mjs status/vendors` 时没有 `ZCODE_DATA_BASE_DIR`，只会探 `~/.zcode/v2/logs`（可能只剩迁移前残留）。终端调试先 `set ZCODE_DATA_BASE_DIR=<数据盘根目录>`；`/whale/plan.json` 的 `no-plan-log` 带 `probedDirs` 可看实际探测结果 |
 | 峰谷判定不对 | 检查 `lib/pricing.mjs` 的 `PEAK_HOURS` / `BASE_PRICE` / `PRO_PRICE`；北京时间工作日上午 9–12、下午 14–18 为高峰，2026-08-23 起周末全天谷价 |

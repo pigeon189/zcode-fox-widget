@@ -111,7 +111,15 @@ const planLogLine =
   '[2026-09-29 08:42:27.092] [info] [pid:1] [main] [host-log] (local-1) [host] [2026-09-29 08:42:27.091] [pid:2] [usage-stats] billing/balance 请求完成 ' +
   JSON.stringify(PLAN_FIXTURE) +
   '\n'
-fs.writeFileSync(path.join(planLogDir, todayKeyForLog() + '.log'), planLogLine, 'utf8')
+// v1.4.2 尾窗逐级扩读：标记行前垫 1.2MB 刷屏行、后垫 200KB，把标记整个
+// 挤出旧版 512KB 尾窗——读不到今天的观测就会回退到昨天的死套餐残值
+// （实测：2.4% 错值挂了一分钟）。服务必须逐级扩窗才能找到这条标记。
+const planJunkHead = Buffer.alloc(1200 * 1024, 0x78)
+const planJunkTail = Buffer.alloc(200 * 1024, 0x78)
+fs.writeFileSync(
+  path.join(planLogDir, todayKeyForLog() + '.log'),
+  Buffer.concat([planJunkHead, Buffer.from('\n' + planLogLine), planJunkTail])
+)
 
 // 厂商自动发现 fixture：一个 bigmodel 规则（应命中 bigmodel-glm），一个本地网关
 // 规则（baseURL 是环回地址，key 是网关鉴权用，必须被跳过，即使模型名含 deepseek），
@@ -464,6 +472,34 @@ function check(name, ok, detail) {
   check('Plan 日志解析：当天数据不标 stale', shaped && shaped.stale === false)
   const staleShaped = shapePlanPayload(PLAN_FIXTURE, '2026-01-01', Date.now())
   check('Plan 日志解析：非当天的观测标记 stale', staleShaped && staleShaped.stale === true)
+
+  // v1.4.2：过期套餐的遗留桶不冒充当前配额——balances 里会残留死套餐的桶
+  // （remaining=0 但 total 仍在），跨套餐求和会把百分比稀释失真
+  const deadFixture = JSON.parse(JSON.stringify(PLAN_FIXTURE))
+  deadFixture.balances.push({
+    entitlement_id: 'ent-legacy-0817',
+    show_name: 'GLM-5.3',
+    total_units: 3_000_000,
+    used_units: 3_000_000,
+    remaining_units: 0,
+    available_units: 0,
+    reserved_units: null,
+  })
+  const deadShaped = shapePlanPayload(deadFixture, today, Date.now())
+  check(
+    'Plan 日志解析：死套餐遗留桶被剔除（不稀释总量）',
+    deadShaped && deadShaped.total === 104_000_000 && deadShaped.byModel.length === 3,
+    'total=' + (deadShaped && deadShaped.total) + ' models=' + (deadShaped ? deadShaped.byModel.length : '无')
+  )
+  // 老格式日志（plans 列表为空，无法归属套餐）：保留全量桶，不误杀
+  const legacyFixture = JSON.parse(JSON.stringify(PLAN_FIXTURE))
+  legacyFixture.payload.data.plans = []
+  const legacyShaped = shapePlanPayload(legacyFixture, today, Date.now())
+  check(
+    'Plan 日志解析：无 plans 的老格式回退全量桶',
+    legacyShaped && legacyShaped.total === 104_000_000,
+    'total=' + (legacyShaped && legacyShaped.total)
+  )
 }
 
 // 厂商模板框架：字段路径求值与模板匹配
@@ -1323,6 +1359,33 @@ try {
     '重启后新一轮 seq 继续单调递增',
     fourth && fourth.seq === seqBeforeRestart + 1 && fourth.turn === 'turn_D',
     JSON.stringify(fourth ? { seq: fourth.seq, turn: fourth.turn } : fourth)
+  )
+
+  // v1.4.2：多行套餐轮求和——model_usage 一行是一次 API 请求，长 agent 轮
+  // 有几十行（上下文逐请求增长），取「最大单行」会少算一到两个数量级
+  // （实测 38 行轮 sum=9.97M vs 单行最大 275k，显示 0.28% 而非 9.97%）
+  const atE = Date.now()
+  const planRows = [
+    { model: 'GLM-5.3-Flash', providerId: 'account:zai-start-plan', usage: { input_tokens: 400_000, cache_read_input_tokens: 350_000, output_tokens: 50_000, computed_total_tokens: 400_000 } },
+    { model: 'GLM-5.3-Flash', providerId: 'account:zai-start-plan', usage: { input_tokens: 300_000, cache_read_input_tokens: 250_000, output_tokens: 50_000, computed_total_tokens: 300_000 } },
+    { model: 'GLM-5.3-Flash', providerId: 'account:zai-start-plan', usage: { input_tokens: 250_000, cache_read_input_tokens: 200_000, output_tokens: 50_000, computed_total_tokens: 250_000 } },
+  ]
+  insertTurn('sess_selftest', 'turn_E', USAGE_B, atE, planRows)
+  let fifth = null
+  const deadlineE = Date.now() + 6000
+  while (Date.now() < deadlineE) {
+    await new Promise((r) => setTimeout(r, 400))
+    fifth = await getJson(port, '/whale/last-turn.json')
+    if (fifth.seq > seqBeforeRestart + 1) break
+  }
+  // 行 tokens 口径 = 命中+未命中+缓存写+输出（与计费一致），三行分别是
+  // 450k/350k/300k（input 全部带 cache_read 时 = input+output）
+  const sumTokens = 1_100_000
+  const expectSumPct = Math.round((sumTokens / 104_000_000) * 10000) / 100
+  check(
+    '多行套餐轮按全行求和（planTokens=1.1M，planPct 同基数）',
+    fifth && fifth.turn === 'turn_E' && fifth.planTurn === true && fifth.planTokens === sumTokens && fifth.planPct === expectSumPct,
+    '期望 ' + sumTokens + ' tokens / ' + expectSumPct + '%，实际 ' + (fifth && fifth.planTokens) + ' / ' + (fifth && fifth.planPct) + '%'
   )
 
   // 智能跟随：selection 优先；不可识别时回落最近 model_usage（对话发起时识别）
