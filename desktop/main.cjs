@@ -29,10 +29,20 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // 透过来看，这份开销是设计内的。（须在 app ready 前设置）
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
-// 排查用日志：只有开启调试端口时才写，平时零开销。
-const DEBUG_LOG = process.env.WHALE_DEBUG_PORT
-  ? path.join(os.homedir(), '.zcode', 'whale', 'overlay-debug.log')
-  : null
+// 排查用日志：常开。这是冻结/点击取证的黑匣子，必须覆盖 hook 自启的日常
+// 实例（v1.4.2 及以前只在 WHALE_DEBUG_PORT 实例写入，日常冻结拿不到第一
+// 现场）。设 WHALE_OVERLAY_LOG=0 可显式关闭；CDP 调试口仍只按
+// WHALE_DEBUG_PORT 开（见下方 DEBUG_PORT）。启动时超过 5MB 轮转成 .1，
+// 防长期写爆。
+const DEBUG_LOG = process.env.WHALE_OVERLAY_LOG === '0'
+  ? null
+  : path.join(os.homedir(), '.zcode', 'whale', 'overlay-debug.log')
+try {
+  if (DEBUG_LOG && fs.statSync(DEBUG_LOG).size > 5 * 1024 * 1024) {
+    fs.rmSync(DEBUG_LOG + '.1', { force: true })
+    fs.renameSync(DEBUG_LOG, DEBUG_LOG + '.1')
+  }
+} catch (err) {}
 function log(...parts) {
   if (!DEBUG_LOG) return
   try {
