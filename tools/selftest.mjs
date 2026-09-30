@@ -914,6 +914,24 @@ try {
     third && third.quotaPct === expectPct,
     '期望 ' + expectPct + '%，实际 ' + (third && third.quotaPct)
   )
+  // v1.4.0：套餐轮的余额口径——planPct 占配额总量（与主显示「Plan 剩余 x%」同
+  // 基数），混合轮次把非套餐行的真实金额放进 extraAmounts；纯 DeepSeek 轮不带
+  const expectPlanPct = Math.round((550_000 / 104_000_000) * 10000) / 100
+  check(
+    '套餐轮次带「消耗余额百分比」（占配额总量，同主显示基数）',
+    third && third.planTurn === true && third.planPct === expectPlanPct && third.planTokens === 550_000,
+    '期望 ' + expectPlanPct + '%/550000，实际 ' + (third && third.planPct) + '%/' + (third && third.planTokens)
+  )
+  check(
+    '混合轮次的非套餐行金额进 extraAmounts（套餐行被剔除）',
+    third && third.extraAmounts && Math.abs(third.extraAmounts.CNY - dsPart) < 1e-9 && Object.keys(third.extraAmounts).length === 1,
+    '期望 CNY ' + dsPart.toFixed(6) + '，实际 ' + JSON.stringify(third && third.extraAmounts)
+  )
+  check(
+    '纯 DeepSeek 轮不带套餐口径（planTurn=false，planPct=null）',
+    second && second.planTurn === false && second.planPct === null && second.extraAmounts === null,
+    'planTurn=' + (second && second.planTurn) + ' planPct=' + (second && second.planPct)
+  )
 
   // 厂商模板端到端：自动发现命中 bigmodel 规则、跳过本地网关；无 key 的模板不可用
   const vendors = await getJson(port, '/whale/vendors.json')

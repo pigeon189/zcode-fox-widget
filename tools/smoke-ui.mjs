@@ -1,7 +1,8 @@
 // 前端冒烟：headless Edge/Chrome + CDP，加载真实挂件页面跑两条前端链路。
 // widget.js 是 IIFE、内部函数拿不到，所以全部走真实交互：
-//   1. 套餐轮次气泡（billable:false + quotaPct）必须显示「占当前配额 x%」
-//      ——回归 showCostBubble 尾部清理把 hint 覆盖掉的缺陷
+//   1. 套餐轮次气泡（Start plan 等订阅配额）显示「本轮消耗余额: x%」——金额是
+//      虚构的；混合轮次 hint 补「另耗 ¥」；超宽文字自适应缩字/换行不顶出色泡
+//      ——回归按量价目套在订阅配额上算钱、长文案顶破气泡两个缺陷
 //   2. 菜单「显示」选择（displayMode）改动要持久化，刷新后保持
 //      ——回归 writeWidgetState 白名单丢字段的缺陷
 // 服务端与假库同 selftest（临时 ZCODE_HOME），浏览器进程用完即杀。
@@ -237,22 +238,28 @@ try {
   )
   check('挂件前端完成初始化', !!booted)
 
-  // ① 套餐轮次气泡：GLM-4.7-Flash 免费（billable=false），120k/1M 桶 = 12%
+  // ① 套餐轮次气泡（v1.4.0 余额口径）：GLM-4.7-Flash 免费（billable=false）+
+  //    account:zai-start-plan（套餐行），120k/1M 配额 = 12%——主数字显示「消耗
+  //    余额百分比」而不是虚构金额，也不再是旧的 tokens+占配额组合
   insertTurn('turn_free', 'GLM-4.7-Flash', 'account:zai-start-plan', 100_000, 20_000)
-  // 只认「占当前配额」字样：随机台词气泡也可能占用 hint，不能见文本就过
-  const hint2 = await pollEval(
-    cdp,
-    "(function(){var h=document.querySelector('.zcwv-hint');return h&&h.style.display!=='none'&&h.textContent.indexOf('占当前配额 12')!==-1?h.textContent:null})()",
-    15000
+  const cost1 = JSON.parse(
+    (await pollEval(
+      cdp,
+      "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
+        "if(!l||!a||l.textContent!=='本轮消耗余额:')return null;" +
+        "return JSON.stringify({amount:a.textContent,hint:h&&h.style.display!=='none'?h.textContent:''})})()",
+      15000
+    )) || 'null'
   )
   check(
-    '套餐轮次气泡显示「占当前配额 12%」',
-    typeof hint2 === 'string' && hint2.indexOf('占当前配额 12') !== -1,
-    'hint=' + JSON.stringify(hint2)
+    '套餐轮次气泡显示「本轮消耗余额: 12%」（不是虚构金额）',
+    !!cost1 && cost1.amount === '12%' && String(cost1.hint).indexOf('消耗 12.0 万 tokens') !== -1,
+    JSON.stringify(cost1)
   )
 
   // ①b 智能跟随主显示：selection 缺失时回落 model_usage（account:zai-start-plan
   // → Plan 配额口径），主数字是剩余百分比而不是 DeepSeek 余额
+  // （必须赶在混合轮次插入前跑：turn_mix 的最后一行是 DeepSeek，会把回落源带偏）
   const planView = await pollEval(
     cdp,
     "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount');" +
@@ -264,6 +271,60 @@ try {
     typeof planView === 'string' && planView.indexOf('%') !== -1,
     'view=' + JSON.stringify(planView)
   )
+
+  // ①-2 混合轮次：套餐行 + 付费行。主数字仍是配额口径，hint 用「另耗 ¥」补上
+  //    非套餐行的真实开销；hint 文字长，顺带验证气泡文字自适应（缩字/换行后
+  //    不超出安全行宽）
+  db.prepare(
+    `INSERT INTO turn_usage (session_id, turn_id, status, started_at, completed_at, input_tokens, output_tokens, computed_total_tokens)
+     VALUES ('sess_smoke', 'turn_mix', 'completed', ?, ?, 490000, 10000, 500000)`
+  ).run(Date.now() - 1000, Date.now())
+  const mixRows = [
+    ['mu-mix-glm', 'GLM-4.7-Flash', 'account:zai-start-plan', 400_000, 0, 400_000],
+    ['mu-mix-ds', 'deepseek-flash', 'deepseek-test', 90_000, 10_000, 100_000],
+  ]
+  for (const [id, model, providerId, input, output, total] of mixRows) {
+    db.prepare(
+      `INSERT INTO model_usage (id, session_id, turn_id, model_id, provider_id, started_at, input_tokens, output_tokens, computed_total_tokens)
+       VALUES (?, 'sess_smoke', 'turn_mix', ?, ?, ?, ?, ?, ?)`
+    ).run(id, model, providerId, Date.now() - 1000, input, output, total)
+  }
+  const cost2 = JSON.parse(
+    (await pollEval(
+      cdp,
+      "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
+        "if(!l||!a||l.textContent!=='本轮消耗余额:'||a.textContent!=='40%')return null;" +
+        'var b=document.querySelector(\'.zcwv-bubble\').getBoundingClientRect();' +
+        'var avail=560*(b.width/1026),r=document.createRange();r.selectNodeContents(h);' +
+        'return JSON.stringify({amount:a.textContent,hint:h.style.display!==\'none\'?h.textContent:\'\',' +
+        'w:Math.round(r.getBoundingClientRect().width),avail:Math.round(avail),' +
+        'fs:h.style.fontSize,ws:h.style.whiteSpace})})()',
+      15000
+    )) || 'null'
+  )
+  check(
+    '混合轮次：配额口径主数字 + hint 补「另耗 ¥」真实开销',
+    !!cost2 && cost2.amount === '40%' && String(cost2.hint).indexOf('消耗 40.0 万 tokens') !== -1 && String(cost2.hint).indexOf('另耗 ¥') !== -1,
+    JSON.stringify(cost2)
+  )
+  check(
+    '气泡文字自适应：超宽 hint 缩字/换行后不超出安全行宽',
+    !!cost2 && Number(cost2.w) <= Number(cost2.avail) + 1 && (cost2.fs !== '' || cost2.ws === 'normal'),
+    JSON.stringify(cost2)
+  )
+
+  // ①-3 无价目且非套餐的轮次（未知网关）：tokens 口径，绝不显示虚构金额
+  insertTurn('turn_unk', 'zz-unknown-model', 'mystery-gateway', 3000, 2000)
+  const cost3 = JSON.parse(
+    (await pollEval(
+      cdp,
+      "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount');" +
+        "if(!l||!a||l.textContent!=='本轮 tokens:')return null;" +
+        "return JSON.stringify({amount:a.textContent})})()",
+      15000
+    )) || 'null'
+  )
+  check('无价目非套餐轮次显示 tokens 口径', !!cost3 && cost3.amount === '5,000', JSON.stringify(cost3))
 
   // ② displayMode：模拟菜单选择 → size.json 落盘 → 刷新后保持
   const picked = await cdp.eval(
@@ -798,7 +859,11 @@ try {
     cdp,
     "(function(){var l=document.querySelector('.zcwv-label');var p=document.querySelector('.zcwv-period');" +
       "if(!l||!p)return null;if(l.textContent!=='余额预警')return null;" +
-      'return JSON.stringify({title:l.textContent,body:p.textContent})})()',
+      'var b=document.querySelector(\'.zcwv-bubble\').getBoundingClientRect();' +
+      'var r=document.createRange();r.selectNodeContents(p);' +
+      'return JSON.stringify({title:l.textContent,body:p.textContent,' +
+      'w:Math.round(r.getBoundingClientRect().width),avail:Math.round(560*(b.width/1026)),' +
+      'fs:p.style.fontSize,ws:p.style.whiteSpace})})()',
     20000,
     250
   )
@@ -807,6 +872,11 @@ try {
     '金额预警：美元厂商折算成人民币后比较（$1.20 ≈ ¥8.52 ≥ ¥5.00 触发）',
     !!alertObj && alertObj.body.indexOf('OpenAI 今日已用 $1.20') === 0 && alertObj.body.indexOf('约 ¥8.52') !== -1 && alertObj.body.indexOf('达到 ¥5.00') !== -1,
     JSON.stringify(alertObj)
+  )
+  check(
+    '预警长句自适应：缩字/换行后不超出安全行宽（v1.4.0 溢出修复）',
+    !!alertObj && Number(alertObj.w) <= Number(alertObj.avail) + 1 && alertObj.fs !== '' && alertObj.ws === 'normal',
+    'w=' + (alertObj && alertObj.w) + ' avail=' + (alertObj && alertObj.avail) + ' fs=' + (alertObj && alertObj.fs) + ' ws=' + (alertObj && alertObj.ws)
   )
   if (stubB && stubB.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubB.identifier })
   await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 0 } })

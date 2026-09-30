@@ -112,6 +112,8 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | **CLI/MCP 里的每轮消耗金额币种不对** | v1.3.1 起 `cli.mjs` / `mcp-server.mjs` 按轮次和逐行携带的 `currency` 输出（美元轮次显示 `$`）。若还看到人民币符号出现在 OpenAI/Claude 轮次上，说明这两个文本出口又把 `'CNY'` 写死在格式化里了；`tools/selftest.mjs` 里有「美元轮次经 CLI/MCP 路径」的回归断言 |
 | **每轮消耗金额离谱（虚高十几倍）** | 多半是计价口径又踩了「input 含缓存」这个坑：缓存命中的 token 被按未命中价重复算了一遍。核对 `lib/pricing.mjs` 的 `splitInputTokens()` 是否被 `costOfUsage()` 使用，并跑 `node tools/selftest.mjs`（内含两种口径的回归断言）。用 `node lib/cli.mjs turn` 看逐档明细即可判断 |
 | 每轮消耗不弹窗 | 需要 ZCode 至少完成过一轮对话（`turn_usage` 有 `completed` 行）；另外菜单里「每轮消耗提示」必须开着 |
+| **套餐轮（Start plan 等）每轮消耗显示了 ¥ 金额** | v1.4.0 起按「本轮消耗余额: x%」口径（与主显示 Plan 剩余同基数，占配额总量），混合轮次 hint 补「另耗 ¥」；CLI `turn` 同口径。若又看到金额：查 `lib/plan-balance.mjs` 的 `turnPlanUsage()` 是否被 `server.mjs` 的 `pollTurnCost` 调用、`widget.js` 的 `showCostBubble` 是否先判 `planPct` 再判 `billable`。读不到配额观测时按 tokens 口径显示，属预期 |
+| **气泡文字顶出色泡** | v1.4.0 起 `widget.js` 的 `fitBubbleLines()` 在每次气泡内容变化后逐行缩字（等比缩放，下限 62%）+ 换行兜底，覆盖余额视图/每轮消耗/预警/自定义台词。宽度测量用 Range（行元素是 block，`scrollWidth` 会被最宽兄弟行撑大导致短行越缩越小）——改这段别换回 `scrollWidth`；安全行宽常数 560u 与 `.zcwv-wrap`/gif 上限同源 |
 | 挂件服务打不开 | `node lib/cli.mjs status` 看是否运行；未运行则 `start`。端口被占用会自动顺延，以 `status` 输出的地址为准 |
 | Plan 配额不显示 / 提示「Plan 日志未找到」 | 数据目录迁移后的机器在普通终端手动跑 `node lib/cli.mjs status/vendors` 时没有 `ZCODE_DATA_BASE_DIR`，只会探 `~/.zcode/v2/logs`（可能只剩迁移前残留）。终端调试先 `set ZCODE_DATA_BASE_DIR=<数据盘根目录>`；`/whale/plan.json` 的 `no-plan-log` 带 `probedDirs` 可看实际探测结果 |
 | 峰谷判定不对 | 检查 `lib/pricing.mjs` 的 `PEAK_HOURS` / `BASE_PRICE` / `PRO_PRICE`；北京时间工作日上午 9–12、下午 14–18 为高峰，2026-08-23 起周末全天谷价 |
