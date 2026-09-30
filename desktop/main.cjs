@@ -298,8 +298,11 @@ function applyZCodeBounds(msg) {
     // 真实内容，宁可晚几毫秒出现（did-finish-load 后下一拍跟随消息自然放行）
     if (!pageReady) return
     win.showInactive()
-    if (!interactive) win.setIgnoreMouseEvents(true, { forward: true })
+    // 无条件重写输入状态：旧的半重放只在 interactive=false 时生效，true 时
+    // 什么都不做，hide→show 循环后 OS 层输入样式可能与 API 值脱节
+    win.setIgnoreMouseEvents(!interactive, { forward: !interactive })
     kickPresentation('reshow')
+    reviveInputAfterShow()
     log('shown-at', JSON.stringify(lastViewport))
   }
 
@@ -326,6 +329,31 @@ function applyInteractive(next) {
     win.setIgnoreMouseEvents(true, { forward: true })
   }
   log('interactive-applied', String(want))
+}
+
+// 原生输入复活。实测（2026-10-01）：浮层经历 hide→showInactive 后，哪怕
+// Electron 侧 interactive/setIgnoreMouseEvents/WS_EX_TRANSPARENT 全部正确、
+// WindowFromPoint 也指向浮层，物理点击仍然到不了渲染器（CDP 注入点击正常、
+// 光标轮询正常）——输入卡死在 Chromium 的原生输入管线里。对窗口做一次
+// 可激活化 + focus / blur 循环能把管线踢活（实测有效，且因前台锁通常并不
+// 真的抢走 ZCode 前台，follower 全程无状态变化）。重现时无条件做一次，
+// 把「切回后点击无响应」压成零。
+function reviveInputAfterShow() {
+  if (!win || win.isDestroyed()) return
+  if (keyboardFocus) return // 页面正要键盘时绝不能拆它的可激活态
+  log('input-revive')
+  try {
+    win.setFocusable(true)
+    win.focus()
+  } catch (err) {}
+  setTimeout(() => {
+    try {
+      if (!win || win.isDestroyed()) return
+      if (keyboardFocus) return // 同上：定时器期间页面要了键盘就别动
+      win.setFocusable(false)
+      win.blur()
+    } catch (err) {}
+  }, 300)
 }
 
 ipcMain.on('whale:interactive', (_event, value) => {
@@ -468,7 +496,10 @@ function healFreeze() {
       win.minimize()
       setTimeout(() => {
         try {
-          if (win && !win.isDestroyed()) win.restore()
+          if (win && !win.isDestroyed()) {
+            win.restore()
+            reviveInputAfterShow() // min/restore 与 hide/show 同族，会同样打断原生输入
+          }
         } catch (err) {}
       }, 300)
     } catch (err) {
@@ -527,6 +558,18 @@ function recreateWindow(reason) {
   } catch (err) {}
   win = null
   pageReady = false
+  // 状态归零：新页面 boot 会自己发 setOverlayInteractive(false)，但若那条
+  // 初始化 IPC 丢失，主进程残留的 interactive=true 会吞掉页面的同值请求
+  // （interactive-same 陷阱，黑匣子出现过一次），窗口永远穿透。重建时把
+  // 交互与检测状态全部回到与「全新窗口」一致的起点。
+  interactive = false
+  keyboardFocus = false
+  liveRect = null
+  liveRectAt = 0
+  lastSeenPhase = null
+  healthySince = 0
+  healLevel = 0
+  pixSamples.length = 0
   createWindow()
   recreating = false
 }

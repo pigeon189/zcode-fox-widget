@@ -89,6 +89,11 @@
 
 ---
 
+## v1.4.3 修复：切回 ZCode 后挂件点击无响应 + 黑匣子日志常开
+
+- **隐藏→重现后点击无响应**（最小化 ZCode／切别的应用／点任务栏后切回来，挂件看得见点不动）：取证确认是浮层经历 `hide→showInactive` 循环后，原生点击投递整体卡死在 Chromium 输入管线——Electron 侧 `interactive`/`setIgnoreMouseEvents`/窗口 ex-style 全部正确、`WindowFromPoint` 也指向浮层，但物理点击到不了渲染器（CDP 注入点击与光标轮询均正常）。修复三件套：重现路径**无条件重写**输入状态并做一次「可激活化 + focus/blur」复活循环（实测能踢活输入管线，且因前台锁通常并不真的抢走 ZCode 前台）；冻结自愈的 min/restore 与整窗重建路径同样处理；页面在收到视口时清掉隐藏期的空间迟滞残留并重算交互。重建窗口时同步归零交互/检测状态，封掉 `interactive-same` 陷阱。
+- **黑匣子日志常开**：`overlay-debug.log` 原本只在 `WHALE_DEBUG_PORT` 调试实例写入，hook 自启的日常浮层一行不记，冻结/点击故障拿不到第一现场。现改为常开（`WHALE_OVERLAY_LOG=0` 可显式关闭），CDP 调试口仍只按 `WHALE_DEBUG_PORT` 环境变量开启，启动超过 5MB 自动轮转成 `.1`。
+
 ## v1.4.2 修复：冻结自动检测自愈 + 每轮消耗的两个数据口径 bug
 
 三个真实反馈一次修掉（2026-09-30 实测取证后动手）：
