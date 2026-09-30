@@ -356,13 +356,12 @@ function reviveInputAfterShow() {
     try {
       if (!win || win.isDestroyed()) return
       if (keyboardFocus) return // 同上：定时器期间页面要了键盘就别动
-      // 不无条件 blur：窗口没真拿到焦点时 blur 会把前台交给 shell
-      // （实测 explorer 抢前台、浮层 320ms 后被藏起来——自拆台）。
-      // 只有真的持有焦点才需要交还；否则只还原不可激活态。
+      log('input-revive-t2', 'focused=' + (win.isFocused() ? 1 : 0))
       if (win.isFocused()) {
         win.blur()
       }
       win.setFocusable(false)
+      log('input-revive-t3', 'focused=' + (win.isFocused() ? 1 : 0))
     } catch (err) {}
   }, 300)
 }
