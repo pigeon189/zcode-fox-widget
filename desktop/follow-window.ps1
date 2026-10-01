@@ -72,6 +72,10 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern IntPtr SetProcessDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    static IntPtr _overlayHwnd = IntPtr.Zero;
 
     static HashSet<int> _targetPids = new HashSet<int>();
     static HashSet<int> _electronPids = new HashSet<int>();
@@ -102,6 +106,7 @@ public static class WhaleFollow
                 line = line.Trim();
                 if (line == "replay-click") ReplayClick();
                 else if (line == "handback") HandForegroundBack();
+                else if (line == "toolwindow") EnsureToolWindow();
             }
         }
         catch (Exception) { }
@@ -128,6 +133,29 @@ public static class WhaleFollow
         try
         {
             if (_targetHwnd != IntPtr.Zero && IsWindow(_targetHwnd)) SetForegroundWindow(_targetHwnd);
+        }
+        catch (Exception) { }
+    }
+
+    // Re-assert WS_EX_TOOLWINDOW on the overlay window. skipTaskbar:true makes
+    // Electron set this bit at creation, but setFocusable(true) (the keyboard
+    // focus path) rewrites the extended style and wipes it - measured live: a
+    // taskbar button appears for the overlay on every text-field focus (seven
+    // stale "whale" taskbar items accumulated in one afternoon). Re-applying
+    // the bit via Electron's setSkipTaskbar() did not restore it (this Electron
+    // drives skipTaskbar through ITaskbarList, not the style bit), so the main
+    // process asks us to write the style directly; we already hold the overlay
+    // HWND. TOOLWINDOW windows never get a taskbar/alt-tab button.
+    static void EnsureToolWindow()
+    {
+        try
+        {
+            if (_overlayHwnd == IntPtr.Zero || !IsWindow(_overlayHwnd)) return;
+            const int GWL_EXSTYLE = -20;
+            const int WS_EX_TOOLWINDOW = 0x80;
+            int ex = GetWindowLong(_overlayHwnd, GWL_EXSTYLE);
+            if ((ex & WS_EX_TOOLWINDOW) == 0)
+                SetWindowLong(_overlayHwnd, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW);
         }
         catch (Exception) { }
     }
@@ -188,6 +216,7 @@ public static class WhaleFollow
             if (SetProcessDpiAwarenessContext((IntPtr)(-4)) == IntPtr.Zero) SetProcessDPIAware();
         }
         catch { SetProcessDPIAware(); }
+        _overlayHwnd = overlay;
         Console.Error.WriteLine(
             "follow-start overlay=" + overlay.ToInt64() + " valid=" + IsWindow(overlay) +
             " interval=" + intervalMs + " cache=" + cacheMs + " target=" + targetName +

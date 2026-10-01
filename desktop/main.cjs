@@ -414,8 +414,10 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
       win.setFocusable(true)
       win.focus()
       // setFocusable(true) 会重写窗口扩展样式，把 skipTaskbar 的 TOOLWINDOW
-      // 位冲掉——实测点文本框的瞬间浮层出现在任务栏。取回焦点后立刻补挂。
-      win.setSkipTaskbar(true)
+      // 位冲掉——实测点文本框的瞬间浮层出现在任务栏（一下午攒了七个幽灵
+      // 按钮）。Electron 的 setSkipTaskbar 走 ITaskbarList 补不回样式位，
+      // 让跟随进程直接把 WS_EX_TOOLWINDOW 写回去（它持有浮层 HWND）。
+      followerCommand('toolwindow')
     } else {
       // 顺序不能反：先把前台还给 ZCode，再拆可激活态。setFocusable(false)
       // 会让 Windows 立刻把前台丢给 explorer（黑匣子实测 5ms 内
@@ -424,7 +426,7 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
       const wasFocused = win.isFocused()
       if (wasFocused) followerCommand('handback')
       win.setFocusable(false)
-      win.setSkipTaskbar(true)
+      followerCommand('toolwindow')
     }
   } catch (err) {
     log('keyboard-focus-failed', String((err && err.message) || err))
