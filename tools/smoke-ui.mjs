@@ -46,6 +46,15 @@ fs.mkdirSync(dataDir, { recursive: true })
 const PORT = 39600 + Math.floor(Math.random() * 300)
 fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port: PORT }), 'utf8')
 
+// ZCode 自己的用户配置：ui.theme = zai-light。挂件主题里的「跟随 ZCode」读它，
+// 测试里把系统偏好模拟成深色来验证挂件跟的是 ZCode 而不是操作系统。
+fs.mkdirSync(path.join(tmpHome, 'cli'), { recursive: true })
+fs.writeFileSync(
+  path.join(tmpHome, 'cli', 'config.json'),
+  JSON.stringify({ ui: { locale: 'zh-CN', theme: 'zai-light' } }, null, 2),
+  'utf8'
+)
+
 // Plan 配额 fixture：给 glm-4.7-flash 一个 100 万的桶，120k tokens 轮次 → 12%
 const planLogDir = path.join(tmpHome, '.zcode', 'v2', 'logs')
 fs.mkdirSync(planLogDir, { recursive: true })
@@ -445,12 +454,12 @@ try {
     12000
   )
   check(
-    '角色下拉：内置两项（无删除）+ 导入项（带 ×），触发器显示当前角色名',
+    '角色下拉：三行都有删除（内置两个也可删，v1.6.0）+ 触发器显示当前角色名',
     roleView &&
       roleView.names.indexOf('小狐娘') !== -1 &&
       roleView.names.indexOf('小鲸鱼') !== -1 &&
       roleView.names.indexOf('冒烟角色') !== -1 &&
-      roleView.del === 1 &&
+      roleView.del === 3 &&
       roleView.builtin === 2 &&
       roleView.open === true &&
       roleView.trigger === '冒烟角色',
@@ -475,25 +484,66 @@ try {
   check('角色行内改名写入服务端', !!renameOk && !!renamed, JSON.stringify(renamed))
 
   // ⑦c 删除：第一次点 × 只进入确认态（「再点删除」），第二次才真的删；
-  //     删掉的正好是当前形象 → 回落默认小狐娘（图片仍是 608px 的小狐娘）
+  //     删掉的正好是当前形象 → 回落剩下的第一个形象（图片仍可用）。
+  //     v1.6.0 起内置形象也有 ×，所以显式取最后一行（导入件在列表末尾）来测。
   const delArmed = await cdp.eval(
-    "(function(){var b=document.querySelector('.zcwv-role-del');if(!b)return null;b.click();" +
-      "return document.querySelector('.zcwv-role-del')?document.querySelector('.zcwv-role-del').textContent:null})()"
+    "(function(){var bs=document.querySelectorAll('.zcwv-role-del');var b=bs[bs.length-1];if(!b)return null;b.click();" +
+      "var a=document.querySelectorAll('.zcwv-role-del');return a[a.length-1].textContent})()"
   )
   check('删除按钮两步确认（第一次点击进入「再点删除」）', delArmed === '再点删除', JSON.stringify(delArmed))
-  await cdp.eval("(function(){var b=document.querySelector('.zcwv-role-del');if(b)b.click();return true})()")
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcwv-role-del');var b=bs[bs.length-1];if(b)b.click();return true})()"
+  )
   await new Promise((r) => setTimeout(r, 1200))
   const rolesAfterDelete = await (await fetch('http://127.0.0.1:' + PORT + '/whale/roles.json')).json()
   const imgAfterDelete = await cdp.eval(
     "(function(){var img=document.querySelector('img[src*=\"image.png\"]');return img?img.naturalWidth:0})()"
   )
   check(
-    '删除导入角色后回落默认小狐娘（roles 只剩内置、图片 608px）',
+    '删除当前导入角色后回落默认小狐娘（roles 只剩内置、图片 608px）',
     rolesAfterDelete.roles.length === 2 && rolesAfterDelete.selected === 'xiaohuniang' && imgAfterDelete === 608,
     JSON.stringify({ n: rolesAfterDelete.roles.length, selected: rolesAfterDelete.selected, nw: imgAfterDelete })
   )
+  // ⑦d 内置形象也能删（v1.6.0）：删掉「小狐娘」→ 列表少一个、选中的不再是它、
+  //     鲸鱼图片仍拿得到（回落到剩下的形象）
+  const builtinDelArmed = await cdp.eval(
+    "(function(){var rows=document.querySelectorAll('.zcwv-role-row'),t=null;" +
+      "for(var i=0;i<rows.length;i++){var p=rows[i].querySelector('.zcwv-role-pick');" +
+      "if(p&&p.textContent==='小狐娘'){t=rows[i].querySelector('.zcwv-role-del')}}if(!t)return null;t.click();" +
+      "var rows2=document.querySelectorAll('.zcwv-role-row');for(var j=0;j<rows2.length;j++){var p2=rows2[j].querySelector('.zcwv-role-pick');" +
+      "if(p2&&p2.textContent==='小狐娘'){var d=rows2[j].querySelector('.zcwv-role-del');return d?d.textContent:null}}return 'gone'})()"
+  )
+  check('内置形象也能两步删除（点一次进入「再点删除」）', builtinDelArmed === '再点删除', JSON.stringify(builtinDelArmed))
+  await cdp.eval(
+    "(function(){var rows=document.querySelectorAll('.zcwv-role-row');for(var i=0;i<rows.length;i++){var p=rows[i].querySelector('.zcwv-role-pick');" +
+      "if(p&&p.textContent==='小狐娘'){var d=rows[i].querySelector('.zcwv-role-del');if(d){d.click();return true}}}return false})()"
+  )
+  await new Promise((r) => setTimeout(r, 1200))
+  const rolesAfterBuiltinDel = await (await fetch('http://127.0.0.1:' + PORT + '/whale/roles.json')).json()
+  const imgAfterBuiltinDel = await cdp.eval(
+    "(function(){var img=document.querySelector('img[src*=\"image.png\"]');return img?img.naturalWidth:0})()"
+  )
+  check(
+    '删掉内置「小狐娘」：列表不再有它、选中项换人、图片仍可用',
+    rolesAfterBuiltinDel.roles.filter((r) => r.builtin).map((r) => r.id).join(',') === 'whale' &&
+      rolesAfterBuiltinDel.selected !== 'xiaohuniang' &&
+      imgAfterBuiltinDel > 1,
+    JSON.stringify({ builtins: rolesAfterBuiltinDel.roles.filter((r) => r.builtin).map((r) => r.id), selected: rolesAfterBuiltinDel.selected, nw: imgAfterBuiltinDel })
+  )
+  // 复原：把 hiddenBuiltins 清掉（= README 写的找回方式），内置形象回来
+  const rolesIdxFile = path.join(tmpHome, 'whale', 'roles.json')
+  const rolesIdx = JSON.parse(fs.readFileSync(rolesIdxFile, 'utf8'))
+  rolesIdx.hiddenBuiltins = []
+  fs.writeFileSync(rolesIdxFile, JSON.stringify(rolesIdx, null, 2), 'utf8')
+  const rolesRestored = await (await fetch('http://127.0.0.1:' + PORT + '/whale/roles.json')).json()
+  check(
+    '清掉 hiddenBuiltins 后内置形象回来（README 的找回路径）',
+    rolesRestored.roles.filter((r) => r.builtin).length === 2,
+    JSON.stringify(rolesRestored.roles.filter((r) => r.builtin).map((r) => r.id))
+  )
 
-  // ⑧ 主题：三个选项（浅色模式/深色模式/跟随系统），system 按系统偏好着色
+  // ⑧ 主题：三个选项（浅色模式/深色模式/跟随 ZCode）；「跟随 ZCode」跟的是
+  // ZCode 的主题（ui.theme），不是操作系统
   const themeOpts = JSON.parse(
     await cdp.eval(
       "(function(){var ss=document.querySelectorAll('select'),out=null;for(var i=0;i<ss.length;i++){var vals=[],texts=[];" +
@@ -502,16 +552,21 @@ try {
     )
   )
   check(
-    '主题下拉：浅色模式 / 深色模式 / 跟随系统',
+    '主题下拉：浅色模式 / 深色模式 / 跟随 ZCode',
     themeOpts &&
       themeOpts.vals.indexOf('light') !== -1 &&
       themeOpts.vals.indexOf('dark') !== -1 &&
       themeOpts.vals.indexOf('system') !== -1 &&
       themeOpts.texts.indexOf('浅色模式') !== -1 &&
       themeOpts.texts.indexOf('深色模式') !== -1 &&
-      themeOpts.texts.indexOf('跟随系统') !== -1,
+      themeOpts.texts.indexOf('跟随 ZCode') !== -1,
     JSON.stringify(themeOpts)
   )
+  // 把系统偏好模拟成深色，而 fixture 里 ZCode 是 zai-light（浅色）：
+  // 页面必须仍是浅色 = 跟的是 ZCode 而不是系统
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-color-scheme', value: 'dark' }],
+  })
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -526,10 +581,11 @@ try {
     )
   )
   check(
-    '主题「跟随系统」按 prefers-color-scheme 着色',
-    sysTheme.dark === sysTheme.prefers,
+    '主题「跟随 ZCode」跟 ZCode 主题（系统模拟深色、ZCode 浅色 → 页面仍浅色）',
+    sysTheme.prefers === true && sysTheme.dark === false,
     JSON.stringify(sysTheme)
   )
+  await cdp.send('Emulation.setEmulatedMedia', { features: [] })
 
   // ⑧b 主题下拉已换成自定义组件（与角色下拉同款触发器 + 主题化列表）。
   // 回归：原生 select 的系统弹窗不吃主题，且弹出期间模态捕获全屏鼠标
@@ -934,6 +990,118 @@ try {
     !!liveObj && liveObj.p2 > liveObj.p1 && liveObj.inImg && liveObj.w <= 8,
     JSON.stringify(liveObj)
   )
+  // ⑮ 用量记录：今日模型排名可在「按金额 / 按 Token」之间切换（v1.6.0）。
+  // 先补一轮「小而贵」的模型，让两个榜的头部必然不同：GLM-4.7-Flash 是套餐
+  // （金额 0、token 很大）→ token 榜第一；deepseek-flash 按量计价（金额 > 0）
+  // → 金额榜第一。
+  insertTurn('turn_rank', 'deepseek-flash', 'deepseek-test', 2000, 1000)
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('button');for(var i=0;i<bs.length;i++){" +
+      "if(bs[i].textContent==='用量记录…'){bs[i].click();return true}}return false})()"
+  )
+  const RANK_PROBE =
+    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');var label=null;" +
+    "for(var i=0;i<bs.length;i++){var t=bs[i].textContent;if(t==='按金额'||t==='按 Token')label=t}" +
+    "if(!label)return null;var rows=document.querySelectorAll('.zcw-panel .zcw-row'),first='';" +
+    "for(var j=0;j<rows.length;j++){var c=rows[j].firstChild,txt=c?c.textContent:'';" +
+    "if(/^\\d+\\. /.test(txt)){first=txt;break}}" +
+    'return JSON.stringify({label:label,first:first})})()'
+  // 等「按 Token」出现才算切成功（fetchUsage 是异步的，点完立刻读会拿到旧 DOM）
+  const RANK_PROBE_TOKENS =
+    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');var label=null;" +
+    "for(var i=0;i<bs.length;i++){var t=bs[i].textContent;if(t==='按金额'||t==='按 Token')label=t}" +
+    "if(label!=='按 Token')return null;var rows=document.querySelectorAll('.zcw-panel .zcw-row'),first='';" +
+    "for(var j=0;j<rows.length;j++){var c=rows[j].firstChild,txt=c?c.textContent:'';" +
+    "if(/^\\d+\\. /.test(txt)){first=txt;break}}" +
+    'return JSON.stringify({label:label,first:first})})()'
+  const rankAmount = JSON.parse((await pollEval(cdp, RANK_PROBE, 8000)) || 'null')
+  check(
+    '用量记录：默认按金额排名（第一位是按量的 deepseek-flash）',
+    !!rankAmount && rankAmount.label === '按金额' && rankAmount.first.indexOf('deepseek-flash') !== -1,
+    JSON.stringify(rankAmount)
+  )
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');for(var i=0;i<bs.length;i++){" +
+      "var t=bs[i].textContent;if(t==='按金额'||t==='按 Token'){bs[i].click();return true}}return false})()"
+  )
+  const rankTokens = JSON.parse((await pollEval(cdp, RANK_PROBE_TOKENS, 8000)) || 'null')
+  check(
+    '用量记录：切到按 Token 排名（第一位变成 token 最大的套餐模型）',
+    !!rankTokens && rankTokens.label === '按 Token' && rankTokens.first.indexOf('GLM-4.7-Flash') !== -1,
+    JSON.stringify(rankTokens)
+  )
+  check(
+    '用量记录：两个口径的第一名不同（说明真的换了排序）',
+    !!rankAmount && !!rankTokens && rankAmount.first !== rankTokens.first,
+    JSON.stringify({ amount: rankAmount && rankAmount.first, tokens: rankTokens && rankTokens.first })
+  )
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');for(var i=0;i<bs.length;i++){" +
+      "if(bs[i].textContent==='关闭'){bs[i].click();return true}}return false})()"
+  )
+
+  // ⑯ 音效库：导入集出现在下拉里、选中导入集时「删除当前」出现、内置集时隐藏
+  // （导入本身走接口，页面侧只验 UI 与选择状态）
+  const sndWav = Buffer.from('RIFF0000WAVEfmt ', 'latin1').toString('base64')
+  const sndUpRes = await fetch('http://127.0.0.1:' + PORT + '/whale/sound-upload.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '冒烟音效', press: { dataUrl: 'data:audio/wav;base64,' + sndWav } }),
+  })
+  const sndUp = await sndUpRes.json()
+  check('音效导入接口：服务端接受并返回 id', sndUpRes.ok && sndUp.ok === true && !!sndUp.id, JSON.stringify({ id: sndUp.id }))
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  const SND_PROBE =
+    "(function(){var ss=document.querySelectorAll('select'),hit=null;for(var i=0;i<ss.length;i++){" +
+    'var vals=[],texts=[];for(var j=0;j<ss[i].options.length;j++){vals.push(ss[i].options[j].value);texts.push(ss[i].options[j].textContent)}' +
+    "if(vals.indexOf('duck')!==-1){hit={vals:vals,texts:texts,value:ss[i].value};break}}" +
+    "var del=null,imp=false,bs=document.querySelectorAll('button');" +
+    "for(var k=0;k<bs.length;k++){if(bs[k].textContent==='删除当前'||bs[k].textContent==='再点删除')del=bs[k].style.display;" +
+    "if(bs[k].textContent==='导入…')imp=true}" +
+    'return JSON.stringify({sets:hit?hit.vals:null,texts:hit?hit.texts:null,value:hit?hit.value:null,del:del,imp:imp})})()'
+  const sndView = JSON.parse((await pollEval(cdp, SND_PROBE, 8000)) || 'null')
+  check(
+    '音效库：内置两套 + 导入集都在下拉里（导入集带名字），导入按钮在菜单里',
+    !!sndView &&
+      sndView.sets &&
+      sndView.sets.indexOf('duck') !== -1 &&
+      sndView.sets.indexOf('fx1') !== -1 &&
+      sndView.sets.indexOf(sndUp.id) !== -1 &&
+      (sndView.texts || []).join(',').indexOf('冒烟音效') !== -1 &&
+      sndView.imp === true,
+    JSON.stringify(sndView)
+  )
+  check('音效库：选中内置集时「删除当前」隐藏', !!sndView && sndView.del === 'none', JSON.stringify(sndView && sndView.del))
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    // 必须带 scale：size.json 的写入以 scale 为必填（缺了直接 400）
+    body: JSON.stringify({ scale: 1.5, soundSet: sndUp.id }),
+  })
+  const sndState = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check('音效选择写入 widget-state（选中导入集）', sndState.soundSet === sndUp.id, JSON.stringify({ soundSet: sndState.soundSet }))
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  const sndImported = JSON.parse((await pollEval(cdp, SND_PROBE, 8000)) || 'null')
+  check(
+    '音效库：选中导入集后「删除当前」出现（可两步删除）',
+    !!sndImported && sndImported.value === sndUp.id && sndImported.del !== 'none',
+    JSON.stringify(sndImported && { value: sndImported.value, del: sndImported.del })
+  )
+  // 收尾：删掉冒烟音效，别留进 fixture 的持久状态
+  await fetch('http://127.0.0.1:' + PORT + '/whale/sound-delete.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: sndUp.id }),
+  })
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, soundSet: 'duck' }),
+  })
 } catch (err) {
   check('冒烟过程未抛异常', false, String((err && err.message) || err))
 } finally {

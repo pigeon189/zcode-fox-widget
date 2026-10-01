@@ -203,6 +203,15 @@ function todayKeyForLog(d = new Date()) {
 const PORT = 39100 + Math.floor(Math.random() * 500)
 fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port: PORT }), 'utf8')
 
+// ZCode 自己的用户配置（<ZCODE_HOME>/cli/config.json）：挂件「跟随 ZCode 主题」
+// 读它的 ui.theme。这里放 zai-dark，验证 zai-* 皮肤 → 挂件浅/深的映射。
+fs.mkdirSync(path.join(tmpHome, 'cli'), { recursive: true })
+fs.writeFileSync(
+  path.join(tmpHome, 'cli', 'config.json'),
+  JSON.stringify({ ui: { locale: 'zh-CN', theme: 'zai-dark' } }, null, 2),
+  'utf8'
+)
+
 const dbFile = path.join(dbDir, 'db.sqlite')
 const db = new DatabaseSync(dbFile)
 db.exec(`
@@ -1275,13 +1284,58 @@ try {
   )
   const delImgRes = await fetch('http://127.0.0.1:' + port + '/whale/image.png')
   check('删除当前形象后 image.png 仍可用（回落默认图）', delImgRes.ok, 'HTTP ' + delImgRes.status)
+  // v1.6.0：内置形象也可以删（包内素材删不掉文件，改为记进 roles.json 的
+  // hiddenBuiltins 隐藏；删掉的正好是当前形象时选中项要换一个，否则图片 404）
   const delBuiltin = await fetch('http://127.0.0.1:' + port + '/whale/role-delete.json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: 'whale' }),
   })
   const delBuiltinBody = await delBuiltin.json()
-  check('内置形象不可删除', delBuiltin.status === 400 && delBuiltinBody.ok === false, JSON.stringify(delBuiltinBody))
+  const builtinIds = (delBuiltinBody.roles || []).filter((r) => r.builtin).map((r) => r.id)
+  check(
+    '内置形象可删除（从列表隐藏，others 不受影响）',
+    delBuiltin.ok && delBuiltinBody.ok === true && builtinIds.indexOf('whale') === -1 && builtinIds.indexOf('xiaohuniang') !== -1,
+    JSON.stringify({ selected: delBuiltinBody.selected, builtins: builtinIds })
+  )
+  const idxAfterBuiltinDel = JSON.parse(fs.readFileSync(path.join(dataDir, 'roles.json'), 'utf8'))
+  check(
+    '内置形象删除记进 hiddenBuiltins（可手动找回）',
+    Array.isArray(idxAfterBuiltinDel.hiddenBuiltins) && idxAfterBuiltinDel.hiddenBuiltins.indexOf('whale') !== -1,
+    JSON.stringify(idxAfterBuiltinDel.hiddenBuiltins || null)
+  )
+  const delBuiltinSelected = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roleId: 'xiaohuniang' }),
+  })
+  await delBuiltinSelected.json()
+  const delBuiltinInUse = await fetch('http://127.0.0.1:' + port + '/whale/role-delete.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'xiaohuniang' }),
+  })
+  const delBuiltinInUseBody = await delBuiltinInUse.json()
+  const imgAfterBuiltinDel = await fetch('http://127.0.0.1:' + port + '/whale/image.png')
+  check(
+    '删掉正在用的内置形象 → 选中项换到剩下那个且图片仍可用',
+    delBuiltinInUse.ok &&
+      delBuiltinInUseBody.ok === true &&
+      delBuiltinInUseBody.selected !== 'xiaohuniang' &&
+      delBuiltinInUseBody.roles.some((r) => r.id === delBuiltinInUseBody.selected) &&
+      imgAfterBuiltinDel.ok,
+    JSON.stringify({ selected: delBuiltinInUseBody.selected, img: imgAfterBuiltinDel.status })
+  )
+  // 复原：把两个内置形象从 hiddenBuiltins 里拿掉（= 用户在 roles.json 里手动找回）
+  const idxRestore = JSON.parse(fs.readFileSync(path.join(dataDir, 'roles.json'), 'utf8'))
+  idxRestore.hiddenBuiltins = []
+  fs.writeFileSync(path.join(dataDir, 'roles.json'), JSON.stringify(idxRestore, null, 2), 'utf8')
+  const rolesRestored = await getJson(port, '/whale/roles.json')
+  check(
+    '清掉 hiddenBuiltins 后内置形象回来（README 的找回路径可用）',
+    rolesRestored.roles.filter((r) => r.builtin).length === 2,
+    JSON.stringify(rolesRestored.roles.filter((r) => r.builtin).map((r) => r.id))
+  )
 
   // 按压泡泡（v2 点击序列 + 模块行）：默认空、v2 写入归一、v1 迁移、持久化回读
   const bc0 = await getJson(port, '/whale/bubble-content.json')
@@ -1525,6 +1579,140 @@ try {
     sel3 && sel3.ok && sel3.from === 'model-usage' && sel3.source === 'kimi' && sel3.modelId === 'kimi-k3',
     JSON.stringify(sel3).slice(0, 160)
   )
+
+  // ---------- v1.6.0：音效库导入/删除、今日 token 榜、ZCode 主题跟随 ----------
+  {
+    // 纯逻辑：token 榜按 token 降序（头部常与金额榜不同——便宜的模型 token 巨大）
+    const { modelsByTokens } = await import('../lib/usage-records.mjs')
+    const row = (model, amount, tokens) => [
+      model,
+      { model, providerId: 'p', vendorLabel: 'V', currency: 'CNY', amount, tokens },
+    ]
+    const m = new Map([row('cheap', 0, 9_000_000), row('pricey', 12.5, 100_000), row('mid', 3, 500_000)])
+    const byTok = modelsByTokens(m, 12)
+    check(
+      'token 榜按 token 降序（头部与金额榜不同）',
+      byTok.map((x) => x.model).join(',') === 'cheap,mid,pricey',
+      byTok.map((x) => x.model + ':' + x.tokens).join(' ')
+    )
+    check('token 榜尊重 limit（截断后仍是 token 最大的那批）', modelsByTokens(m, 1).length === 1 && modelsByTokens(m, 1)[0].model === 'cheap')
+  }
+
+  // 接口：今日用量同时给出两个榜（页面「按金额 / 按 Token」切换用）
+  const usageRank = await getJson(port, '/whale/usage-records.json')
+  if (usageRank && usageRank.ok) {
+    const amtList = usageRank.today.models || []
+    const tokList = usageRank.today.modelsByTokens || []
+    const desc = (arr, key) => arr.every((v, i) => i === 0 || Number(arr[i - 1][key]) >= Number(v[key]))
+    const maxTok = Math.max.apply(null, amtList.map((x) => Number(x.tokens) || 0))
+    check(
+      '用量记录：两个榜各自降序（金额榜 / token 榜）',
+      amtList.length > 0 && tokList.length > 0 && desc(amtList, 'amount') && desc(tokList, 'tokens'),
+      JSON.stringify({ amt: amtList.map((x) => x.amount), tok: tokList.map((x) => x.tokens) })
+    )
+    check(
+      '用量记录：token 榜首位 = 今日 token 最多的模型',
+      tokList.length > 0 && Number(tokList[0].tokens) === maxTok,
+      'top=' + (tokList[0] && tokList[0].model) + ' tokens=' + (tokList[0] && tokList[0].tokens) + ' max=' + maxTok
+    )
+  } else {
+    check('用量记录：两个榜各自降序（金额榜 / token 榜）', false, '接口不可用')
+  }
+
+  // 接口：ZCode 主题（跟随 ZCode 的数据源）
+  const zt = await getJson(port, '/whale/zcode-theme.json')
+  check(
+    'ZCode 主题：读 <ZCODE_HOME>/cli/config.json 的 ui.theme（zai-dark → dark）',
+    zt && zt.ok === true && zt.theme === 'dark' && zt.raw === 'zai-dark' && zt.source === 'user-config',
+    JSON.stringify(zt)
+  )
+
+  // 接口：音效库（内置两套 + 导入 + 回放 + 删除）
+  const snd0 = await getJson(port, '/whale/sounds.json')
+  check(
+    '音效库：内置两套在列、默认选中小黄鸭',
+    snd0 && snd0.ok === true && snd0.sets.filter((s) => s.builtin).map((s) => s.id).join(',') === 'duck,fx1' && snd0.selected === 'duck',
+    JSON.stringify(snd0 && snd0.sets)
+  )
+  const wavBytes = Buffer.from('RIFF0000WAVEfmt ', 'latin1')
+  const wavB64 = wavBytes.toString('base64')
+  const oggBytes = Buffer.from('OggS-fake-release-bytes', 'latin1')
+  const postSound = (url, body) =>
+    fetch('http://127.0.0.1:' + port + url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  // 单文件导入：按压/松手共用
+  const up1Res = await postSound('/whale/sound-upload.json', {
+    name: '自测音效1',
+    press: { dataUrl: 'data:audio/wav;base64,' + wavB64, name: 'a.wav' },
+  })
+  const up1 = await up1Res.json()
+  check(
+    '音效导入：单个文件成功（按压与松手共用），并出现在列表里',
+    up1Res.ok && up1.ok === true && up1.id && up1.sets.some((s) => s.id === up1.id && s.builtin === false && s.name === '自测音效1'),
+    JSON.stringify({ id: up1.id, sets: (up1.sets || []).map((s) => s.id) })
+  )
+  const sndP = await fetch('http://127.0.0.1:' + port + '/whale/sound/press.mp3?set=' + up1.id)
+  const sndR = await fetch('http://127.0.0.1:' + port + '/whale/sound/release.mp3?set=' + up1.id)
+  const sndPBytes = Buffer.from(await sndP.arrayBuffer())
+  check(
+    '音效回放：导入集按压/松手都拿得到，且单文件时内容一致（wav → audio/wav）',
+    sndP.ok && sndR.ok && sndPBytes.equals(wavBytes) && sndP.headers.get('content-type') === 'audio/wav',
+    'HTTP ' + sndP.status + ' ct=' + sndP.headers.get('content-type') + ' bytes=' + sndPBytes.length
+  )
+  // 两个文件导入：按压/松手各自一份
+  const up2Res = await postSound('/whale/sound-upload.json', {
+    press: { dataUrl: 'data:audio/wav;base64,' + wavB64, name: 'press.wav' },
+    release: { dataUrl: 'data:audio/ogg;base64,' + oggBytes.toString('base64'), name: 'release.ogg' },
+  })
+  const up2 = await up2Res.json()
+  const snd2R = await fetch('http://127.0.0.1:' + port + '/whale/sound/release.mp3?set=' + up2.id)
+  const snd2RBytes = Buffer.from(await snd2R.arrayBuffer())
+  check(
+    '音效导入：两个文件时松手音是第二份（名字缺省取第一个文件名）',
+    up2Res.ok && up2.ok === true && up2.sets.some((s) => s.id === up2.id && s.name === 'press') && snd2RBytes.equals(oggBytes),
+    JSON.stringify({ id: up2.id, name: (up2.sets || []).filter((s) => s.id === up2.id).map((s) => s.name)[0] })
+  )
+  // 内置集回放不受影响
+  const duckRes = await fetch('http://127.0.0.1:' + port + '/whale/sound/press.mp3?set=duck')
+  const duckBytes = Buffer.from(await duckRes.arrayBuffer())
+  check(
+    '音效回放：内置集照旧可用（audio/mpeg）',
+    duckRes.ok && duckBytes.length > 100 && duckRes.headers.get('content-type') === 'audio/mpeg',
+    'bytes=' + duckBytes.length
+  )
+  // 非法输入被拒
+  const badSound = await postSound('/whale/sound-upload.json', { press: { dataUrl: 'data:text/plain;base64,aGk=' } })
+  const badSoundBody = await badSound.json()
+  check('音效导入：非音频 dataUrl 被拒（400）', badSound.status === 400 && badSoundBody.ok === false, JSON.stringify(badSoundBody))
+  // 删除正在用的那套：选中项回落内置 duck。
+  // 注意 size.json 的写入以 scale 为必填（缺了直接 400）——少了它这条断言会
+  // 「因为没写进去」而假通过，所以这里连写入结果一起断言。
+  const putSoundSel = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, soundSet: up2.id }),
+  })
+  const putSoundSelBody = await putSoundSel.json()
+  check(
+    '音效选择写入 widget-state（PUT size.json 带 scale）',
+    putSoundSel.ok && putSoundSelBody.soundSet === up2.id,
+    JSON.stringify({ ok: putSoundSelBody.ok, soundSet: putSoundSelBody.soundSet })
+  )
+  const delSoundRes = await postSound('/whale/sound-delete.json', { id: up2.id })
+  const delSound = await delSoundRes.json()
+  check(
+    '音效删除：从列表消失，正在用则选中项回落小黄鸭',
+    delSoundRes.ok && delSound.ok === true && !delSound.sets.some((s) => s.id === up2.id) && delSound.selected === 'duck',
+    JSON.stringify({ selected: delSound.selected, sets: (delSound.sets || []).map((s) => s.id) })
+  )
+  const goneSound = await fetch('http://127.0.0.1:' + port + '/whale/sound/press.mp3?set=' + up2.id)
+  check('音效删除：文件也清掉了（回放 404）', goneSound.status === 404, 'HTTP ' + goneSound.status)
+  const delBuiltinSound = await postSound('/whale/sound-delete.json', { id: 'duck' })
+  check('音效删除：内置集不可删（400）', delBuiltinSound.status === 400, 'HTTP ' + delBuiltinSound.status)
+  await postSound('/whale/sound-delete.json', { id: up1.id })
 
   await new Promise((r) => setTimeout(r, 200))
   // 令牌关闭

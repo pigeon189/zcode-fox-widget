@@ -1,6 +1,6 @@
 {
   "name": "zcode-whale-widget",
-  "version": "1.5.4",
+  "version": "1.6.0",
   "description": "ZCode 版 DeepSeek/GLM 余额小鲸鱼挂件：多厂商计价（DeepSeek 峰谷 + GLM 平价分档）、ZCode Plan 套餐配额（零密钥日志尾随）、每轮消耗（金额或配额百分比）、用量记录、余额/配额预警（对所有金额源生效）、按压泡泡（点击队列 + 可选模块）、角色导入与改名/删除、深浅主题与跟随系统、计费源智能切换。移植自 MeteorNOX 的 DSH 版。",
   "description_i18n": {
     "en": "DeepSeek balance whale widget for ZCode: a persistent browser widget showing balance and today's usage, with peak/off-peak pricing, per-turn cost, quotes, sound effects, and drag-to-snap. Ported from MeteorNOX's DSH plugin dsh-whale-widget.",
