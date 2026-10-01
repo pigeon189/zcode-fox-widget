@@ -465,6 +465,20 @@ try {
       roleView.trigger === '冒烟角色',
     JSON.stringify(roleView)
   )
+  // 「内置」徽章文字居中（v1.7.2）：span 作为 flex 项被块化，只有 height 不做
+  // 垂直对齐时 10px 文字贴顶——钉住 inline-flex + center
+  const BADGE_PROBE =
+    "(function(){var b=document.querySelector('.zcwv-role-builtin');if(!b)return null;" +
+    'var cs=getComputedStyle(b);return JSON.stringify({display:cs.display,align:cs.alignItems,justify:cs.justifyContent})})()'
+  const badgeView = JSON.parse((await pollEval(cdp, BADGE_PROBE, 8000)) || 'null')
+  check(
+    '「内置」徽章文字居中（flex + 双向 center；flex 项会把 inline-flex 块化为 flex）',
+    !!badgeView &&
+      ['flex', 'inline-flex'].indexOf(badgeView.display) !== -1 &&
+      badgeView.align === 'center' &&
+      badgeView.justify === 'center',
+    JSON.stringify(badgeView)
+  )
 
   // ⑦b 改名：点 ✎ 行内变输入框 → 回车提交 → 服务端与触发器同步
   await cdp.eval(
@@ -1077,23 +1091,55 @@ try {
     "(function(){var ss=document.querySelectorAll('select'),hit=null;for(var i=0;i<ss.length;i++){" +
     'var vals=[],texts=[];for(var j=0;j<ss[i].options.length;j++){vals.push(ss[i].options[j].value);texts.push(ss[i].options[j].textContent)}' +
     "if(vals.indexOf('duck')!==-1){hit={vals:vals,texts:texts,value:ss[i].value};break}}" +
-    "var del=null,imp=false,bs=document.querySelectorAll('button');" +
-    "for(var k=0;k<bs.length;k++){if(bs[k].textContent==='删除当前'||bs[k].textContent==='再点删除')del=bs[k].style.display;" +
-    "if(bs[k].textContent==='导入…')imp=true}" +
-    'return JSON.stringify({sets:hit?hit.vals:null,texts:hit?hit.texts:null,value:hit?hit.value:null,del:del,imp:imp})})()'
+    "var imp=0,bs=document.querySelectorAll('button');" +
+    "for(var k=0;k<bs.length;k++){if(bs[k].textContent==='导入…')imp++}" +
+    'return JSON.stringify({sets:hit?hit.vals:null,texts:hit?hit.texts:null,value:hit?hit.value:null,importBtns:imp})})()'
   const sndView = JSON.parse((await pollEval(cdp, SND_PROBE, 8000)) || 'null')
   check(
-    '音效库：内置两套 + 导入集都在下拉里（导入集带名字），导入按钮在菜单里',
+    '音效库：内置两套 + 导入集都在下拉里（导入集带名字），音效/角色两行按钮都叫「导入…」',
     !!sndView &&
       sndView.sets &&
       sndView.sets.indexOf('duck') !== -1 &&
       sndView.sets.indexOf('fx1') !== -1 &&
       sndView.sets.indexOf(sndUp.id) !== -1 &&
       (sndView.texts || []).join(',').indexOf('冒烟音效') !== -1 &&
-      sndView.imp === true,
+      sndView.importBtns === 2,
     JSON.stringify(sndView)
   )
-  check('音效库：选中内置集时「删除当前」隐藏', !!sndView && sndView.del === 'none', JSON.stringify(sndView && sndView.del))
+  // 音效下拉列表与角色列表同构：只有导入集带逐行 ×（内置不可删）
+  const SND_LIST_PROBE =
+    "(function(){var ts=document.querySelectorAll('.zcwv-role-trigger'),t=null;" +
+    "for(var i=0;i<ts.length;i++){if((ts[i].title||'').indexOf('\\u9009\\u62e9\\u97f3\\u6548')===0){t=ts[i];break}}" +
+    "if(!t)return null;t.click();" +
+    "var ls=document.querySelectorAll('.zcwv-roles'),list=null;" +
+    "for(var i=0;i<ls.length;i++){var h=ls[i].querySelector('.zcwv-roles-head');if(h&&h.textContent==='\\u97f3\\u6548'){list=ls[i];break}}" +
+    "if(!list)return null;var rows=list.querySelectorAll('.zcwv-role-row'),del=0,armed=0;" +
+    "for(var j=0;j<rows.length;j++){var b=rows[j].querySelector('.zcwv-role-del');if(b){del++;if(b.textContent==='\\u518d\\u70b9\\u5220\\u9664')armed++}}" +
+    'return JSON.stringify({open:list.classList.contains("zcwv-roles-open"),del:del,armed:armed})})()'
+  const sndList = JSON.parse((await pollEval(cdp, SND_LIST_PROBE, 8000)) || 'null')
+  check(
+    '音效下拉：只有导入集带逐行 ×（内置行无删除），与角色列表结构一致',
+    !!sndList && sndList.open === true && sndList.del === 1 && sndList.armed === 0,
+    JSON.stringify(sndList)
+  )
+  // 两步删除：第一次点 × 只进入「再点删除」确认态（与角色删除同款）
+  await cdp.eval(
+    "(function(){var ls=document.querySelectorAll('.zcwv-roles');for(var i=0;i<ls.length;i++){" +
+      "var h=ls[i].querySelector('.zcwv-roles-head');if(h&&h.textContent==='\\u97f3\\u6548'){" +
+      "var b=ls[i].querySelector('.zcwv-role-del');if(b){b.click();return true}}}return false})()"
+  )
+  const SND_ARM_PROBE =
+    "(function(){var ls=document.querySelectorAll('.zcwv-roles'),found=false,heads=[],armed=0;" +
+    "for(var i=0;i<ls.length;i++){var h=ls[i].querySelector('.zcwv-roles-head');heads.push(h?h.textContent:'(无头)');" +
+    "if(h&&h.textContent==='\\u97f3\\u6548'){found=true;var rows=ls[i].querySelectorAll('.zcwv-role-row');" +
+    "for(var j=0;j<rows.length;j++){var b=rows[j].querySelector('.zcwv-role-del');if(b&&b.textContent==='\\u518d\\u70b9\\u5220\\u9664')armed++}}}" +
+    'return JSON.stringify({found:found,heads:heads,armed:armed})})()'
+  const sndArmed = JSON.parse((await pollEval(cdp, SND_ARM_PROBE, 8000)) || 'null')
+  check(
+    '音效删除两步确认：第一次点 × 进入「再点删除」',
+    !!sndArmed && sndArmed.found === true && sndArmed.armed === 1,
+    JSON.stringify(sndArmed)
+  )
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -1106,9 +1152,9 @@ try {
   await new Promise((r) => setTimeout(r, 3000))
   const sndImported = JSON.parse((await pollEval(cdp, SND_PROBE, 8000)) || 'null')
   check(
-    '音效库：选中导入集后「删除当前」出现（可两步删除）',
-    !!sndImported && sndImported.value === sndUp.id && sndImported.del !== 'none',
-    JSON.stringify(sndImported && { value: sndImported.value, del: sndImported.del })
+    '音效库：选中导入集生效（触发器跟随选中项）',
+    !!sndImported && sndImported.value === sndUp.id,
+    JSON.stringify(sndImported && { value: sndImported.value })
   )
   // 收尾：删掉冒烟音效，别留进 fixture 的持久状态
   await fetch('http://127.0.0.1:' + PORT + '/whale/sound-delete.json', {

@@ -19,7 +19,7 @@ import { shapePlanPayload, turnPlanUsage, extraAmountsOfTurn, quotaBucketForMode
 import { getPath, TEMPLATES, fetchFromTemplate } from '../lib/vendors.mjs'
 import { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } from '../lib/discover.mjs'
 import { computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } from '../lib/balance.mjs'
-import { mapZcodeTheme, themeOfConfig } from '../lib/zcode-theme.mjs'
+import { mapZcodeTheme, themeOfConfig, resolveZcodeTheme } from '../lib/zcode-theme.mjs'
 import { safeMirrorUrl } from '../lib/overlay.mjs'
 import { findApiKey, readPluginConfig } from '../lib/credentials.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
@@ -1642,6 +1642,33 @@ try {
     zt && zt.ok === true && zt.theme === 'dark' && zt.raw === 'zai-dark' && zt.source === 'user-config',
     JSON.stringify(zt)
   )
+  // 观测层（v1.7.2）：浮层把 ZCode 窗口的 DWM 暗色标志落盘，接口优先用它——
+  // 跟随的是「ZCode 现在实际用的主题」，配置/系统都可能与实况相反
+  const obsFile = path.join(dataDir, 'zcode-theme-observed.json')
+  fs.writeFileSync(obsFile, JSON.stringify({ dark: 1, at: Date.now(), source: 'dwm' }), 'utf8')
+  await new Promise((r) => setTimeout(r, 5200)) // 服务端读取缓存 5s
+  const ztObs = await getJson(port, '/whale/zcode-theme.json')
+  check(
+    'ZCode 主题：观测层生效（DWM 暗色标志 → dark）',
+    ztObs && ztObs.ok === true && ztObs.theme === 'dark' && ztObs.source === 'zcode-window' && ztObs.observed && ztObs.observed.dark === 1,
+    JSON.stringify(ztObs)
+  )
+  fs.writeFileSync(obsFile, JSON.stringify({ dark: 0, at: Date.now(), source: 'dwm' }), 'utf8')
+  await new Promise((r) => setTimeout(r, 5200))
+  const ztObs2 = await getJson(port, '/whale/zcode-theme.json')
+  check(
+    'ZCode 主题：观测为浅色时不被配置 zai-dark 带偏（跟随实况）',
+    ztObs2 && ztObs2.theme === 'light' && ztObs2.source === 'zcode-window',
+    JSON.stringify(ztObs2)
+  )
+  fs.rmSync(obsFile, { force: true })
+  await new Promise((r) => setTimeout(r, 5200))
+  const ztBack = await getJson(port, '/whale/zcode-theme.json')
+  check(
+    'ZCode 主题：观测文件消失后回落配置层（zai-dark → dark）',
+    ztBack && ztBack.theme === 'dark' && ztBack.source === 'user-config',
+    JSON.stringify(ztBack)
+  )
 
   // 接口：音效库（内置两套 + 导入 + 回放 + 删除）
   const snd0 = await getJson(port, '/whale/sounds.json')
@@ -1944,6 +1971,28 @@ try {
       'themeOfConfig：只认 ui.theme 字符串',
       themeOfConfig({ ui: { theme: 'dark' } }) === 'dark' && themeOfConfig({}) === null && themeOfConfig({ ui: { theme: '  ' } }) === null,
       JSON.stringify(themeOfConfig({ ui: { theme: 'dark' } }))
+    )
+    // 三层判定（v1.7.2）：观测（ZCode 窗口 DWM 暗色标志）> 配置 > 系统
+    const tnow = Date.now()
+    check(
+      'resolveZcodeTheme：新鲜观测压过配置（ZCode 实际暗色 + 配置写浅色 → dark）',
+      resolveZcodeTheme({ dark: 1, at: tnow }, 'light') === 'dark' && resolveZcodeTheme({ dark: 0, at: tnow }, 'dark') === 'light',
+      resolveZcodeTheme({ dark: 1, at: tnow }, 'light')
+    )
+    check(
+      'resolveZcodeTheme：过期观测不算数（回落配置映射）',
+      resolveZcodeTheme({ dark: 1, at: tnow - 48 * 3600_000 }, 'zai-light') === 'light',
+      resolveZcodeTheme({ dark: 1, at: tnow - 48 * 3600_000 }, 'zai-light')
+    )
+    check(
+      'resolveZcodeTheme：无观测走配置、配置缺失回 system',
+      resolveZcodeTheme(null, 'zai-dark') === 'dark' && resolveZcodeTheme(undefined, null) === 'system',
+      'dark / system'
+    )
+    check(
+      'resolveZcodeTheme：观测缺 at 视为新鲜（跟随脚本只在变化时写）',
+      resolveZcodeTheme({ dark: 0 }, 'dark') === 'light',
+      resolveZcodeTheme({ dark: 0 }, 'dark')
     )
   }
 

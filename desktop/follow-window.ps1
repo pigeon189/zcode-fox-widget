@@ -19,12 +19,16 @@
 #   window and pid lists - stays on a separate time budget (-ProcessCacheMs).
 #
 # Output protocol (one JSON object per line):
-#   {"x":..,"y":..,"w":..,"h":..,"show":bool,"pid":N,"pidStart":MS}
+#   {"x":..,"y":..,"w":..,"h":..,"show":bool,"pid":N,"pidStart":MS,"dark":-1|0|1}
 #                                               ZCode rect (physical px), overlay
-#                                               visibility, and the identity of the
+#                                               visibility, the identity of the
 #                                               process that owns that window (the
 #                                               main process uses it to notice a new
-#                                               ZCode launch and re-run its startup gate)
+#                                               ZCode launch and re-run its startup
+#                                               gate), and that window's DWM
+#                                               immersive-dark flag = which theme
+#                                               ZCode is currently using (dark=1,
+#                                               light=0, -1 = attribute unavailable)
 #   {"hide":true}                               ZCode window not found (e.g. restarting)
 #   {"gone":true}                               ZCode exited; the overlay should quit
 #
@@ -84,6 +88,7 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int val, int size);
 
     static IntPtr _overlayHwnd = IntPtr.Zero;
 
@@ -116,6 +121,25 @@ public static class WhaleFollow
             }
         }
         catch (Exception) { return 0; }
+    }
+
+    // DWMWA_USE_IMMERSIVE_DARK_MODE (20): the window's dark-mode frame flag.
+    // Windows apps set it from their native theme - Electron does it from
+    // nativeTheme, and ZCode drives nativeTheme from its own theme setting
+    // (verified in its app bundle: nativeTheme.themeSource = user's choice).
+    // Reading it tells us which theme ZCode is ACTUALLY using right now; the OS
+    // theme can easily be the opposite (measured: OS light + ZCode dark).
+    // Returns 1 (dark), 0 (light), or -1 when the attribute is unavailable.
+    static int QueryDarkMode(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return -1;
+        try
+        {
+            int v;
+            if (DwmGetWindowAttribute(hwnd, 20, out v, 4) != 0) return -1;
+            return v != 0 ? 1 : 0;
+        }
+        catch (Exception) { return -1; }
     }
 
     // Resident command channel from the Electron main process (stdin, one
@@ -356,6 +380,7 @@ public static class WhaleFollow
         bool haveSig = false;
         int lastL = 0, lastT = 0, lastW = 0, lastH = 0;
         int lastPid = 0;
+        int lastDark = -2;
         bool lastShow = false;
 
         while (true)
@@ -405,11 +430,15 @@ public static class WhaleFollow
 
                 int w = r.Right - r.Left;
                 int h = r.Bottom - r.Top;
-                if (!haveSig || r.Left != lastL || r.Top != lastT || w != lastW || h != lastH || show != lastShow || _targetPid != lastPid)
+                // ZCode 当前主题（DWM 沉浸式暗色标志）：跟随脚本是唯一拿着目标
+                // 窗口句柄的一方，由它顺手读，主进程落盘供「跟随 ZCode」用
+                int dark = QueryDarkMode(z);
+                if (!haveSig || r.Left != lastL || r.Top != lastT || w != lastW || h != lastH || show != lastShow || _targetPid != lastPid || dark != lastDark)
                 {
                     haveSig = true;
                     lastL = r.Left; lastT = r.Top; lastW = w; lastH = h; lastShow = show;
                     lastPid = _targetPid;
+                    lastDark = dark;
 
                     // Decision inputs go to stderr; the main process records them
                     // only when the debug log is enabled.
@@ -424,10 +453,12 @@ public static class WhaleFollow
                     // pid / pidStart identify the followed ZCode process: the
                     // main process resets its startup gate when they change (new
                     // launch = hide the overlay until the main window is ready).
+                    // dark = DWM immersive-dark flag of that window (-1 = unknown).
                     Console.Out.WriteLine(
                         "{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + w + ",\"h\":" + h +
                         ",\"show\":" + (show ? "true" : "false") +
-                        ",\"pid\":" + _targetPid + ",\"pidStart\":" + ((long)_targetPidStart) + "}");
+                        ",\"pid\":" + _targetPid + ",\"pidStart\":" + ((long)_targetPidStart) +
+                        ",\"dark\":" + dark + "}");
                     Console.Out.Flush();
                 }
             }

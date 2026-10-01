@@ -247,6 +247,7 @@ function startFollower() {
       // 身份先于判定处理：换了 ZCode 进程就把门控归零，紧随其后的这次
       // applyZCodeBounds 才会去做「这一次启动」的判定（顺序不能反）
       noteZCodeIdentity(msg)
+      noteZcodeTheme(msg)
       applyZCodeBounds(msg)
     }
   })
@@ -330,6 +331,40 @@ function noteZCodeIdentity(msg) {
   zcodePidStart = start
   uiReady = false
 }
+
+// ---------- ZCode 当前主题的观测 ----------
+// 跟随脚本顺手读目标窗口的 DWM 沉浸式暗色标志（ZCode 壳层按自己的主题设置
+// nativeTheme，见其 app 包），这就是「ZCode 目前用的什么主题」。落盘给挂件
+// 服务的 /whale/zcode-theme.json 用（lib/zcode-theme.mjs 合并：观测 > 配置 > 系统）。
+const ZCODE_THEME_OBS_FILE = path.join(os.homedir(), '.zcode', 'whale', 'zcode-theme-observed.json')
+let zcodeThemeObserved = -1
+let zcodeThemeObsWrittenAt = 0
+
+function writeZcodeThemeObserved(force) {
+  const dark = zcodeThemeObserved
+  if (dark !== 0 && dark !== 1) return
+  const now = Date.now()
+  // 观测没变时按 30s 节流写盘（只为保鲜时间戳），变了立刻写
+  if (!force && now - zcodeThemeObsWrittenAt < 30000) return
+  zcodeThemeObsWrittenAt = now
+  try {
+    fs.mkdirSync(path.dirname(ZCODE_THEME_OBS_FILE), { recursive: true })
+    fs.writeFileSync(ZCODE_THEME_OBS_FILE, JSON.stringify({ dark, at: now, source: 'dwm' }))
+  } catch (err) {}
+}
+
+function noteZcodeTheme(msg) {
+  const dark = Number(msg && msg.dark)
+  if (dark !== 0 && dark !== 1) return
+  const changed = dark !== zcodeThemeObserved
+  zcodeThemeObserved = dark
+  writeZcodeThemeObserved(changed)
+  if (changed) log('zcode-theme-observed', String(dark))
+}
+
+// 观测文件保鲜：跟随消息只在状态变化时到来，长时间不变也要刷时间戳，免得读取端
+// 把仍然有效的观测当过期（TTL 见 lib/zcode-theme.mjs）。每 60s 内部还有 30s 节流。
+setInterval(() => writeZcodeThemeObserved(false), 60000)
 
 function refreshUiReady() {
   try {
@@ -768,6 +803,11 @@ app.on('window-all-closed', () => {
 })
 app.on('before-quit', () => {
   app.isQuitting = true
+  // 主题观测是「浮层活着时的现值」：退出就删掉，免得下次以旧充新
+  // （读取端另有 24h TTL 兜底，见 lib/zcode-theme.mjs）
+  try {
+    fs.rmSync(ZCODE_THEME_OBS_FILE, { force: true })
+  } catch (err) {}
   if (watcher) {
     try {
       watcher.kill()
