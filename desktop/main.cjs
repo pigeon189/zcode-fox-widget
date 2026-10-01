@@ -423,10 +423,17 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
       // 会让 Windows 立刻把前台丢给 explorer（黑匣子实测 5ms 内
       // fgPid=explorer、浮层随即被藏），那时 follower 已不满足「由前台进程
       // 启动」的 SetForegroundWindow 许可，之后再 handback 就晚了。
+      // handback 本身有 AttachThreadInput 重试兜底，这里再延迟 120ms 拆样式
+      // 给它抢跑窗口（follower 的 SetForegroundWindow 命中在前台易主前）。
       const wasFocused = win.isFocused()
       if (wasFocused) followerCommand('handback')
-      win.setFocusable(false)
-      followerCommand('toolwindow')
+      setTimeout(() => {
+        try {
+          if (!win || win.isDestroyed()) return
+          win.setFocusable(false)
+          followerCommand('toolwindow')
+        } catch (err) {}
+      }, 120)
     }
   } catch (err) {
     log('keyboard-focus-failed', String((err && err.message) || err))

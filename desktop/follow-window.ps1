@@ -71,6 +71,8 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] static extern IntPtr SetProcessDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(IntPtr idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
@@ -132,7 +134,27 @@ public static class WhaleFollow
     {
         try
         {
-            if (_targetHwnd != IntPtr.Zero && IsWindow(_targetHwnd)) SetForegroundWindow(_targetHwnd);
+            if (_targetHwnd == IntPtr.Zero || !IsWindow(_targetHwnd)) return;
+            // Permission for a plain SetForegroundWindow is racy here: by the
+            // time this command arrives, the overlay may have already dropped
+            // the foreground (to the shell), and "child of the foreground
+            // process" no longer holds. AttachThreadInput to whoever owns the
+            // foreground now - that synchronizes input state and lets the call
+            // through regardless - and retry a few times until ZCode really
+            // has it.
+            for (int i = 0; i < 4; i++)
+            {
+                IntPtr fg = GetForegroundWindow();
+                uint fgThread = 0;
+                uint pidDummy = 0;
+                if (fg != IntPtr.Zero) fgThread = GetWindowThreadProcessId(fg, out pidDummy);
+                uint me = GetCurrentThreadId();
+                bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
+                bool ok = SetForegroundWindow(_targetHwnd);
+                if (attached) AttachThreadInput(me, fgThread, false);
+                if (ok && GetForegroundWindow() == _targetHwnd) return;
+                Thread.Sleep(70);
+            }
         }
         catch (Exception) { }
     }
