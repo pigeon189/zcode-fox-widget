@@ -401,8 +401,8 @@ ipcMain.on('whale:quit', () => app.quit())
 ipcMain.handle('whale:workarea', () => screen.getPrimaryDisplay().workArea)
 
 // 不可激活的窗口拿不到键盘输入。页面在指针按到菜单里的文本框/下拉时才请求
-// 临时恢复可激活并主动取一次焦点，离开后立刻交还前台（回到不可激活），
-// 这样「点鲸鱼 / 拖拽 / 开菜单 / 点气泡」都不会打断 ZCode 的前台状态。
+// 临时恢复可激活并主动取一次焦点，浮层 UI 全部关闭时再交还前台（回到不可
+// 激活），这样「点鲸鱼 / 拖拽 / 开菜单 / 点气泡」都不会打断 ZCode 的前台状态。
 let keyboardFocus = false
 ipcMain.on('whale:keyboard-focus', (_event, value) => {
   if (!win || win.isDestroyed()) return
@@ -413,13 +413,18 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
     if (want) {
       win.setFocusable(true)
       win.focus()
+      // setFocusable(true) 会重写窗口扩展样式，把 skipTaskbar 的 TOOLWINDOW
+      // 位冲掉——实测点文本框的瞬间浮层出现在任务栏。取回焦点后立刻补挂。
+      win.setSkipTaskbar(true)
     } else {
+      // 顺序不能反：先把前台还给 ZCode，再拆可激活态。setFocusable(false)
+      // 会让 Windows 立刻把前台丢给 explorer（黑匣子实测 5ms 内
+      // fgPid=explorer、浮层随即被藏），那时 follower 已不满足「由前台进程
+      // 启动」的 SetForegroundWindow 许可，之后再 handback 就晚了。
+      const wasFocused = win.isFocused()
+      if (wasFocused) followerCommand('handback')
       win.setFocusable(false)
-      // 不调用 win.blur()：它把前台交给 shell（explorer）而不是 ZCode，
-      // ZCode 继续冻着、跟随脚本看到 explorer 前台还会把浮层藏掉。
-      // 此时若浮层仍是前台窗口，让跟随进程把前台还给 ZCode 的主窗口
-      // （子进程由前台进程启动，Windows 允许它 SetForegroundWindow）。
-      if (win.isFocused()) followerCommand('handback')
+      win.setSkipTaskbar(true)
     }
   } catch (err) {
     log('keyboard-focus-failed', String((err && err.message) || err))
@@ -427,18 +432,14 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
   log('keyboard-focus', String(want))
 })
 
-// 浮层失去前台（用户点回 ZCode / Alt-Tab）：键盘焦点状态就地作废，并通知
-// 页面收起菜单/编辑器。此前这一步靠 focusout 兜底，但窗口失活时
-// document.activeElement 不变，编辑器和接管状态会一直挂着（实测表现为
-// 「ZCode 冻住、必须手动关掉气泡设置才恢复」）。
+// 浮层窗口失焦：只通知页面，不动焦点/样式状态。原因有二：①原生 select
+// 弹出期间主窗口会瞬间失焦（焦点在弹出层上），此时 setFocusable(false)
+// 会把弹出层一起拆掉；②真正释放走页面的 setKeyboardFocus(false) IPC——
+// 是否「用户离开了」由页面判断（它知道用户刚碰过哪个控件）。
 function releaseKeyboardFocusOnBlur() {
   if (!keyboardFocus) return
-  keyboardFocus = false
   try {
-    if (win && !win.isDestroyed()) {
-      win.setFocusable(false)
-      win.webContents.send('whale:window-blur')
-    }
+    if (win && !win.isDestroyed()) win.webContents.send('whale:window-blur')
   } catch (err) {}
   log('keyboard-focus-blur')
 }
