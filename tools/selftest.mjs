@@ -477,7 +477,10 @@ function check(name, ok, detail) {
   check('Plan 日志解析：非当天的观测标记 stale', staleShaped && staleShaped.stale === true)
 
   // ZCode 启动就绪判定（浮层门控用）：日志里有 boot 标记但没有 ready 标记 =
-  // 加载动画期间，浮层先不显示；缺 boot 标记（老版本/日志缺失）一律放行
+  // 加载动画期间，浮层先不显示；缺 boot 标记（老版本/日志缺失）一律放行。
+  // v1.5.4：标记要认「本次启动」的 pid——同一天日志里躺着上一次运行完整的
+  // 「启动→就绪」序列，只按位置判断会把上一次的序列当成本次已就绪，于是重开
+  // ZCode 时鲸鱼在加载动画里就出现了（2026-10-01 实测 + 截图）。
   {
     const { evaluateBootState } = requireCjs(path.join(PLUGIN_ROOT, 'desktop', 'ui-ready.cjs'))
     const boot = '[2026-10-01 10:00:26.874] [info] [pid:1] [main] [primary-window] creating main window (app-ready)\n'
@@ -494,6 +497,46 @@ function check(name, ok, detail) {
     check('启动就绪判定：无启动标记不拦（老版本/日志缺失）', s4.state === 'ready', JSON.stringify(s4))
     const s5 = evaluateBootState(boot + dbReady + boot)
     check('启动就绪判定：二次启动后重新进入加载态', s5.state === 'loading', JSON.stringify(s5))
+
+    // 场景取自 2026-10-01 实测：12:48 那次运行完整收尾（boot 12:48:14 →
+    // database-startup ready 12:48:16），13:20:49 用户重开 ZCode（pid 7876，
+    // 主界面 13:20:56 才就绪）。加载动画期间读到的日志尾窗里只有上一次的标记。
+    const stampOf = (s) => new Date(s.replace(' ', 'T')).getTime()
+    const oldRun =
+      '[2026-10-01 12:48:14.874] [info] [pid:3812] [main] [startup] 创建主窗口\n' +
+      '[2026-10-01 12:48:14.874] [info] [pid:3812] [main] [primary-window] creating main window (app-ready)\n' +
+      '[2026-10-01 12:48:16.000] [info] [pid:3812] [main] [database-startup] terminal {"attemptId":"a","status":"ready","durationMs":5007}\n' +
+      '[2026-10-01 12:48:16.500] [info] [pid:3812] [main] [host-log] (local-1) [host] [2026-10-01 12:48:16.500] [pid:99999] [zcode-host] [rpc:call] window-controller.listTaskList OK (0.1ms)\n'
+    const newBoot =
+      '[2026-10-01 13:20:49.981] [info] [pid:7876] [main] [startup] 创建主窗口\n' +
+      '[2026-10-01 13:20:49.982] [info] [pid:7876] [main] [primary-window] creating main window (app-ready)\n'
+    const newReady = '[2026-10-01 13:20:56.385] [info] [pid:7876] [main] [database-startup] terminal {"attemptId":"b","status":"ready","durationMs":4983}\n'
+    const NEW_PID_START = stampOf('2026-10-01 13:20:48.500') // 进程启动时间
+    const NEW = { pid: 7876, processStartAt: NEW_PID_START }
+
+    const r1 = evaluateBootState(oldRun, NEW)
+    check(
+      '启动就绪判定：上一次运行的就绪序列不冒充本次（重开 ZCode 时拦住加载动画）',
+      r1.state === 'loading' && r1.anchorAt === NEW_PID_START,
+      JSON.stringify(r1)
+    )
+    const r2 = evaluateBootState(oldRun + newBoot, NEW)
+    check('启动就绪判定：本次 boot 之后还没就绪 = 加载中', r2.state === 'loading' && r2.reason === 'loading-after-boot', JSON.stringify(r2))
+    const r3 = evaluateBootState(oldRun + newBoot + newReady, NEW)
+    check('启动就绪判定：本次 boot 之后的就绪标记放行', r3.state === 'ready' && r3.reason === 'ready-after-boot', JSON.stringify(r3))
+    const r4 = evaluateBootState(newReady, NEW)
+    check('启动就绪判定：boot 被刷出尾窗但本次就绪标记在场 = 放行', r4.state === 'ready', JSON.stringify(r4))
+    const r5 = evaluateBootState(oldRun, { processStartAt: NEW_PID_START })
+    check('启动就绪判定：只有进程启动时间也能拦住（pid 拿不到时）', r5.state === 'loading', JSON.stringify(r5))
+    const r6 = evaluateBootState(oldRun, { pid: 3812, processStartAt: NEW_PID_START })
+    check('启动就绪判定：pid 相同但标记早于本次进程 = 仍算加载中', r6.state === 'loading', JSON.stringify(r6))
+    const r7 = evaluateBootState(oldRun)
+    check('启动就绪判定：既无 pid 也无进程时间时退回旧口径（不拦）', r7.state === 'ready', JSON.stringify(r7))
+    const r8 = evaluateBootState(oldRun + newBoot + newReady, { pid: 7876 })
+    check('启动就绪判定：只给 pid 也能放行', r8.state === 'ready', JSON.stringify(r8))
+    // 进程启动时间取了未来值（采样异常）：当无效身份处理，不能让超时兜底失效
+    const r9 = evaluateBootState(oldRun + newBoot, { pid: 7876, processStartAt: Date.now() + 3600_000 })
+    check('启动就绪判定：未来时间戳的身份锚点被忽略', r9.state === 'loading' && r9.anchorAt && r9.anchorAt < Date.now(), JSON.stringify(r9))
   }
 
   // v1.4.2：过期套餐的遗留桶不冒充当前配额——balances 里会残留死套餐的桶

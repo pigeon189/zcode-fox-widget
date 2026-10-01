@@ -19,7 +19,12 @@
 #   window and pid lists - stays on a separate time budget (-ProcessCacheMs).
 #
 # Output protocol (one JSON object per line):
-#   {"x":..,"y":..,"w":..,"h":..,"show":bool}   ZCode rect (physical px) + overlay visibility
+#   {"x":..,"y":..,"w":..,"h":..,"show":bool,"pid":N,"pidStart":MS}
+#                                               ZCode rect (physical px), overlay
+#                                               visibility, and the identity of the
+#                                               process that owns that window (the
+#                                               main process uses it to notice a new
+#                                               ZCode launch and re-run its startup gate)
 #   {"hide":true}                               ZCode window not found (e.g. restarting)
 #   {"gone":true}                               ZCode exited; the overlay should quit
 #
@@ -86,6 +91,32 @@ public static class WhaleFollow
     static HashSet<int> _electronPids = new HashSet<int>();
     static IntPtr _targetHwnd = IntPtr.Zero;
     static int _lastReplayTick = 0;
+
+    // Identity of the process that owns the followed window (pid + creation
+    // time). Reported to the main process with every state message so it can
+    // tell a NEW ZCode launch apart from the one it is already following: the
+    // startup gate keys on this to hide the overlay during the loading splash
+    // (a latched "ready" from the previous launch used to let the whale show
+    // up in the middle of the splash screen, measured 2026-10-01).
+    static int _targetPid = 0;
+    static double _targetPidStart = 0;
+
+    // Creation time of a process as a UNIX millisecond timestamp (0 when it
+    // cannot be read). DateTimeOffset.ToUnixTimeMilliseconds is .NET 4.6+ only,
+    // so the epoch arithmetic is done by hand.
+    static double ProcessStartMs(int pid)
+    {
+        try
+        {
+            using (Process p = Process.GetProcessById(pid))
+            {
+                DateTime t = p.StartTime.ToUniversalTime();
+                DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                return (t - epoch).TotalMilliseconds;
+            }
+        }
+        catch (Exception) { return 0; }
+    }
 
     // Resident command channel from the Electron main process (stdin, one
     // command per line):
@@ -239,6 +270,30 @@ public static class WhaleFollow
         // take over as soon as it appears.
         IntPtr picked = PickLargestWindow(tids);
         if (picked != IntPtr.Zero || _targetHwnd == IntPtr.Zero || !IsWindow(_targetHwnd)) _targetHwnd = picked;
+        // Identity of the followed window's owner (see _targetPid above). Read
+        // from the picked HWND, not from the process list, so it always belongs
+        // to the window we are actually tracking. Keep the previous values when
+        // no window is found this round: a momentary gap while ZCode restarts
+        // must not look like "the target disappeared".
+        int ownerPid = 0;
+        if (_targetHwnd != IntPtr.Zero)
+        {
+            uint op = 0;
+            GetWindowThreadProcessId(_targetHwnd, out op);
+            ownerPid = (int)op;
+        }
+        if (ownerPid > 0)
+        {
+            if (ownerPid != _targetPid)
+            {
+                _targetPid = ownerPid;
+                _targetPidStart = ProcessStartMs(ownerPid);
+            }
+            else if (_targetPidStart == 0)
+            {
+                _targetPidStart = ProcessStartMs(ownerPid);
+            }
+        }
 
         HashSet<int> eids = new HashSet<int>();
         if (overlayPid > 0)
@@ -300,6 +355,7 @@ public static class WhaleFollow
         int missSince = 0;
         bool haveSig = false;
         int lastL = 0, lastT = 0, lastW = 0, lastH = 0;
+        int lastPid = 0;
         bool lastShow = false;
 
         while (true)
@@ -349,10 +405,11 @@ public static class WhaleFollow
 
                 int w = r.Right - r.Left;
                 int h = r.Bottom - r.Top;
-                if (!haveSig || r.Left != lastL || r.Top != lastT || w != lastW || h != lastH || show != lastShow)
+                if (!haveSig || r.Left != lastL || r.Top != lastT || w != lastW || h != lastH || show != lastShow || _targetPid != lastPid)
                 {
                     haveSig = true;
                     lastL = r.Left; lastT = r.Top; lastW = w; lastH = h; lastShow = show;
+                    lastPid = _targetPid;
 
                     // Decision inputs go to stderr; the main process records them
                     // only when the debug log is enabled.
@@ -361,11 +418,16 @@ public static class WhaleFollow
                         " minimized=" + (minimized ? "true" : "false") +
                         " fgPid=" + fgPid +
                         " fgIsZCode=" + (fgIsTarget ? "true" : "false") +
-                        " fgIsOverlay=" + (fgIsOverlay ? "true" : "false"));
+                        " fgIsOverlay=" + (fgIsOverlay ? "true" : "false") +
+                        " pid=" + _targetPid + " pidStart=" + ((long)_targetPidStart));
 
+                    // pid / pidStart identify the followed ZCode process: the
+                    // main process resets its startup gate when they change (new
+                    // launch = hide the overlay until the main window is ready).
                     Console.Out.WriteLine(
                         "{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + w + ",\"h\":" + h +
-                        ",\"show\":" + (show ? "true" : "false") + "}");
+                        ",\"show\":" + (show ? "true" : "false") +
+                        ",\"pid\":" + _targetPid + ",\"pidStart\":" + ((long)_targetPidStart) + "}");
                     Console.Out.Flush();
                 }
             }

@@ -244,6 +244,9 @@ function startFollower() {
       }
       // 记下最后一条跟随消息：启动加载门控就绪后要靠它补一次显示
       lastFollowerMsg = msg
+      // 身份先于判定处理：换了 ZCode 进程就把门控归零，紧随其后的这次
+      // applyZCodeBounds 才会去做「这一次启动」的判定（顺序不能反）
+      noteZCodeIdentity(msg)
       applyZCodeBounds(msg)
     }
   })
@@ -297,7 +300,12 @@ let lastViewport = null
 // 10:00:33.3）。浮层只跟随窗口矩形，所以加载动画期间就把鲸鱼画了出来。用客户端
 // 日志里的启动标记判定：最近一次启动有 boot 标记但还没有 ready 标记 = 加载中，
 // 此时不显示（沿用透明度隐身），就绪后自动补一次显示。
-// 兜底：没有 boot 标记（老版本/日志缺失）一律放行；boot 标记超过 30 秒仍没有
+//
+// 判定必须认「这一次启动」：日志是当天累积的，上一次运行的标记还在里面，浮层
+// 跟随脚本报上来的目标窗口 pid（+ 进程启动时间）就是归属依据——身份一变，
+// 门控立刻归零重判（2026-10-01 实测：不归零时重开 ZCode，鲸鱼在加载动画里
+// 照样出现，因为上一次的「启动→就绪」序列被判成了本次已就绪）。
+// 兜底：没有 boot 标记（老版本/日志缺失）一律放行；锚点时间超过 30 秒仍没有
 // ready 标记也放行——标记改名绝不能变成"鲸鱼永远不出现"。
 const UI_READY_TIMEOUT_MS = 30000
 const UI_READY_POLL_MS = 600
@@ -306,6 +314,22 @@ const UI_READY_POLL_MS = 600
 let uiReady = false
 let uiReadyPoll = null
 let lastFollowerMsg = null
+// 当前跟随的 ZCode 进程身份（跟随脚本上报）
+let zcodePid = 0
+let zcodePidStart = 0
+
+// 跟随消息里的进程身份变了 = 换了一次 ZCode 运行（重启/退出重开/跟随目标换窗口）。
+// 门控必须回到「未就绪」，否则上一次运行留下的 uiReady=true 会把整个加载期放行。
+function noteZCodeIdentity(msg) {
+  const pid = Number(msg && msg.pid) || 0
+  if (!pid) return
+  const start = Number(msg && msg.pidStart) || 0
+  if (pid === zcodePid && (!start || start === zcodePidStart)) return
+  log('zcode-identity', 'pid=' + pid + ' start=' + (start || 0) + ' prev=' + zcodePid + '/' + (zcodePidStart || 0))
+  zcodePid = pid
+  zcodePidStart = start
+  uiReady = false
+}
 
 function refreshUiReady() {
   try {
@@ -313,12 +337,13 @@ function refreshUiReady() {
     if (!tail) {
       uiReady = true
     } else {
-      const r = evaluateBootState(tail.text)
-      if (r.state === 'loading' && r.bootAt && Date.now() - r.bootAt > UI_READY_TIMEOUT_MS) {
+      const r = evaluateBootState(tail.text, { pid: zcodePid, processStartAt: zcodePidStart })
+      if (r.state === 'loading' && r.anchorAt && Date.now() - r.anchorAt > UI_READY_TIMEOUT_MS) {
         uiReady = true // 标记缺失/改名：超时放行
       } else {
         uiReady = r.state !== 'loading'
       }
+      log('ui-gate', r.state + ' reason=' + r.reason + ' pid=' + (zcodePid || 0) + ' anchor=' + (r.anchorAt || 0))
     }
   } catch (err) {
     uiReady = true
@@ -713,6 +738,10 @@ function recreateWindow(reason) {
   interactive = false
   keyboardFocus = false
   overlayShown = false
+  // 启动门控一并归零：重建后的窗口要走「先判定再显示」的原路，别继承旧结论
+  uiReady = false
+  zcodePid = 0
+  zcodePidStart = 0
   liveRect = null
   liveRectAt = 0
   lastSeenPhase = null
