@@ -66,6 +66,9 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+    public delegate bool EnumProc(IntPtr h, IntPtr l);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
@@ -182,10 +185,43 @@ public static class WhaleFollow
         catch (Exception) { }
     }
 
+    // Largest visible top-level window among the target pids.
+    //
+    // Process.MainWindowHandle is NOT trustworthy here: ZCode owns a small
+    // (375x84) always-alive window besides the real UI, and .NET happily returns
+    // that one as "main" (measured 2026-10-01: the whale suddenly followed a
+    // 251x56 viewport and rendered as a tiny widget near the top edge). Same
+    // story during startup, when only the small loading window exists yet.
+    // Picking the largest visible window is what "the ZCode window" means.
+    static IntPtr PickLargestWindow(HashSet<int> pids)
+    {
+        IntPtr best = IntPtr.Zero;
+        long bestArea = -1;
+        try
+        {
+            EnumWindows(delegate(IntPtr h, IntPtr l)
+            {
+                uint p = 0;
+                GetWindowThreadProcessId(h, out p);
+                if (!pids.Contains((int)p)) return true;
+                if (!IsWindowVisible(h)) return true;
+                RECT r;
+                if (!GetWindowRect(h, out r)) return true;
+                long w = r.Right - r.Left;
+                long hgt = r.Bottom - r.Top;
+                if (w <= 0 || hgt <= 0) return true;
+                long area = w * hgt;
+                if (area > bestArea) { bestArea = area; best = h; }
+                return true;
+            }, IntPtr.Zero);
+        }
+        catch (Exception) { }
+        return best;
+    }
+
     // Expensive: enumerates processes. Only called on the cache budget.
     static void UpdateCache(string targetName, int overlayPid)
     {
-        IntPtr hwnd = IntPtr.Zero;
         HashSet<int> tids = new HashSet<int>();
         try
         {
@@ -193,13 +229,16 @@ public static class WhaleFollow
             foreach (Process p in procs)
             {
                 tids.Add(p.Id);
-                if (hwnd == IntPtr.Zero && p.MainWindowHandle != IntPtr.Zero) hwnd = p.MainWindowHandle;
                 p.Dispose();
             }
         }
         catch (Exception) { }
-        _targetHwnd = hwnd;
         _targetPids = tids;
+        // Re-pick on every cache refresh (not just when the handle dies): during
+        // startup the small window comes first, and the real main window has to
+        // take over as soon as it appears.
+        IntPtr picked = PickLargestWindow(tids);
+        if (picked != IntPtr.Zero || _targetHwnd == IntPtr.Zero || !IsWindow(_targetHwnd)) _targetHwnd = picked;
 
         HashSet<int> eids = new HashSet<int>();
         if (overlayPid > 0)
