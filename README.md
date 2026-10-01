@@ -89,6 +89,20 @@
 
 ---
 
+## v1.7.1 修复：QA 独立代码审查（REQUEST_CHANGES）全清
+
+外部代码审查（lib/ 18 模块 + desktop/ 5 + tools/，判定 REQUEST_CHANGES：2 重要 + 5 建议 + 缺失测试）逐条修复：
+
+- **I-1 套餐行不再计真金白银**（计费口径自相矛盾）：`usage-records` 的日/周聚合此前把订阅套餐行（zai start-plan/coding-plan 等）按市场价等价市值累加进「今日已用（金额）」与厂商金额，而轮级 `turnPlanUsage`/`extraAmountsOfTurn` 又把同一行当配额不花钱——两处口径打架，套餐与付费混用时金额虚高。现在 `priceRow` 对 `resolveBillingSource(...).source === 'plan'` 的行**金额记 0、billable=false、tokens 照算**，与轮级剔除口径完全一致；文件头注释同步改写（注明 MiMo Token Plan「按今日消耗折算」是文档化例外，见「MiMo 双源拆分」）。
+- **I-2 本地威胁模型显式化**（加固不对称）：`server.mjs` 头注释新增「本地威胁模型（有意取舍）」——浏览器侧由 Host/Origin/JSON body 三重挡住；**同用户本机进程在信任边界之内**：它们本来就能直接读写 `~/.zcode/whale/` 的数据文件，写接口加 HTTP 令牌不构成屏障（令牌必须能被同源页面取到，就必然能被本机进程取到），只给每条写路径增加仪式感。唯一例外是 `/whale/shutdown`：页面从不调用它、令牌只存 `server.json`（0600）从不下发渲染器——这是唯一真正抬高门槛的一处，「关机要令牌、写数据不要」的不对称由此而来。
+- **S-1 金额展示缺陷**：CLI/MCP 逐行 breakdown 的「缓存写入」单价误用 `rates.miss`（总额算的是 `rates.cw`），OpenAI/Qwen 等 cw≠miss 的厂商会显示错误单价、各行相加对不上总额——两处改用 `rates.cw`。
+- **S-2 镜像地址与 shell 面**：`ELECTRON_MIRROR`/`WHALE_NPM_REGISTRY` 先过新增的 `safeMirrorUrl`（形态白名单 + 拒 shell 元字符 + 拒环回/私有/保留主机，与出站硬约束共用 `isBlockedHost`）；带路径的子进程调用改 `shell:false`（只有 npm.cmd 必须经 shell），路径含空格不再被拆词。
+- **S-3 模板 revision 并列取先**：`discover.mjs` 从 `>=` 改 `>`，DFS 遍历顺序不再影响同版本模板的选取。
+- **S-4 `usageRecords` 记忆化**：表指纹（行数 + 最晚时间）+ 30s TTL——主显示/面板/页面轮询三处调用不再反复全量折价；指纹一变立刻重算，刚落库的用量不会延迟显示。
+- **S-5 `pickDominant` 三次调用合一**（turn-cost 的轮级展示属性只挑一次）。
+
+补齐缺失测试：`pickBalanceInfo`（多币种余额挑选 7 例）、`turnPlanUsage`/`extraAmountsOfTurn`/`quotaBucketForModel`（套餐轮百分比与混合轮剔除 6 例）、余额校正公式正向断言（起点 + 到账 − 非扣减 − 当前余额 2 例）、`mapZcodeTheme`/`themeOfConfig`、`safeMirrorUrl`、`platformUsageUrl`。测试：`tools/selftest.mjs` **187/187**（+24）、`tools/smoke-ui.mjs` **49/49**。
+
 ## v1.7.0 口径重排：今日已用主口径改本机库，记账退居「对账 + 兜底」
 
 背景（2026-10-01 实测）：挂件上有三套「今日已用」口径——本机库（ZCode `model_usage` 按模型价目折算）、小鲸鱼记账（DeepSeek 余额差值累计）、实时·令牌（平台用量接口）。此前余额型源（DeepSeek）显示的是**账号口径**，遇到两个问题：**充值当天直接归零**（记账把余额上涨当「待核对调整」，不冲减消费但也不记消费——当日实测：充值约 ¥5 后记账「今日已用」变成 ¥0，本机库同时段给出 ¥45.13）；**粒度只有总数**，分不出模型/厂商。而本机库口径按模型看得见、不受充值干扰，早就是 GLM/MiMo/Kimi 等其它源的显示口径。改法：

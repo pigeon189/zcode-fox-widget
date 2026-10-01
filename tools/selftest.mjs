@@ -15,10 +15,12 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
-import { shapePlanPayload } from '../lib/plan-balance.mjs'
+import { shapePlanPayload, turnPlanUsage, extraAmountsOfTurn, quotaBucketForModel, readPlanBalance } from '../lib/plan-balance.mjs'
 import { getPath, TEMPLATES, fetchFromTemplate } from '../lib/vendors.mjs'
 import { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } from '../lib/discover.mjs'
-import { computeTodayUsage, resolveTodayUsage } from '../lib/balance.mjs'
+import { computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } from '../lib/balance.mjs'
+import { mapZcodeTheme, themeOfConfig } from '../lib/zcode-theme.mjs'
+import { safeMirrorUrl } from '../lib/overlay.mjs'
 import { findApiKey, readPluginConfig } from '../lib/credentials.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 
@@ -1090,11 +1092,25 @@ try {
   if (usage && usage.ok) {
     const costA = costOfUsage('deepseek-flash', { input_tokens: 1, output_tokens: 1, computed_total_tokens: 2 }, atA, 'deepseek-test').amount
     const costB = costOfUsage('deepseek-flash', USAGE_B, atB, 'deepseek-test').amount
-    const expectedToday = costA + costB + glmPart + dsPart
+    // v1.7.1（QA I-1）：套餐行（source='plan'）按配额扣、不花钱，日聚合的金额
+    // 只含真金白银——glmPart 是 pricing 层的等价市值，不进「今日已用（金额）」
+    const expectedToday = costA + costB + dsPart
     check(
-      '用量记录：今日金额 = 三轮之和',
+      '用量记录：今日金额 = 付费行之和（套餐行不计金额）',
       Math.abs(usage.today.total - expectedToday) < 1e-9,
-      '期望 ¥' + expectedToday.toFixed(6) + '，实际 ¥' + usage.today.total.toFixed(6)
+      '期望 ¥' + expectedToday.toFixed(6) + '，实际 ¥' + usage.today.total.toFixed(6) + '（套餐等价市值 ¥' + glmPart.toFixed(6) + ' 已剔除）'
+    )
+    // 套餐行金额归零但 tokens 照算：面板与主显示按配额/tokens 表达
+    const planRow = (usage.today.models || []).find((m) => m.providerId === 'account:zai-start-plan')
+    check(
+      '用量记录：套餐行金额记 0 但 tokens 照算（与轮级 turnPlanUsage 同口径）',
+      planRow && planRow.amount === 0 && planRow.tokens > 0,
+      JSON.stringify(planRow || null)
+    )
+    check(
+      '用量记录：厂商金额不含套餐（byVendor.GLM 金额为 0、tokens 在）',
+      usage.today.byVendor && usage.today.byVendor.GLM && usage.today.byVendor.GLM.amount === 0 && usage.today.byVendor.GLM.tokens > 0,
+      JSON.stringify((usage.today.byVendor || {}).GLM || null)
     )
   }
   // 明细按轮聚合：一轮 = session/turn 相同的全部模型行之和
@@ -1106,8 +1122,8 @@ try {
   if (usage && usage.ok && Array.isArray(usage.turns)) {
     const turnC = usage.turns.find((t) => (t.models || []).some((m) => m.model === 'GLM-5.3-Flash'))
     check(
-      '用量记录：多模型轮次归并为一条且金额 = 两模型之和',
-      turnC && turnC.calls === 2 && turnC.models.length === 2 && Math.abs(turnC.amount - (glmPart + dsPart)) < 1e-9,
+      '用量记录：多模型轮次归并为一条且金额只含付费模型（套餐行金额 0）',
+      turnC && turnC.calls === 2 && turnC.models.length === 2 && Math.abs(turnC.amount - dsPart) < 1e-9,
       turnC
         ? 'calls=' + turnC.calls + ' models=' + turnC.models.length + ' ¥' + turnC.amount.toFixed(6)
         : '未找到含 GLM 的轮次'
@@ -1768,6 +1784,212 @@ try {
     )
   } else {
     check('厂商汇总 byVendor 与逐模型明细同源（DeepSeek / GLM 各自一致）', false, '接口不可用')
+  }
+
+  // ---------- QA 补缺：纯函数直测（余额挑选 / 套餐轮口径 / 校正公式 / 主题 / 镜像白名单） ----------
+  {
+    // pickBalanceInfo：多币种余额挑选（优先 CNY>0 → 任意非零 → CNY 项 → 首项）
+    const pb = (list) => {
+      const r = pickBalanceInfo(list)
+      return r ? r.currency + ':' + r.total_balance : 'null'
+    }
+    check(
+      'pickBalanceInfo：优先 CNY 且余额 > 0',
+      pb([{ currency: 'USD', total_balance: 5 }, { currency: 'CNY', total_balance: 2 }]) === 'CNY:2',
+      pb([{ currency: 'USD', total_balance: 5 }, { currency: 'CNY', total_balance: 2 }])
+    )
+    check(
+      'pickBalanceInfo：无 CNY 正数时取任意非零项',
+      pb([{ currency: 'USD', total_balance: 5 }, { currency: 'EUR', total_balance: 3 }]) === 'USD:5',
+      pb([{ currency: 'USD', total_balance: 5 }, { currency: 'EUR', total_balance: 3 }])
+    )
+    check(
+      'pickBalanceInfo：CNY 为零、USD 为正 → 取 USD',
+      pb([{ currency: 'CNY', total_balance: 0 }, { currency: 'USD', total_balance: 5 }]) === 'USD:5',
+      pb([{ currency: 'CNY', total_balance: 0 }, { currency: 'USD', total_balance: 5 }])
+    )
+    check(
+      'pickBalanceInfo：全部为零退回 CNY 项',
+      pb([{ currency: 'USD', total_balance: 0 }, { currency: 'CNY', total_balance: 0 }]) === 'CNY:0',
+      pb([{ currency: 'USD', total_balance: 0 }, { currency: 'CNY', total_balance: 0 }])
+    )
+    check(
+      'pickBalanceInfo：无 CNY 且全零取首项',
+      pb([{ currency: 'EUR', total_balance: 0 }, { currency: 'USD', total_balance: 0 }]) === 'EUR:0',
+      pb([{ currency: 'EUR', total_balance: 0 }, { currency: 'USD', total_balance: 0 }])
+    )
+    check('pickBalanceInfo：空/非数组返回 null', pickBalanceInfo([]) === null && pickBalanceInfo(null) === null, 'null')
+    check(
+      'pickBalanceInfo：缺 total_balance 不当数（跳到下一项）',
+      pb([{ currency: 'CNY' }, { currency: 'USD', total_balance: 1 }]) === 'USD:1',
+      pb([{ currency: 'CNY' }, { currency: 'USD', total_balance: 1 }])
+    )
+  }
+
+  {
+    // 套餐扣费轮的「余额口径」（plan-balance.turnPlanUsage）：套餐行按 tokens
+    // 全行求和、百分比与主显示同基数；混合轮的真金白银只含非套餐行
+    const savedBase = process.env.ZCODE_DATA_BASE_DIR
+    process.env.ZCODE_DATA_BASE_DIR = tmpHome
+    try {
+      const plan = readPlanBalance()
+      const bucket = quotaBucketForModel(plan, 'GLM-5.3-Flash')
+      check(
+        'quotaBucketForModel：模型名归一匹配到 100M 桶',
+        !!bucket && bucket.totalUnits === 100_000_000 && bucket.remainingUnits === 90_000_000,
+        JSON.stringify(bucket)
+      )
+      check(
+        'quotaBucketForModel：对不上的模型返回 null',
+        quotaBucketForModel(plan, 'totally-unknown-9000') === null,
+        JSON.stringify(quotaBucketForModel(plan, 'totally-unknown-9000'))
+      )
+      const mixedTurn = {
+        models: [
+          { model: 'GLM-5.3-Flash', providerId: 'account:zai-start-plan', tokens: 550_000, amount: 4.2, currency: 'CNY', billable: true },
+          { model: 'deepseek-flash', providerId: 'deepseek-test', tokens: 330_000, amount: 3.21, currency: 'CNY', billable: true },
+        ],
+      }
+      const pu = turnPlanUsage(mixedTurn)
+      check(
+        'turnPlanUsage：混合轮只算套餐行 tokens（550k/104M = 0.53%）',
+        pu && pu.planTurn === true && pu.tokens === 550_000 && Math.abs(pu.pctOfTotal - 0.53) < 0.005,
+        JSON.stringify(pu)
+      )
+      check(
+        'turnPlanUsage：占桶百分比同基数（550k/100M = 0.55%）',
+        pu && Math.abs(pu.pctOfBucket - 0.55) < 0.005,
+        JSON.stringify(pu && { pctOfBucket: pu.pctOfBucket })
+      )
+      const ex = extraAmountsOfTurn(mixedTurn)
+      check(
+        'extraAmountsOfTurn：套餐行被剔除，只留真金白银',
+        ex && ex.CNY === 3.21 && Object.keys(ex).length === 1,
+        JSON.stringify(ex)
+      )
+      const onlyPlan = { models: [mixedTurn.models[0]] }
+      const pu2 = turnPlanUsage(onlyPlan)
+      check(
+        'turnPlanUsage：纯套餐轮无混合金额（extraAmounts=null）',
+        pu2 && pu2.planTurn === true && extraAmountsOfTurn(onlyPlan) === null,
+        JSON.stringify(pu2)
+      )
+      check(
+        'turnPlanUsage：非套餐轮返回 null（不冒充套餐口径）',
+        turnPlanUsage({ models: [mixedTurn.models[1]] }) === null,
+        'null'
+      )
+    } finally {
+      if (savedBase === undefined) delete process.env.ZCODE_DATA_BASE_DIR
+      else process.env.ZCODE_DATA_BASE_DIR = savedBase
+    }
+  }
+
+  {
+    // 余额校正公式（effectiveTodayUsage）：起点 + 到账 − 非调用扣减 − 当前余额。
+    // 自检环境没有真实余额观测，先落一本带 dayOpening/lastBalance 的账本再走真实 POST
+    const ledgerFile = path.join(dataDir, 'usage-ledger.json')
+    fs.writeFileSync(
+      ledgerFile,
+      JSON.stringify({
+        date: new Date().toISOString().slice(0, 10),
+        lastBalance: 80,
+        lastCurrency: 'CNY',
+        todayUsage: 0,
+        history: {},
+        keyFingerprint: 'fixture-ledger',
+        dayOpening: 100,
+        credits: 0,
+        otherDebits: 0,
+        correctedAt: null,
+        pendingCredit: 5,
+        needsReview: true,
+        previousBooks: [],
+      }),
+      'utf8'
+    )
+    const post = (body) =>
+      fetch('http://127.0.0.1:' + port + '/whale/balance-adjustments.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((r) => r.json())
+    const fix1 = await post({ credits: 5, otherDebits: 3 })
+    check(
+      '余额校正公式：起点 100 + 到账 5 − 扣减 3 − 当前 80 = 22',
+      fix1 && fix1.ok === true && fix1.todayUsage === 22 && fix1.needsReview === false,
+      JSON.stringify(fix1)
+    )
+    const fix2 = await post({ credits: 1, otherDebits: 0 })
+    check(
+      '余额校正公式：重复校正按新参数重算（100 + 1 − 0 − 80 = 21）',
+      fix2 && fix2.ok === true && fix2.todayUsage === 21,
+      JSON.stringify(fix2)
+    )
+  }
+
+  {
+    // ZCode 主题映射（纯函数）：zai 皮肤 → 浅/深，system/auto/缺失 → system
+    check(
+      'mapZcodeTheme：zai-light/zai-dark 映射浅/深',
+      mapZcodeTheme('zai-light') === 'light' && mapZcodeTheme('zai-dark') === 'dark' && mapZcodeTheme('LIGHT') === 'light',
+      mapZcodeTheme('zai-dark')
+    )
+    check(
+      'mapZcodeTheme：system/auto/缺失/垃圾值回 system',
+      mapZcodeTheme('system') === 'system' && mapZcodeTheme('auto') === 'system' && mapZcodeTheme(null) === 'system' && mapZcodeTheme('hacker') === 'system',
+      'system'
+    )
+    check(
+      'themeOfConfig：只认 ui.theme 字符串',
+      themeOfConfig({ ui: { theme: 'dark' } }) === 'dark' && themeOfConfig({}) === null && themeOfConfig({ ui: { theme: '  ' } }) === null,
+      JSON.stringify(themeOfConfig({ ui: { theme: 'dark' } }))
+    )
+  }
+
+  {
+    // 镜像地址白名单（safeMirrorUrl）：形态 + 主机双重校验，不干净一律回落默认。
+    // 这是「拉工具时会去请求的 URL」，与出站硬约束同口径拒环回/私有/保留地址。
+    const FB = 'FALLBACK'
+    check(
+      '镜像白名单：规范 https 地址放行（含路径/端口）',
+      safeMirrorUrl('https://registry.npmmirror.com', FB) === 'https://registry.npmmirror.com' &&
+        safeMirrorUrl('https://npmmirror.com/mirrors/electron/', FB) === 'https://npmmirror.com/mirrors/electron/' &&
+        safeMirrorUrl('http://1.2.3.4:4873/mirror/', FB) === 'http://1.2.3.4:4873/mirror/',
+      safeMirrorUrl('https://registry.npmmirror.com', FB)
+    )
+    check(
+      '镜像白名单：shell 元字符/引号/空白被拒',
+      safeMirrorUrl('https://registry.npmmirror.com&calc.exe', FB) === FB &&
+        safeMirrorUrl('https://registry.npmmirror.com/x";calc', FB) === FB &&
+        safeMirrorUrl('https://registry.npmmirror.com/x y', FB) === FB &&
+        safeMirrorUrl('file:///etc/passwd', FB) === FB &&
+        safeMirrorUrl('', FB) === FB,
+      'FALLBACK'
+    )
+    check(
+      '镜像白名单：环回/私有/localhost 主机被拒（与出站硬约束同口径）',
+      safeMirrorUrl('http://127.0.0.1:4873', FB) === FB &&
+        safeMirrorUrl('http://10.0.0.1:4873', FB) === FB &&
+        safeMirrorUrl('http://192.168.1.5/npm', FB) === FB &&
+        safeMirrorUrl('http://localhost:4873', FB) === FB,
+      'FALLBACK'
+    )
+  }
+
+  {
+    // 平台用量接口 URL（纯函数）：start=当日零点（秒）、end=+24h、tz=偏移秒数
+    check(
+      '平台用量 URL：start/end/tz 拼装正确',
+      platformUsageUrl(1790000000, 1790086400, 28800) ===
+        'https://platform.deepseek.com/api/v0/usage/by_api_key/amount?start=1790000000&end=1790086400&tz=28800',
+      platformUsageUrl(1790000000, 1790086400, 28800)
+    )
+    check(
+      '平台用量 URL：小数参数向下取整（floor 语义，接口只认整数秒）',
+      platformUsageUrl(1790000000.9, 1790086400.2, -18000.5).endsWith('?start=1790000000&end=1790086400&tz=-18001'),
+      platformUsageUrl(1790000000.9, 1790086400.2, -18000.5)
+    )
   }
 
   await new Promise((r) => setTimeout(r, 200))
