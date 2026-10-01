@@ -1037,6 +1037,25 @@ try {
     !!rankAmount && !!rankTokens && rankAmount.first !== rankTokens.first,
     JSON.stringify({ amount: rankAmount && rankAmount.first, tokens: rankTokens && rankTokens.first })
   )
+  // ⑮b 对账行（v1.7.0）：今日块里并排放「本机口径 ↔ 账号口径」，充值等调整
+  // 用菜单里的余额校正记一笔后两套账就对得上。fixture 里有 deepseek-flash 行，
+  // 本机口径必须是数字；账号口径在无 key 的冒烟环境里显示 --。
+  const reconView = await pollEval(
+    cdp,
+    "(function(){var ds=document.querySelectorAll('.zcw-panel .zcw-dim');for(var i=0;i<ds.length;i++){" +
+      "if(ds[i].textContent.indexOf('对账')===0)return ds[i].textContent}return null})()",
+    8000
+  )
+  check(
+    '用量记录：对账行并排显示本机口径与账号口径',
+    !!reconView &&
+      reconView.indexOf('对账（DeepSeek）') === 0 &&
+      reconView.indexOf('本机 ¥') !== -1 &&
+      reconView.indexOf('账号') !== -1 &&
+      reconView.indexOf('本机 --') === -1,
+    reconView
+  )
+
   await cdp.eval(
     "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');for(var i=0;i<bs.length;i++){" +
       "if(bs[i].textContent==='关闭'){bs[i].click();return true}}return false})()"

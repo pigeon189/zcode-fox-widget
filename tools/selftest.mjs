@@ -18,7 +18,7 @@ import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, norma
 import { shapePlanPayload } from '../lib/plan-balance.mjs'
 import { getPath, TEMPLATES, fetchFromTemplate } from '../lib/vendors.mjs'
 import { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } from '../lib/discover.mjs'
-import { computeTodayUsage } from '../lib/balance.mjs'
+import { computeTodayUsage, resolveTodayUsage } from '../lib/balance.mjs'
 import { findApiKey, readPluginConfig } from '../lib/credentials.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 
@@ -1713,6 +1713,62 @@ try {
   const delBuiltinSound = await postSound('/whale/sound-delete.json', { id: 'duck' })
   check('音效删除：内置集不可删（400）', delBuiltinSound.status === 400, 'HTTP ' + delBuiltinSound.status)
   await postSound('/whale/sound-delete.json', { id: up1.id })
+
+  // ---------- v1.7.0：今日已用主口径 = 本机库，账号口径做对账 + 兜底 ----------
+  {
+    // 合并逻辑（纯函数）：本机库有记录就用本机，没有就回退账号口径；两个口径
+    // 都留在 payload 里，hint/对账行把它们并排放出来（含其它设备的花费只有
+    // 账号口径看得到）。
+    const a = resolveTodayUsage({ hasRows: true, amount: 45.14, tokens: 1000 }, { amount: 3.27, source: 'ledger' })
+    check(
+      '今日口径：本机库有记录 → 主显示本机口径，账号口径留作对账',
+      a.todayUsage === 45.14 &&
+        a.todayUsageSource === 'db' &&
+        a.todayUsageDb === 45.14 &&
+        a.accountUsage === 3.27 &&
+        a.accountUsageSource === 'ledger',
+      JSON.stringify(a)
+    )
+    const b = resolveTodayUsage({ hasRows: false, amount: 0, tokens: 0 }, { amount: 3.27, source: 'ledger' })
+    check(
+      '今日口径：本机库无记录 → 兜底账号记账口径',
+      b.todayUsage === 3.27 && b.todayUsageSource === 'ledger' && b.todayUsageDb === null,
+      JSON.stringify(b)
+    )
+    const c = resolveTodayUsage({ hasRows: false, amount: 0, tokens: 0 }, { amount: 12.5, source: 'token' })
+    check(
+      '今日口径：兜底来源随对账口径走（实时·令牌）',
+      c.todayUsage === 12.5 && c.todayUsageSource === 'token',
+      JSON.stringify(c)
+    )
+    const e = resolveTodayUsage({ hasRows: false, amount: 0, tokens: 0 }, { amount: null, source: 'ledger' })
+    check(
+      '今日口径：两路都没数据 → 显示层标 --（todayUsage=null）',
+      e.todayUsage === null && e.todayUsageSource === null && e.accountUsage === null,
+      JSON.stringify(e)
+    )
+    const f = resolveTodayUsage(null, { amount: 1, source: 'ledger' })
+    check('今日口径：db 缺失按「无记录」处理（不抛异常）', f.todayUsage === 1 && f.todayUsageSource === 'ledger', JSON.stringify(f))
+  }
+
+  // 接口：today.byVendor 厂商级汇总（主显示与对账行的数字来源），与逐模型明细同源
+  const vendorRec = await getJson(port, '/whale/usage-records.json')
+  if (vendorRec && vendorRec.ok) {
+    const models = vendorRec.today.models || []
+    // models 是 Top12 截断列表；截断时 byVendor（全量）只多不少，按不等式断言
+    const truncated = models.length >= 12
+    const sumBy = (label) => models.filter((m) => m.vendorLabel === label).reduce((s, m) => s + (Number(m.amount) || 0), 0)
+    const bv = vendorRec.today.byVendor || {}
+    const agree = (label) =>
+      bv[label] && (truncated ? bv[label].amount >= sumBy(label) - 1e-6 : Math.abs(bv[label].amount - sumBy(label)) < 1e-6)
+    check(
+      '厂商汇总 byVendor 与逐模型明细同源（DeepSeek / GLM 各自一致）',
+      agree('DeepSeek') && agree('GLM') && bv.DeepSeek.tokens > 0 && bv.GLM.tokens > 0,
+      JSON.stringify(bv)
+    )
+  } else {
+    check('厂商汇总 byVendor 与逐模型明细同源（DeepSeek / GLM 各自一致）', false, '接口不可用')
+  }
 
   await new Promise((r) => setTimeout(r, 200))
   // 令牌关闭
