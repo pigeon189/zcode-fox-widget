@@ -71,7 +71,7 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] static extern IntPtr SetProcessDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] static extern bool AttachThreadInput(IntPtr idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
