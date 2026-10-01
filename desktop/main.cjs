@@ -14,6 +14,7 @@ const { spawn } = require('node:child_process')
 const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
+const { evaluateBootState, readNewestLogTail } = require('./ui-ready.cjs')
 
 const PORT = Number(process.env.WHALE_PORT) || 39321
 const TARGET_URL = 'http://127.0.0.1:' + PORT + '/'
@@ -241,6 +242,8 @@ function startFollower() {
         log('follower-bad-line', line.slice(0, 120))
         continue
       }
+      // 记下最后一条跟随消息：启动加载门控就绪后要靠它补一次显示
+      lastFollowerMsg = msg
       applyZCodeBounds(msg)
     }
   })
@@ -288,6 +291,63 @@ function followerCommand(cmd) {
 // 画到偏离窗口的地方（实测页面 (0,0) 的方块跑到窗口外的屏幕左上角）。
 let lastViewport = null
 
+// ---------- ZCode 启动就绪门控 ----------
+// ZCode 启动时主窗口先显示加载动画、约 6 秒后主界面才就绪（实测 3.14.4：
+// 创建主窗口 10:00:26.9 → database-startup ready 10:00:32.7 → listTaskList OK
+// 10:00:33.3）。浮层只跟随窗口矩形，所以加载动画期间就把鲸鱼画了出来。用客户端
+// 日志里的启动标记判定：最近一次启动有 boot 标记但还没有 ready 标记 = 加载中，
+// 此时不显示（沿用透明度隐身），就绪后自动补一次显示。
+// 兜底：没有 boot 标记（老版本/日志缺失）一律放行；boot 标记超过 30 秒仍没有
+// ready 标记也放行——标记改名绝不能变成"鲸鱼永远不出现"。
+const UI_READY_TIMEOUT_MS = 30000
+const UI_READY_POLL_MS = 600
+let uiReady = true
+let uiReadyPoll = null
+let lastFollowerMsg = null
+
+function refreshUiReady() {
+  try {
+    const tail = readNewestLogTail(262144)
+    if (!tail) {
+      uiReady = true
+    } else {
+      const r = evaluateBootState(tail.text)
+      if (r.state === 'loading' && r.bootAt && Date.now() - r.bootAt > UI_READY_TIMEOUT_MS) {
+        uiReady = true // 标记缺失/改名：超时放行
+      } else {
+        uiReady = r.state !== 'loading'
+      }
+    }
+  } catch (err) {
+    uiReady = true
+  }
+  return uiReady
+}
+
+function hideOverlay(reason) {
+  if (overlayShown) {
+    overlayShown = false
+    interactive = false
+    win.setIgnoreMouseEvents(true) // 无 forward：隐身期间页面不许再驱动接管
+    win.setOpacity(0)
+  }
+  log('hidden', reason)
+}
+
+// 加载期挂一个轻量轮询：就绪后立刻补一次显示（跟随脚本只在状态变化时发消息，
+// 加载期间不会有新的 show 消息到来）
+function ensureUiReadyPoll() {
+  if (uiReadyPoll) return
+  uiReadyPoll = setInterval(() => {
+    if (refreshUiReady()) {
+      clearInterval(uiReadyPoll)
+      uiReadyPoll = null
+      log('ui-ready')
+      if (lastFollowerMsg) applyZCodeBounds(lastFollowerMsg)
+    }
+  }, UI_READY_POLL_MS)
+}
+
 function applyZCodeBounds(msg) {
   if (!win || win.isDestroyed()) return
   if (msg.gone) {
@@ -298,13 +358,13 @@ function applyZCodeBounds(msg) {
   // show=false：ZCode 最小化、被别的应用盖住，或窗口暂时找不到。
   // 透明度隐身（而非 win.hide()），原因见 overlayShown 处的注释。
   if (msg.hide || msg.show === false) {
-    if (overlayShown) {
-      overlayShown = false
-      interactive = false
-      win.setIgnoreMouseEvents(true) // 无 forward：隐身期间页面不许再驱动接管
-      win.setOpacity(0)
-    }
-    log('hidden', msg.hide ? 'window-missing' : 'zcode-not-foreground')
+    hideOverlay(msg.hide ? 'window-missing' : 'zcode-not-foreground')
+    return
+  }
+  // ZCode 还在启动加载中：先隐身等着，就绪后由轮询补显示
+  if (!uiReady && !refreshUiReady()) {
+    hideOverlay('zcode-loading')
+    ensureUiReadyPoll()
     return
   }
 

@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
@@ -22,6 +23,8 @@ import { findApiKey, readPluginConfig } from '../lib/credentials.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+// 浮层的 desktop/*.cjs 是 CommonJS（Electron 主进程），从 ESM 自检里 require 进来测
+const requireCjs = createRequire(import.meta.url)
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-selftest-'))
 const dbDir = path.join(tmpHome, 'cli', 'db')
 const dataDir = path.join(tmpHome, 'whale')
@@ -472,6 +475,26 @@ function check(name, ok, detail) {
   check('Plan 日志解析：当天数据不标 stale', shaped && shaped.stale === false)
   const staleShaped = shapePlanPayload(PLAN_FIXTURE, '2026-01-01', Date.now())
   check('Plan 日志解析：非当天的观测标记 stale', staleShaped && staleShaped.stale === true)
+
+  // ZCode 启动就绪判定（浮层门控用）：日志里有 boot 标记但没有 ready 标记 =
+  // 加载动画期间，浮层先不显示；缺 boot 标记（老版本/日志缺失）一律放行
+  {
+    const { evaluateBootState } = requireCjs(path.join(PLUGIN_ROOT, 'desktop', 'ui-ready.cjs'))
+    const boot = '[2026-10-01 10:00:26.874] [info] [pid:1] [main] [primary-window] creating main window (app-ready)\n'
+    const domReady = '[2026-10-01 10:00:27.328] [info] [pid:1] [main] [createWindow] dom-ready fired (local-1)\n'
+    const dbReady = '[2026-10-01 10:00:32.708] [info] [pid:1] [main] [database-startup] terminal {"attemptId":"x","status":"ready","durationMs":4967}\n'
+    const taskList = '[2026-10-01 10:00:33.305] [info] [x] window-controller.listTaskList OK (20.8ms)\n'
+    const s1 = evaluateBootState(boot + domReady)
+    check('启动就绪判定：主窗口刚建好 = 加载中', s1.state === 'loading' && s1.bootAt === 1790820026874, JSON.stringify(s1))
+    const s2 = evaluateBootState(boot + domReady + dbReady)
+    check('启动就绪判定：数据库 ready 后放行', s2.state === 'ready', JSON.stringify(s2))
+    const s3 = evaluateBootState(boot + domReady + taskList)
+    check('启动就绪判定：任务列表拉取成功也放行', s3.state === 'ready', JSON.stringify(s3))
+    const s4 = evaluateBootState('随便一段没有启动标记的日志\n')
+    check('启动就绪判定：无启动标记不拦（老版本/日志缺失）', s4.state === 'ready', JSON.stringify(s4))
+    const s5 = evaluateBootState(boot + dbReady + boot)
+    check('启动就绪判定：二次启动后重新进入加载态', s5.state === 'loading', JSON.stringify(s5))
+  }
 
   // v1.4.2：过期套餐的遗留桶不冒充当前配额——balances 里会残留死套餐的桶
   // （remaining=0 但 total 仍在），跨套餐求和会把百分比稀释失真
@@ -1255,6 +1278,22 @@ try {
     '按压泡泡持久化回读一致',
     bcBack && bcBack.v === 2 && bcBack.steps.length === 12 && bcBack.steps[0].modules[0].text === '第一行\n第二行',
     JSON.stringify(bcBack).slice(0, 120)
+  )
+  // 「内置视图」模块（v1.5.2）：整泡语义，既不被当空模块过滤、也不被当空步丢弃
+  const bcView = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: [{ modules: [{ type: 'view', size: 'A' }] }, { modules: [{ type: 'text', text: '第二泡' }] }, { modules: [] }] }),
+  })
+  const bcViewBody = await bcView.json()
+  check(
+    '按压泡泡「内置视图」步保留（空模块步仍丢弃）',
+    bcViewBody.ok === true &&
+      bcViewBody.steps.length === 2 &&
+      bcViewBody.steps[0].modules.length === 1 &&
+      bcViewBody.steps[0].modules[0].type === 'view' &&
+      bcViewBody.steps[1].modules[0].text === '第二泡',
+    JSON.stringify(bcViewBody).slice(0, 200)
   )
   // v1 旧配置 POST → 迁移成 v2（first → 第 1 步，items → 后续步）
   const bcMig = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
