@@ -175,6 +175,10 @@ function createWindow() {
   })
 
   if (process.platform === 'win32') {
+    win.on('blur', releaseKeyboardFocusOnBlur)
+  }
+
+  if (process.platform === 'win32') {
     startFollower()
   } else {
     // 其它平台没有窗口跟随，直接铺满工作区
@@ -213,9 +217,14 @@ function startFollower() {
       '-OverlayPid',
       String(process.pid),
     ],
-    { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
+    // stdin 保持管道：跟随脚本用它做常驻命令通道（replay-click / handback，
+    // 见 follow-window.ps1 的 CommandReader），避免每次都冷启动一个 PowerShell
+    { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }
   )
   follower = child
+  if (child.stdin) {
+    child.stdin.on('error', () => {}) // 跟随进程退出时管道会断，静默即可
+  }
   log('follower-started', 'interval=' + followIntervalMs + 'ms')
   let buf = ''
   child.stdout.on('data', (chunk) => {
@@ -258,6 +267,16 @@ function restartFollower(reason) {
     } catch (err) {}
   }
   startFollower()
+}
+
+// 跟随进程的常驻命令通道（stdin，一行一条）：click 重放与前台归还都由它做，
+// 它是本进程的子进程且已持 DPI/原生上下文，比临时起 PowerShell 又快又稳
+function followerCommand(cmd) {
+  const child = follower
+  if (!child || !child.stdin || child.stdin.destroyed) return
+  try {
+    child.stdin.write(cmd + '\n')
+  } catch (err) {}
 }
 
 // 把 ZCode 窗口矩形换算成浮层窗口内的相对矩形后发给页面。
@@ -396,12 +415,41 @@ ipcMain.on('whale:keyboard-focus', (_event, value) => {
       win.focus()
     } else {
       win.setFocusable(false)
-      win.blur()
+      // 不调用 win.blur()：它把前台交给 shell（explorer）而不是 ZCode，
+      // ZCode 继续冻着、跟随脚本看到 explorer 前台还会把浮层藏掉。
+      // 此时若浮层仍是前台窗口，让跟随进程把前台还给 ZCode 的主窗口
+      // （子进程由前台进程启动，Windows 允许它 SetForegroundWindow）。
+      if (win.isFocused()) followerCommand('handback')
     }
   } catch (err) {
     log('keyboard-focus-failed', String((err && err.message) || err))
   }
   log('keyboard-focus', String(want))
+})
+
+// 浮层失去前台（用户点回 ZCode / Alt-Tab）：键盘焦点状态就地作废，并通知
+// 页面收起菜单/编辑器。此前这一步靠 focusout 兜底，但窗口失活时
+// document.activeElement 不变，编辑器和接管状态会一直挂着（实测表现为
+// 「ZCode 冻住、必须手动关掉气泡设置才恢复」）。
+function releaseKeyboardFocusOnBlur() {
+  if (!keyboardFocus) return
+  keyboardFocus = false
+  try {
+    if (win && !win.isDestroyed()) {
+      win.setFocusable(false)
+      win.webContents.send('whale:window-blur')
+    }
+  } catch (err) {}
+  log('keyboard-focus-blur')
+}
+
+// 点在挂件界面之外：页面已收起菜单/编辑器并交还穿透，这里把被浮层吃掉的
+// 那一次点击在原位置重放给 ZCode（一次点击 = 收起浮层 + 落进 ZCode）
+ipcMain.on('whale:dismiss-replay', () => {
+  if (!win || win.isDestroyed()) return
+  if (interactive) applyInteractive(false)
+  followerCommand('replay-click')
+  log('dismiss-replay')
 })
 
 // 页面的指针跟踪依赖「穿透时 forward 的 pointermove」与「接管时的真实鼠标事件」，

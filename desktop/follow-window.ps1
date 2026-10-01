@@ -70,10 +70,67 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] static extern IntPtr SetProcessDpiAwarenessContext(IntPtr ctx);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
 
     static HashSet<int> _targetPids = new HashSet<int>();
     static HashSet<int> _electronPids = new HashSet<int>();
     static IntPtr _targetHwnd = IntPtr.Zero;
+    static int _lastReplayTick = 0;
+
+    // Resident command channel from the Electron main process (stdin, one
+    // command per line):
+    //   replay-click  Re-inject a left click at the current cursor position.
+    //     Used when a click that dismissed the popup UI was swallowed by the
+    //     overlay (the window must take over the whole screen while a menu /
+    //     editor is open so it can see the outside click, but the click then
+    //     never reaches ZCode). The main process switches back to
+    //     click-through first and asks us to replay, so the user's single
+    //     click both dismisses the popup AND lands in ZCode.
+    //   handback      Give the OS foreground back to the ZCode window. Called
+    //     when the overlay releases keyboard focus while it is still the
+    //     foreground window (blur() alone hands foreground to the shell).
+    //     This process is a child of the overlay, which is the foreground
+    //     process at that moment, so SetForegroundWindow is permitted.
+    static void CommandReader()
+    {
+        try
+        {
+            string line;
+            while ((line = Console.In.ReadLine()) != null)
+            {
+                line = line.Trim();
+                if (line == "replay-click") ReplayClick();
+                else if (line == "handback") HandForegroundBack();
+            }
+        }
+        catch (Exception) { }
+    }
+
+    static void ReplayClick()
+    {
+        int now = Environment.TickCount;
+        // Re-entrancy / double-fire guard: one replay per pointer event.
+        if (now - _lastReplayTick < 300) return;
+        _lastReplayTick = now;
+        try
+        {
+            Thread.Sleep(50); // let the click-through switch land first
+            mouse_event(0x02, 0, 0, 0, UIntPtr.Zero); // LEFTDOWN
+            Thread.Sleep(30);
+            mouse_event(0x04, 0, 0, 0, UIntPtr.Zero); // LEFTUP
+        }
+        catch (Exception) { }
+    }
+
+    static void HandForegroundBack()
+    {
+        try
+        {
+            if (_targetHwnd != IntPtr.Zero && IsWindow(_targetHwnd)) SetForegroundWindow(_targetHwnd);
+        }
+        catch (Exception) { }
+    }
 
     // Expensive: enumerates processes. Only called on the cache budget.
     static void UpdateCache(string targetName, int overlayPid)
@@ -136,6 +193,16 @@ public static class WhaleFollow
             " interval=" + intervalMs + " cache=" + cacheMs + " target=" + targetName +
             " overlay-pid=" + overlayPid);
         UpdateCache(targetName, overlayPid);
+        // Resident stdin command listener (see CommandReader above). Background
+        // thread: ReadLine blocks until the main process sends a command or
+        // closes the pipe.
+        try
+        {
+            Thread reader = new Thread(CommandReader);
+            reader.IsBackground = true;
+            reader.Start();
+        }
+        catch (Exception) { }
         // TickCount is an int millisecond counter (wraps every ~49 days). Plain
         // int subtraction stays correct across the wrap, and TickCount64 does not
         // exist on the .NET Framework that Windows PowerShell 5.1 compiles against.
@@ -162,7 +229,13 @@ public static class WhaleFollow
                     Console.Out.WriteLine("{\"hide\":true}");
                     Console.Out.Flush();
                 }
-                else if (now - missSince >= 5000)
+                // "gone" must require the process itself to be absent, not just the
+                // window: right after ZCode starts, its main window can stay
+                // unfindable for a while (launcher hand-off / updater restarts the
+                // window), and quitting the overlay here leaves the launch page
+                // whale dead until the next hook fires (measured 2026-10-01:
+                // overlay gone 5s after start, dead for a minute on the home page).
+                else if (now - missSince >= 5000 && _targetPids.Count == 0)
                 {
                     Console.Out.WriteLine("{\"gone\":true}");
                     Console.Out.Flush();

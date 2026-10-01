@@ -28,6 +28,19 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
   // 窗口默认不可激活（否则点挂件会抢走 ZCode 的前台、让它停止刷新）。
   // 菜单里的文本框/下拉需要键盘时才临时打开，用完立刻交还。
   setKeyboardFocus: (value) => ipcRenderer.send('whale:keyboard-focus', !!value),
+  // 点在挂件界面之外时：页面收起菜单/编辑器并交还穿透后，请求主进程把被
+  // 浮层吃掉的这次点击重放给 ZCode（一次点击 = 收起浮层 + 落进 ZCode）
+  dismissReplay: () => ipcRenderer.send('whale:dismiss-replay'),
+  // 浮层失去前台（用户点回 ZCode / Alt-Tab）：页面据此收起菜单/编辑器、
+  // 释放键盘焦点。此前靠 focusout 兜底，但窗口失活时 activeElement 不变，
+  // 编辑器和接管状态会一直挂着（表现为 ZCode 冻住、点不动）。
+  onWindowBlur: (callback) => {
+    ipcRenderer.on('whale:window-blur', () => {
+      try {
+        callback()
+      } catch (err) {}
+    })
+  },
   // 冻结检测：页面把「活性点」的物理屏幕矩形持续报上来，主进程用 DXGI
   // 桌面复制采样该处像素做对账（页面在翻、屏幕不动 = 合成器冻结）
   sendLiveRect: (rect) => ipcRenderer.send('whale:live-rect', rect),
