@@ -1217,50 +1217,68 @@ try {
   const delBuiltinBody = await delBuiltin.json()
   check('内置形象不可删除', delBuiltin.status === 400 && delBuiltinBody.ok === false, JSON.stringify(delBuiltinBody))
 
-  // 自定义气泡文字：默认空、写入归一（空白条目丢弃 / 条数与字数收敛 / 非法字号回 A）、回读一致
+  // 按压泡泡（v2 点击序列 + 模块行）：默认空、v2 写入归一、v1 迁移、持久化回读
   const bc0 = await getJson(port, '/whale/bubble-content.json')
   check(
-    '气泡文字默认空（first=null, items=[]）',
-    bc0 && bc0.ok === true && bc0.first === null && Array.isArray(bc0.items) && bc0.items.length === 0,
+    '按压泡泡默认空（v2, steps=[], tapAdvance=true）',
+    bc0 && bc0.ok === true && bc0.v === 2 && bc0.tapAdvance === true && Array.isArray(bc0.steps) && bc0.steps.length === 0,
     JSON.stringify(bc0)
   )
-  const manyItems = []
-  for (let i = 0; i < 20; i++) manyItems.push({ text: 'x'.repeat(300), size: 'Z' })
+  const manySteps = []
+  for (let i = 0; i < 20; i++) {
+    manySteps.push({ modules: [{ type: 'text', text: 'x'.repeat(300), size: 'Z' }] })
+  }
   const bcPost = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      v: 1,
-      first: { text: '第一行\n第二行', size: 'B' },
-      items: [{ text: '   ', size: 'A' }].concat(manyItems),
+      v: 2,
+      tapAdvance: false,
+      steps: [{ modules: [{ type: 'text', text: '第一行\n第二行', size: 'B' }, { type: 'text', text: '   ', size: 'A' }] }].concat(manySteps),
     }),
   })
   const bcBody = await bcPost.json()
   check(
-    '气泡文字写入归一（空白丢弃 / 最多 12 条 / 每条 200 字 / 非法字号回 A）',
+    '按压泡泡 v2 写入归一（空白模块丢弃 / 最多 12 步 / 每行 200 字 / 非法字号回 A / tapAdvance 保留）',
     bcPost.ok &&
       bcBody.ok === true &&
-      !!bcBody.first &&
-      bcBody.first.size === 'B' &&
-      bcBody.first.text === '第一行\n第二行' &&
-      bcBody.items.length === 12 &&
-      bcBody.items[0].size === 'A' &&
-      bcBody.items[0].text.length === 200,
-    JSON.stringify({ n: bcBody.items.length, len: bcBody.items[0].text.length, size: bcBody.items[0].size })
+      bcBody.v === 2 &&
+      bcBody.tapAdvance === false &&
+      bcBody.steps.length === 12 &&
+      bcBody.steps[0].modules.length === 1 &&
+      bcBody.steps[0].modules[0].size === 'B' &&
+      bcBody.steps[0].modules[0].text === '第一行\n第二行',
+    JSON.stringify({ n: bcBody.steps.length, mods: bcBody.steps[0].modules.length, size: bcBody.steps[0].modules[0].size })
   )
   const bcBack = await getJson(port, '/whale/bubble-content.json')
   check(
-    '气泡文字持久化回读一致',
-    bcBack && bcBack.first && bcBack.first.text === '第一行\n第二行' && bcBack.items.length === 12,
+    '按压泡泡持久化回读一致',
+    bcBack && bcBack.v === 2 && bcBack.steps.length === 12 && bcBack.steps[0].modules[0].text === '第一行\n第二行',
     JSON.stringify(bcBack).slice(0, 120)
+  )
+  // v1 旧配置 POST → 迁移成 v2（first → 第 1 步，items → 后续步）
+  const bcMig = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 1, first: { text: '旧配置首次', size: 'A' }, items: [{ text: '旧配置第二条', size: 'C' }, { text: '  ', size: 'A' }] }),
+  })
+  const bcMigBody = await bcMig.json()
+  check(
+    '按压泡泡 v1 配置自动迁移（first→步1 / items→步2+ / 空条目丢弃）',
+    bcMigBody.ok === true &&
+      bcMigBody.v === 2 &&
+      bcMigBody.steps.length === 2 &&
+      bcMigBody.steps[0].modules[0].text === '旧配置首次' &&
+      bcMigBody.steps[1].modules[0].size === 'C',
+    JSON.stringify(bcMigBody).slice(0, 160)
   )
   await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ v: 1, first: null, items: [] }),
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: [] }),
   })
   const bcReset = await getJson(port, '/whale/bubble-content.json')
-  check('气泡文字可恢复默认（清空）', bcReset && bcReset.first === null && bcReset.items.length === 0, JSON.stringify(bcReset).slice(0, 80))
+  check('按压泡泡可恢复默认（清空序列）', bcReset && bcReset.v === 2 && bcReset.steps.length === 0, JSON.stringify(bcReset).slice(0, 80))
 
   // 余额校正接口：GET 汇总 + POST 落账（自检环境无 DeepSeek 账本，应为空本形态）
   const adjGet = await getJson(port, '/whale/balance-adjustments.json')
