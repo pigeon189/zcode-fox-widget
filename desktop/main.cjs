@@ -301,7 +301,9 @@ let lastViewport = null
 // ready 标记也放行——标记改名绝不能变成"鲸鱼永远不出现"。
 const UI_READY_TIMEOUT_MS = 30000
 const UI_READY_POLL_MS = 600
-let uiReady = true
+// 初值 false：第一条跟随消息就去做一次判定（读取失败/无标记一律放行，见
+// refreshUiReady），否则初值 true 会把首次检查整个跳过、加载动画期间照样显示
+let uiReady = false
 let uiReadyPoll = null
 let lastFollowerMsg = null
 
