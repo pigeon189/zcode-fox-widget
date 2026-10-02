@@ -515,7 +515,7 @@ try {
   )
   check(
     '删除当前导入角色后回落默认小狐娘（roles 只剩内置、图片 608px）',
-    rolesAfterDelete.roles.length === 2 && rolesAfterDelete.selected === 'xiaohuniang' && imgAfterDelete === 608,
+    rolesAfterDelete.roles.length === 2 && rolesAfterDelete.selected === 'fox' && imgAfterDelete === 608,
     JSON.stringify({ n: rolesAfterDelete.roles.length, selected: rolesAfterDelete.selected, nw: imgAfterDelete })
   )
   // ⑦d 内置形象也能删（v1.6.0）：删掉「小狐娘」→ 列表少一个、选中的不再是它、
@@ -540,7 +540,7 @@ try {
   check(
     '删掉内置「小狐娘」：列表不再有它、选中项换人、图片仍可用',
     rolesAfterBuiltinDel.roles.filter((r) => r.builtin).map((r) => r.id).join(',') === 'whale' &&
-      rolesAfterBuiltinDel.selected !== 'xiaohuniang' &&
+      rolesAfterBuiltinDel.selected !== 'fox' &&
       imgAfterBuiltinDel > 1,
     JSON.stringify({ builtins: rolesAfterBuiltinDel.roles.filter((r) => r.builtin).map((r) => r.id), selected: rolesAfterBuiltinDel.selected, nw: imgAfterBuiltinDel })
   )

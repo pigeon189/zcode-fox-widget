@@ -1220,7 +1220,7 @@ try {
   const roles1 = await getJson(port, '/whale/roles.json')
   check(
     '角色列表：内置小狐娘/小鲸鱼在前 + 上传件，selected 指向上传件',
-    roles1 && roles1.ok && roles1.roles.length === 3 && roles1.roles[0].id === 'xiaohuniang' && roles1.roles[0].name === '小狐娘' && roles1.roles[1].id === 'whale' && roles1.roles[1].name === '小鲸鱼' && roles1.selected === upBody.id,
+    roles1 && roles1.ok && roles1.roles.length === 3 && roles1.roles[0].id === 'fox' && roles1.roles[0].name === '小狐娘' && roles1.roles[1].id === 'whale' && roles1.roles[1].name === '小鲸鱼' && roles1.selected === upBody.id,
     JSON.stringify(roles1).slice(0, 200)
   )
   // 超过旧版全局 8KB body 上限的上传也应成功（真实头像截图普遍几十 KB 起）
@@ -1240,7 +1240,7 @@ try {
     body: JSON.stringify({ scale: 1.5, roleId: null }),
   })
   const roles2 = await getJson(port, '/whale/roles.json')
-  check('未指定角色 = 默认小狐娘（selected=xiaohuniang）', roles2 && roles2.ok && roles2.selected === 'xiaohuniang', JSON.stringify(roles2.selected))
+  check('未指定角色 = 默认小狐娘（selected=fox）', roles2 && roles2.ok && roles2.selected === 'fox', JSON.stringify(roles2.selected))
   const imgDef = Buffer.from(await (await fetch('http://127.0.0.1:' + port + '/whale/image.png')).arrayBuffer())
   const glmPng = fs.readFileSync(path.join(PLUGIN_ROOT, 'assets', 'GLM.png'))
   check(
@@ -1269,7 +1269,7 @@ try {
   const rnBuiltin = await fetch('http://127.0.0.1:' + port + '/whale/role-rename.json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'xiaohuniang', name: '不许改' }),
+    body: JSON.stringify({ id: 'fox', name: '不许改' }),
   })
   const rnBuiltinBody = await rnBuiltin.json()
   check('内置形象不可改名', rnBuiltin.status === 400 && rnBuiltinBody.ok === false, JSON.stringify(rnBuiltinBody))
@@ -1294,7 +1294,7 @@ try {
     delRes.ok &&
       delBody.ok === true &&
       afterIds.indexOf(delUpBody.id) === -1 &&
-      delBody.selected === 'xiaohuniang' &&
+      delBody.selected === 'fox' &&
       afterIds.length === beforeDel.roles.length - 1,
     JSON.stringify({ selected: delBody.selected, n: afterIds.length })
   )
@@ -1311,7 +1311,7 @@ try {
   const builtinIds = (delBuiltinBody.roles || []).filter((r) => r.builtin).map((r) => r.id)
   check(
     '内置形象可删除（从列表隐藏，others 不受影响）',
-    delBuiltin.ok && delBuiltinBody.ok === true && builtinIds.indexOf('whale') === -1 && builtinIds.indexOf('xiaohuniang') !== -1,
+    delBuiltin.ok && delBuiltinBody.ok === true && builtinIds.indexOf('whale') === -1 && builtinIds.indexOf('fox') !== -1,
     JSON.stringify({ selected: delBuiltinBody.selected, builtins: builtinIds })
   )
   const idxAfterBuiltinDel = JSON.parse(fs.readFileSync(path.join(dataDir, 'roles.json'), 'utf8'))
@@ -1323,13 +1323,13 @@ try {
   const delBuiltinSelected = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roleId: 'xiaohuniang' }),
+    body: JSON.stringify({ roleId: 'fox' }),
   })
   await delBuiltinSelected.json()
   const delBuiltinInUse = await fetch('http://127.0.0.1:' + port + '/whale/role-delete.json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'xiaohuniang' }),
+    body: JSON.stringify({ id: 'fox' }),
   })
   const delBuiltinInUseBody = await delBuiltinInUse.json()
   const imgAfterBuiltinDel = await fetch('http://127.0.0.1:' + port + '/whale/image.png')
@@ -1337,7 +1337,7 @@ try {
     '删掉正在用的内置形象 → 选中项换到剩下那个且图片仍可用',
     delBuiltinInUse.ok &&
       delBuiltinInUseBody.ok === true &&
-      delBuiltinInUseBody.selected !== 'xiaohuniang' &&
+      delBuiltinInUseBody.selected !== 'fox' &&
       delBuiltinInUseBody.roles.some((r) => r.id === delBuiltinInUseBody.selected) &&
       imgAfterBuiltinDel.ok,
     JSON.stringify({ selected: delBuiltinInUseBody.selected, img: imgAfterBuiltinDel.status })
