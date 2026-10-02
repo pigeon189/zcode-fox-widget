@@ -1100,12 +1100,18 @@ try {
       Math.abs(usage.today.total - expectedToday) < 1e-9,
       '期望 ¥' + expectedToday.toFixed(6) + '，实际 ¥' + usage.today.total.toFixed(6) + '（套餐等价市值 ¥' + glmPart.toFixed(6) + ' 已剔除）'
     )
-    // 套餐行金额归零但 tokens 照算：面板与主显示按配额/tokens 表达
+    // 套餐行金额归零但 tokens 照算：面板与主显示按配额/tokens 表达。
+    // v1.7.5：行级补等价市值（market）——只喂「模型排名」的排序与占比条
     const planRow = (usage.today.models || []).find((m) => m.providerId === 'account:zai-start-plan')
     check(
-      '用量记录：套餐行金额记 0 但 tokens 照算（与轮级 turnPlanUsage 同口径）',
-      planRow && planRow.amount === 0 && planRow.tokens > 0,
+      '用量记录：套餐行金额记 0 但 tokens 照算 + 市值在（与轮级 turnPlanUsage 同口径）',
+      planRow && planRow.amount === 0 && planRow.tokens > 0 && planRow.plan === true && Number(planRow.market) > 0,
       JSON.stringify(planRow || null)
+    )
+    check(
+      '用量记录：rankTotal（排名值合计）≥ total（真金白银），两条口径分离',
+      Number(usage.today.rankTotal) >= usage.today.total,
+      'rankTotal=' + usage.today.rankTotal + ' total=' + usage.today.total
     )
     check(
       '用量记录：厂商金额不含套餐（byVendor.GLM 金额为 0、tokens 在）',
@@ -1619,12 +1625,16 @@ try {
   if (usageRank && usageRank.ok) {
     const amtList = usageRank.today.models || []
     const tokList = usageRank.today.modelsByTokens || []
+    // 金额榜按「排名值」（等价市值，Plan 行 amount=0 但 market>0）降序；
+    // token 榜按 tokens 降序
+    const rankOf = (m) => Number(m.market) || Number(m.amount) || 0
+    const descRank = (arr) => arr.every((v, i) => i === 0 || rankOf(arr[i - 1]) >= rankOf(v))
     const desc = (arr, key) => arr.every((v, i) => i === 0 || Number(arr[i - 1][key]) >= Number(v[key]))
     const maxTok = Math.max.apply(null, amtList.map((x) => Number(x.tokens) || 0))
     check(
-      '用量记录：两个榜各自降序（金额榜 / token 榜）',
-      amtList.length > 0 && tokList.length > 0 && desc(amtList, 'amount') && desc(tokList, 'tokens'),
-      JSON.stringify({ amt: amtList.map((x) => x.amount), tok: tokList.map((x) => x.tokens) })
+      '用量记录：两个榜各自降序（金额榜按排名值 / token 榜按 tokens）',
+      amtList.length > 0 && tokList.length > 0 && descRank(amtList) && desc(tokList, 'tokens'),
+      JSON.stringify({ amt: amtList.map(rankOf), tok: tokList.map((x) => x.tokens) })
     )
     check(
       '用量记录：token 榜首位 = 今日 token 最多的模型',
@@ -1632,7 +1642,7 @@ try {
       'top=' + (tokList[0] && tokList[0].model) + ' tokens=' + (tokList[0] && tokList[0].tokens) + ' max=' + maxTok
     )
   } else {
-    check('用量记录：两个榜各自降序（金额榜 / token 榜）', false, '接口不可用')
+    check('用量记录：两个榜各自降序（金额榜按排名值 / token 榜按 tokens）', false, '接口不可用')
   }
 
   // 接口：ZCode 主题（跟随 ZCode 的数据源）
