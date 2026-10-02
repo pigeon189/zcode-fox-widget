@@ -953,34 +953,25 @@ try {
   )
   if (stubA && stubA.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubA.identifier })
 
-  // ⑫ 金额预警的币种口径（复审 N4）：阈值是「元」，美元厂商按近似汇率折算后比较。
-  // $1.2 撞 ¥5 阈值在纯数值比较下不会触发（漏报），折算后 ¥8.52 应当触发，
-  // 文案里给出原币与折算值。
+  // ⑫ 消费型预警已取消（v1.7.7）：美元厂商今日已用再大也不弹预警泡，「余额¥」
+  // 只剩 DeepSeek 余额见底一个语义（冒烟环境没有 DS key，凑不出余额见底，负向
+  // 断言：喂 OpenAI 消耗数据后 9 秒内不得出现任何「预警」标题的泡泡）
   await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 5 } })
   const stubB = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: stubScript(true) })
   await cdp.send('Page.reload')
-  const alertText = await pollEval(
-    cdp,
-    "(function(){var l=document.querySelector('.zcwv-label');var p=document.querySelector('.zcwv-period');" +
-      "if(!l||!p)return null;if(l.textContent!=='余额预警')return null;" +
-      'var b=document.querySelector(\'.zcwv-bubble\').getBoundingClientRect();' +
-      'var r=document.createRange();r.selectNodeContents(p);' +
-      'return JSON.stringify({title:l.textContent,body:p.textContent,' +
-      'w:Math.round(r.getBoundingClientRect().width),avail:Math.round(560*(b.width/1026)),' +
-      'fs:p.style.fontSize,ws:p.style.whiteSpace})})()',
-    20000,
-    250
-  )
-  const alertObj = alertText ? JSON.parse(alertText) : null
+  let alertSeen = null
+  for (let i = 0; i < 30; i++) {
+    const label = await cdp.eval("(function(){var l=document.querySelector('.zcwv-label');return l?l.textContent:null})()")
+    if (label === '余额预警' || label === '消费预警') {
+      alertSeen = label
+      break
+    }
+    await new Promise((r) => setTimeout(r, 300))
+  }
   check(
-    '金额预警：美元厂商折算成人民币后比较（$1.20 ≈ ¥8.52 ≥ ¥5.00 触发）',
-    !!alertObj && alertObj.body.indexOf('OpenAI 今日已用 1.20 USD') === 0 && alertObj.body.indexOf('约 ¥ 8.52') !== -1 && alertObj.body.indexOf('达到 ¥ 5.00') !== -1,
-    JSON.stringify(alertObj)
-  )
-  check(
-    '预警长句自适应：缩字/换行后不超出安全行宽（v1.4.0 溢出修复）',
-    !!alertObj && Number(alertObj.w) <= Number(alertObj.avail) + 1 && alertObj.fs !== '' && alertObj.ws === 'normal',
-    'w=' + (alertObj && alertObj.w) + ' avail=' + (alertObj && alertObj.avail) + ' fs=' + (alertObj && alertObj.fs) + ' ws=' + (alertObj && alertObj.ws)
+    '消费型预警已取消：OpenAI 今日已用超阈值不再弹预警泡',
+    !alertSeen,
+    'saw=' + JSON.stringify(alertSeen)
   )
   if (stubB && stubB.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubB.identifier })
   await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 0 } })

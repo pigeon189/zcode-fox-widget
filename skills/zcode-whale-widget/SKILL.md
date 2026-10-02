@@ -80,7 +80,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 
 挂件自身的外观与开关（大小、音效、音量、主题、气泡、每轮消耗提示与自动关闭秒数、避让滚动条、预警阈值、角色选择、显示跟随）在 `~/.zcode/whale/widget-state.json`，由挂件菜单直接写入：
 - `theme`：`light` / `dark` / `system`——`system` 即「跟随 ZCode」（三层判定：浮层观测 ZCode 窗口的 DWM 暗色标志 > 用户级配置 `ui.theme` > 操作系统深浅色，实现见 `lib/zcode-theme.mjs`）。
-- `alerts`：`planPct`（Plan 剩余% 阈值）与 `moneyAlert`（金额阈值，对所有按金额结算的源生效；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。阈值单位是人民币：余额型源看「低于」，消费型源看「达到」；美元厂商（OpenAI / Claude）的金额按 `¥7.1/$` 近似汇率折算后再比较，文案里同时给出原币与折算值（汇率只用于这一处判断，不参与记账与计价）。每个来源每天只提醒一次，去重键含阈值。
+- `alerts`：`planPct`（Plan 剩余% 阈值，低于提醒）与 `moneyAlert`（DeepSeek 余额阈值，低于提醒；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。阈值单位是人民币。消费型厂商（GLM / MiMo / Kimi / OpenAI / Claude / Qwen / MiniMax，无公开余额接口）的「今日已用达到」预警 v1.7.7 起取消。每个来源每天只提醒一次，去重键含阈值。
 - `roleId`：当前形象（内置 `fox` 小狐娘 / `whale` 小鲸鱼，或导入件 id；导入件的索引与图片在 `roles.json` + `roles/`），未指定即小狐娘。`fox` 在 v1.7.3 及之前叫 `xiaohuniang`，持久化里的旧值读取时自动归一。
 - 按压泡泡队列在 `~/.zcode/whale/bubble-content.json`：**v2 格式** `{v:2, tapAdvance, steps:[{modules:[…]}]}`——每步一组模块，模块三种：`text`（支持 `{balance}` `{today}` `{tokens}` `{plan}` `{model}` `{vendor}` `{time}` `{period}` `{reset}` 占位符，按换行分行）、`rand`（语句池随机取一，留空用内置随机台词）、`view`（内置视图 = 跟随计费源的默认余额/配额内容）。第 1 步按压时显示，之后每点一下气泡推进一步，走完收起；`tapAdvance:false` 时点气泡直接收起。旧 v1 配置（`{v, first, items}`）读写时自动迁移，无感升级。
 
