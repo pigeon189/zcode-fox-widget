@@ -471,6 +471,30 @@ function check(name, ok, detail) {
     at
   )
   check('Kimi 缓存写按默认 5min TTL 档计价', kimi.billable && Math.abs(kimi.amount - 20) < 1e-9, 'amount=' + kimi.amount)
+  // GPT-5.6-cyber（2026-10-03 官网+LiteLLM 双源）：272K 整单分档
+  const cyberLo = resolvePricing({ model: 'gpt-5.6-cyber', inTokens: 100000 })
+  const cyberHi = resolvePricing({ model: 'gpt-5.6-cyber', inTokens: 300000 })
+  check(
+    'GPT-5.6-cyber 272K 分档（$12.5/$75 → $25/$112.5，读 1.25 / 写 15.625）',
+    cyberLo.miss[0] === 12.5 &&
+      cyberHi.miss[0] === 25 &&
+      cyberLo.out[0] === 75 &&
+      cyberHi.out[0] === 112.5 &&
+      cyberLo.hit[0] === 1.25 &&
+      cyberLo.cw[0] === 15.625,
+    JSON.stringify({ lo: cyberLo.miss, hi: cyberHi.miss })
+  )
+  // Kimi 官网补齐（2026-10-03）：k2.5 / kimi-latest 与快照版 / moonshot-v1 按长度定档
+  const km25 = costOfUsage('kimi-k2.5', { input_tokens: 1_000_000, output_tokens: 0 }, at)
+  check(
+    'Kimi 补齐条目：k2.5 ¥4.17/M；kimi-latest 与快照版同 k3；v1 系按长度定档',
+    Math.abs(km25.amount - 4.17) < 1e-9 &&
+      resolvePricing({ model: 'kimi-latest' }).miss[0] === 20 &&
+      resolvePricing({ model: 'kimi-2150622' }).miss[0] === 20 &&
+      resolvePricing({ model: 'moonshot-v1-8k' }).miss[0] === 12 &&
+      resolvePricing({ model: 'moonshot-v1-128k-vision-preview' }).miss[0] === 60,
+    'k25=' + km25.amount
+  )
   // 未知模型不套任何价目（含「仅 provider 名沾 DeepSeek」的误配场景）
   const unknown = costOfUsage('mystery-9000', { input_tokens: 1000, output_tokens: 10 }, at, 'weird-corp')
   const providerOnly = costOfUsage('totally-unknown', { input_tokens: 1000, output_tokens: 10 }, at, 'deepseek')
