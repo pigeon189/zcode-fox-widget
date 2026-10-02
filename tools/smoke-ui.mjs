@@ -940,7 +940,7 @@ try {
   const alertObj = alertText ? JSON.parse(alertText) : null
   check(
     '金额预警：美元厂商折算成人民币后比较（$1.20 ≈ ¥8.52 ≥ ¥5.00 触发）',
-    !!alertObj && alertObj.body.indexOf('OpenAI 今日已用 $1.20') === 0 && alertObj.body.indexOf('约 ¥8.52') !== -1 && alertObj.body.indexOf('达到 ¥5.00') !== -1,
+    !!alertObj && alertObj.body.indexOf('OpenAI 今日已用 $1.20') === 0 && alertObj.body.indexOf('约 ¥ 8.52') !== -1 && alertObj.body.indexOf('达到 ¥ 5.00') !== -1,
     JSON.stringify(alertObj)
   )
   check(
