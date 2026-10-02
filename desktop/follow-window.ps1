@@ -430,8 +430,9 @@ public static class WhaleFollow
 
                 int w = r.Right - r.Left;
                 int h = r.Bottom - r.Top;
-                // ZCode 当前主题（DWM 沉浸式暗色标志）：跟随脚本是唯一拿着目标
-                // 窗口句柄的一方，由它顺手读，主进程落盘供「跟随 ZCode」用
+                // ZCode theme (DWM immersive dark mode attribute): the follow
+                // script is the only holder of the target HWND; read it here and
+                // let the main process persist it for the "follow ZCode" theme.
                 int dark = QueryDarkMode(z);
                 if (!haveSig || r.Left != lastL || r.Top != lastT || w != lastW || h != lastH || show != lastShow || _targetPid != lastPid || dark != lastDark)
                 {
