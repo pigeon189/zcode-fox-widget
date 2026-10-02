@@ -423,6 +423,22 @@ function check(name, ok, detail) {
     gptLo.miss[0] === 2 && gptHi.miss[0] === 4 && gptLo.out[0] === 12 && gptHi.out[0] === 18 && gptLo.currency === 'USD',
     JSON.stringify({ lo: gptLo.miss, hi: gptHi.miss })
   )
+  // GPT-6 系列（2026-10-03 官网价）：astra 旗舰之上 / 6.1-sol 旗舰 / luna 迷你，
+  // 同 272K 分档；带日期后缀的模型名靠前缀匹配
+  const g6aLo = resolvePricing({ model: 'gpt-6-astra', inTokens: 200000 })
+  const g6aHi = resolvePricing({ model: 'gpt-6-astra', inTokens: 300000 })
+  check(
+    'GPT-6 系列 272K 分档（astra $10/$50→$20/$75；6.1-sol $2/$10；luna $0.1/$0.5）',
+    g6aLo.miss[0] === 10 &&
+      g6aHi.miss[0] === 20 &&
+      g6aLo.out[0] === 50 &&
+      g6aHi.out[0] === 75 &&
+      resolvePricing({ model: 'gpt-6.1-sol', inTokens: 100000 }).miss[0] === 2 &&
+      resolvePricing({ model: 'gpt-6.1-sol', inTokens: 100000 }).out[0] === 10 &&
+      resolvePricing({ model: 'gpt-6-luna', inTokens: 100000 }).miss[0] === 0.1 &&
+      resolvePricing({ model: 'gpt-6.1-sol-20261001', inTokens: 100000 }).miss[0] === 2,
+    JSON.stringify({ astraLo: g6aLo.miss, astraHi: g6aHi.miss })
+  )
   // Claude：平价 + 缓存写 1.25×输入；日期后缀模型名靠前缀匹配
   const cl = costOfUsage(
     'claude-sonnet-5-5-20260201',
