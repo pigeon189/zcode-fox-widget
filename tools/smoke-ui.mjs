@@ -765,6 +765,40 @@ try {
     alertRow && alertRow.text.indexOf('余额¥') !== -1 && alertRow.inputs === 2 && alertRow.text.indexOf('DS¥') === -1 && alertRow.text.indexOf('BM¥') === -1,
     JSON.stringify(alertRow)
   )
+
+  // ⑨b UI 审查回归（v1.7.3）：U5 分隔线节点复用 / U3 下拉实色底 / U6 编辑器复选框类
+  const menuStruct = JSON.parse(
+    await cdp.eval(
+      "(function(){var rs=document.querySelector('.zcwv-roles');var bg=getComputedStyle(rs).backgroundColor;" +
+        'var alpha=bg.indexOf("rgba(")===0?Number(bg.split(",")[3]):1;' +
+        'return JSON.stringify({seps:document.querySelectorAll(".zcwv-menu-sep").length,rolesAlpha:alpha,bg:bg})})()'
+    )
+  )
+  check(
+    '菜单结构：两条分隔线都在（U5 节点复用回归）、下拉列表底色不透明（U3）',
+    !!menuStruct && menuStruct.seps === 2 && menuStruct.rolesAlpha === 1,
+    JSON.stringify(menuStruct)
+  )
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('button');for(var i=0;i<bs.length;i++){" +
+      "if(bs[i].textContent==='按压泡泡设置'){bs[i].click();return true}}return false})()"
+  )
+  const advChk = JSON.parse(
+    await pollEval(
+      cdp,
+      "(function(){var c=document.querySelector('.zcwv-editor input[type=checkbox]');if(!c)return null;return JSON.stringify({cls:c.className,open:document.querySelectorAll('.zcwv-editor.zcwv-panel-open').length===1})})()",
+      6000
+    )
+  )
+  check(
+    '按压泡泡编辑器：「点按推进队列」复选框带 zcwv-check（U6，accent 不落默认绿）',
+    !!advChk && advChk.open === true && advChk.cls.indexOf('zcwv-check') !== -1,
+    JSON.stringify(advChk)
+  )
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcwv-editor button');for(var i=0;i<bs.length;i++){" +
+      "if(bs[i].textContent==='关闭'){bs[i].click();return true}}return false})()"
+  )
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -940,7 +974,7 @@ try {
   const alertObj = alertText ? JSON.parse(alertText) : null
   check(
     '金额预警：美元厂商折算成人民币后比较（$1.20 ≈ ¥8.52 ≥ ¥5.00 触发）',
-    !!alertObj && alertObj.body.indexOf('OpenAI 今日已用 $1.20') === 0 && alertObj.body.indexOf('约 ¥ 8.52') !== -1 && alertObj.body.indexOf('达到 ¥ 5.00') !== -1,
+    !!alertObj && alertObj.body.indexOf('OpenAI 今日已用 1.20 USD') === 0 && alertObj.body.indexOf('约 ¥ 8.52') !== -1 && alertObj.body.indexOf('达到 ¥ 5.00') !== -1,
     JSON.stringify(alertObj)
   )
   check(
