@@ -590,7 +590,7 @@ try {
   await new Promise((r) => setTimeout(r, 3000))
   const sysTheme = JSON.parse(
     await cdp.eval(
-      "(function(){return JSON.stringify({dark:document.documentElement.classList.contains('zcw-theme-dark')," +
+      "(function(){return JSON.stringify({dark:document.documentElement.classList.contains('zcwv-theme-dark')," +
         "prefers:window.matchMedia('(prefers-color-scheme: dark)').matches})})()"
     )
   )
@@ -732,7 +732,7 @@ try {
           "var ss=document.querySelectorAll('select'),val=null;" +
           "for(var k=0;k<ss.length;k++){var vs=[];for(var j=0;j<ss[k].options.length;j++)vs.push(ss[k].options[j].value);" +
           "if(vs.indexOf('system')!==-1)val=ss[k].value}" +
-          'return JSON.stringify({dark:document.documentElement.classList.contains(\'zcw-theme-dark\'),' +
+          'return JSON.stringify({dark:document.documentElement.classList.contains(\'zcwv-theme-dark\'),' +
           'label:label,val:val,listClosed:document.querySelectorAll(\'.zcwv-roles.zcwv-roles-open\').length===0})})()'
       )
     )
@@ -1016,17 +1016,17 @@ try {
       "if(bs[i].textContent==='用量记录…'){bs[i].click();return true}}return false})()"
   )
   const RANK_PROBE =
-    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');var label=null;" +
+    "(function(){var bs=document.querySelectorAll('.zcwv-panel .zcwv-panel-close');var label=null;" +
     "for(var i=0;i<bs.length;i++){var t=bs[i].textContent;if(t==='按金额'||t==='按 Token')label=t}" +
-    "if(!label)return null;var rows=document.querySelectorAll('.zcw-panel .zcw-row'),first='';" +
+    "if(!label)return null;var rows=document.querySelectorAll('.zcwv-panel .zcwv-row'),first='';" +
     "for(var j=0;j<rows.length;j++){var c=rows[j].firstChild,txt=c?c.textContent:'';" +
     "if(/^\\d+\\. /.test(txt)){first=txt;break}}" +
     'return JSON.stringify({label:label,first:first})})()'
   // 等「按 Token」出现才算切成功（fetchUsage 是异步的，点完立刻读会拿到旧 DOM）
   const RANK_PROBE_TOKENS =
-    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');var label=null;" +
+    "(function(){var bs=document.querySelectorAll('.zcwv-panel .zcwv-panel-close');var label=null;" +
     "for(var i=0;i<bs.length;i++){var t=bs[i].textContent;if(t==='按金额'||t==='按 Token')label=t}" +
-    "if(label!=='按 Token')return null;var rows=document.querySelectorAll('.zcw-panel .zcw-row'),first='';" +
+    "if(label!=='按 Token')return null;var rows=document.querySelectorAll('.zcwv-panel .zcwv-row'),first='';" +
     "for(var j=0;j<rows.length;j++){var c=rows[j].firstChild,txt=c?c.textContent:'';" +
     "if(/^\\d+\\. /.test(txt)){first=txt;break}}" +
     'return JSON.stringify({label:label,first:first})})()'
@@ -1037,7 +1037,7 @@ try {
     JSON.stringify(rankAmount)
   )
   await cdp.eval(
-    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');for(var i=0;i<bs.length;i++){" +
+    "(function(){var bs=document.querySelectorAll('.zcwv-panel .zcwv-panel-close');for(var i=0;i<bs.length;i++){" +
       "var t=bs[i].textContent;if(t==='按金额'||t==='按 Token'){bs[i].click();return true}}return false})()"
   )
   const rankTokens = JSON.parse((await pollEval(cdp, RANK_PROBE_TOKENS, 8000)) || 'null')
@@ -1056,7 +1056,7 @@ try {
   // 本机口径必须是数字；账号口径在无 key 的冒烟环境里显示 --。
   const reconView = await pollEval(
     cdp,
-    "(function(){var ds=document.querySelectorAll('.zcw-panel .zcw-dim');for(var i=0;i<ds.length;i++){" +
+    "(function(){var ds=document.querySelectorAll('.zcwv-panel .zcwv-dim');for(var i=0;i<ds.length;i++){" +
       "if(ds[i].textContent.indexOf('对账')===0)return ds[i].textContent}return null})()",
     8000
   )
@@ -1071,7 +1071,7 @@ try {
   )
 
   await cdp.eval(
-    "(function(){var bs=document.querySelectorAll('.zcw-panel .zcw-panel-close');for(var i=0;i<bs.length;i++){" +
+    "(function(){var bs=document.querySelectorAll('.zcwv-panel .zcwv-panel-close');for(var i=0;i<bs.length;i++){" +
       "if(bs[i].textContent==='关闭'){bs[i].click();return true}}return false})()"
   )
 
