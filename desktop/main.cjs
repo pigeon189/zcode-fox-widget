@@ -90,7 +90,7 @@ const FOLLOW_INTERVAL_DEFAULT = 40
 function clampFollowInterval(value) {
   const n = Number(value)
   if (!isFinite(n) || n <= 0) return FOLLOW_INTERVAL_DEFAULT
-  return Math.min(2000, Math.max(16, Math.round(n)))
+  return Math.min(2000, Math.max(5, Math.round(n)))
 }
 let followIntervalMs = clampFollowInterval(process.env.WHALE_FOLLOW_INTERVAL_MS || FOLLOW_INTERVAL_DEFAULT)
 
@@ -111,10 +111,23 @@ function setPetMode(value) {
     petTopmostTimer = setInterval(() => {
       if (!win || win.isDestroyed()) return
       try {
-        win.setAlwaysOnTop(true, 'screen-saver')
+        // 只在丢了置顶时才重申：对已是 screen-saver 级置顶的窗口反复调
+        // setAlwaysOnTop 会反复打 SetWindowPos，实测参与触发了冻结自愈循环
+        if (!win.isAlwaysOnTop()) win.setAlwaysOnTop(true, 'screen-saver')
       } catch (err) {}
     }, PET_TOPMOST_MS)
     if (petTopmostTimer.unref) petTopmostTimer.unref()
+  }
+  // 立即切换视口，不等下一拍跟随消息（页面 settle 按新视口重钳位置记忆）。
+  // 关桌宠时直接按最后一条跟随消息重算常规视口（ZCode 正好失焦会立刻隐身，
+  // 那就是普通模式的正确行为）；还没有跟随消息时等下一拍即可。
+  if (win && !win.isDestroyed()) {
+    if (petMode) {
+      const b = win.getBounds()
+      applyFrame({ x: 0, y: 0, width: b.width, height: b.height, pet: 1 })
+    } else if (lastFollowerMsg) {
+      applyZCodeBounds(lastFollowerMsg)
+    }
   }
   log('pet-mode', petMode ? 'on' : 'off')
 }
@@ -442,21 +455,22 @@ function applyZCodeBounds(msg) {
     app.quit()
     return
   }
+  const winBounds = win.getBounds()
+
+  // 桌宠模式：视口 = 整个浮层窗口（= 主显示器工作区，自动排除任务栏——任务栏在
+  // 哪条边都成立，workArea 已按其位置收缩）。鲸鱼在其中自由漫游，与 ZCode 窗口
+  // 的位置/大小解耦：失焦、被盖住、最小化、启动加载中都不影响桌宠显示，唯一
+  // 关心的是 ZCode 进程存活（msg.gone → 一起退出）。
+  if (petMode) {
+    applyFrame({ x: 0, y: 0, width: winBounds.width, height: winBounds.height, pet: 1 })
+    return
+  }
+
   // show=false：ZCode 最小化、被别的应用盖住，或窗口暂时找不到。
   // 透明度隐身（而非 win.hide()），原因见 overlayShown 处的注释。
   if (msg.hide || msg.show === false) {
-    if (petMode) {
-      // 桌宠模式只挡「隐身」，不挡「跟随」：
-      //  · window-missing（ZCode 关了/找不到窗口）或窗口最小化：**没有可用的窗口
-      //    矩形**（最小化时 Windows 报的是 -32000 一类哨兵坐标 + 159x27 的假尺寸），
-      //    保持当前位置与可见性不动——桌面宠物的语义就是「一直在那儿」
-      //  · 只是失焦/被别的应用盖住：矩形有效，继续走下面的常规路径（位置照常与
-      //    ZCode 窗口对齐），只是不再因为失焦而消失
-      if (msg.hide || msg.minimized) return
-    } else {
-      hideOverlay(msg.hide ? 'window-missing' : 'zcode-not-foreground')
-      return
-    }
+    hideOverlay(msg.hide ? 'window-missing' : 'zcode-not-foreground')
+    return
   }
   // ZCode 还在启动加载中：先隐身等着，就绪后由轮询补显示
   if (!uiReady && !refreshUiReady()) {
@@ -467,9 +481,7 @@ function applyZCodeBounds(msg) {
 
   let rect = { x: msg.x, y: msg.y, width: msg.w, height: msg.h }
   // 哨兵矩形兜底：最小化窗口的矩形是假的（Windows 报 -32000 一类坐标 + 159x27
-  // 的尺寸），拿它定位会把浮层甩到屏幕外——实测「开着桌宠模式 + ZCode 最小化」
-  // 就撞上过：浮层被放到 -21333,-21333 并显示在那。msg.minimized 是首选判据，
-  // 这一条防的是字段缺失（旧跟随脚本）或其它哨兵形态。
+  // 的假尺寸），拿它定位会把视口甩出窗口——鲸鱼被画到不可见处。
   if (rect.x < -10000 || rect.y < -10000) {
     if (petMode) return
     hideOverlay('window-missing')
@@ -483,13 +495,31 @@ function applyZCodeBounds(msg) {
     }
   } catch (err) {}
 
-  const winBounds = win.getBounds()
-  lastViewport = {
-    x: Math.round(rect.x - winBounds.x),
-    y: Math.round(rect.y - winBounds.y),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
+  // 视口 = ZCode 矩形 ∩ 浮层窗口（窗口相对坐标）。ZCode 最大化时会向四周各越界
+  // 7px（边框过扫），窗口本身只覆盖工作区——不裁交集的话，页面可以把鲸鱼摆进
+  // 窗口外的那 7px 里：活性点落在窗外被裁掉、不可见，冻结检测采样到的是窗外
+  // 静态背景 → 永久误判 → 自愈闪烁/重建循环（真机 2026-10-03 实锤：鲸鱼贴
+  // 底缘时每 5 秒「消失再出现」一次）。空交集（ZCode 完全在窗口外，如整窗
+  // 移到了另一块显示器）视作窗口丢失，走隐身。
+  const vx0 = Math.round(rect.x - winBounds.x)
+  const vy0 = Math.round(rect.y - winBounds.y)
+  const frame = {
+    x: Math.max(0, vx0),
+    y: Math.max(0, vy0),
+    width: Math.min(winBounds.width, vx0 + Math.round(rect.width)) - Math.max(0, vx0),
+    height: Math.min(winBounds.height, vy0 + Math.round(rect.height)) - Math.max(0, vy0),
   }
+  if (frame.width <= 0 || frame.height <= 0) {
+    hideOverlay('window-missing')
+    return
+  }
+  applyFrame(frame)
+}
+
+// 计算视口并推送（含显示/重现过渡）。frame 是窗口相对坐标；pet:1 标记桌宠
+// 视口（页面端 settle 会自动按新视口重钳位置记忆，锚点语义无需迁移）。
+function applyFrame(frame) {
+  lastViewport = frame
 
   let reshowTransition = false
   if (!win.isVisible()) {
