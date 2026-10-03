@@ -1162,6 +1162,28 @@ try {
   )
   if (stubCmdgo && stubCmdgo.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubCmdgo.identifier })
 
+  // ⑯b 撞墙窗口：网关 exceeded 或已用 ≥100% 时显示「已限流」而不是 101% 这类怪数字
+  // （真实数据实测到本周窗口 101%：CommandCode 周限已耗尽）
+  const cmdgoLimited = cmdgoStub
+    .replace('fiveHour:{used:2.79,cap:3', 'fiveHour:{used:3.03,cap:3')
+    .replace('percent:0.93}', 'percent:1.01,exceeded:true}')
+  const stubLimited = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: cmdgoLimited })
+  await cdp.send('Page.reload')
+  const limitedView = await pollEval(
+    cdp,
+    "(function(){var q=document.querySelector('.zcwv-qcard');if(!q||getComputedStyle(q).display==='none')return null;" +
+      'var r=q.querySelectorAll(".zcwv-qrow")[0];' +
+      'return JSON.stringify({name:r.querySelector(".zcwv-qname").textContent,pct:r.querySelector(".zcwv-qpct").textContent,fill:r.querySelector(".zcwv-qbar i").style.width})})()',
+    15000
+  )
+  const limitedObj = limitedView ? JSON.parse(limitedView) : null
+  check(
+    'CommandCode 撞墙窗口显示「已限流」（条满宽、不显示 101%）',
+    !!limitedObj && limitedObj.name === '5小时' && limitedObj.pct === '已限流' && limitedObj.fill === '100%',
+    JSON.stringify(limitedObj)
+  )
+  if (stubLimited && stubLimited.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubLimited.identifier })
+
   // ⑯ 音效库：导入集出现在下拉里、选中导入集时「删除当前」出现、内置集时隐藏
   // （导入本身走接口，页面侧只验 UI 与选择状态）
   const sndWav = Buffer.from('RIFF0000WAVEfmt ', 'latin1').toString('base64')
