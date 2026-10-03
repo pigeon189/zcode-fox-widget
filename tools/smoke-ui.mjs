@@ -180,7 +180,13 @@ async function pollEval(cdp, expression, deadlineMs, intervalMs = 500) {
 
 const server = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'server.mjs')], {
   cwd: PLUGIN_ROOT,
-  env: { ...process.env, ZCODE_HOME: tmpHome, ZCODE_DATA_BASE_DIR: tmpHome },
+  env: {
+    ...process.env,
+    ZCODE_HOME: tmpHome,
+    ZCODE_DATA_BASE_DIR: tmpHome,
+    // CommandCode 额度读取隔离：指向空目录，绝不读真实反代凭据、绝不真出网
+    CMDGO_DIR: path.join(tmpHome, 'cmdgo-empty'),
+  },
   stdio: 'ignore',
 })
 const tmpProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-smoke-profile-'))
@@ -272,11 +278,11 @@ try {
   const planView = await pollEval(
     cdp,
     "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount');" +
-      "return l&&a&&l.textContent==='Plan 配额'?(l.textContent+' | '+a.textContent):null})()",
+      "return l&&a&&l.textContent==='GLM Plan 配额'?(l.textContent+' | '+a.textContent):null})()",
     15000
   )
   check(
-    'auto 跟随回落 model_usage：主显示切到 Plan 配额（百分比主数字）',
+    'auto 跟随回落 model_usage：主显示切到 GLM Plan 配额（百分比主数字）',
     typeof planView === 'string' && planView.indexOf('%') !== -1,
     'view=' + JSON.stringify(planView)
   )
@@ -757,11 +763,11 @@ try {
     await cdp.eval(
       "(function(){var rows=document.querySelectorAll('.zcwv-menu-row'),hit=null;" +
         "for(var i=0;i<rows.length;i++){var t=rows[i].textContent;" +
-        "if(t.indexOf('预警 Plan%')!==-1){hit={text:t,inputs:rows[i].querySelectorAll('input[type=number]').length}}}return JSON.stringify(hit)})()"
+        "if(t.indexOf('GLM Plan%')!==-1){hit={text:t,inputs:rows[i].querySelectorAll('input[type=number]').length}}}return JSON.stringify(hit)})()"
     )
   )
   check(
-    '预警行：Plan% 与余额¥ 同一行、两个输入框',
+    '预警行：GLM Plan% 与余额¥ 同一行、两个输入框',
     alertRow && alertRow.text.indexOf('余额¥') !== -1 && alertRow.inputs === 2 && alertRow.text.indexOf('DS¥') === -1 && alertRow.text.indexOf('BM¥') === -1,
     JSON.stringify(alertRow)
   )
@@ -981,7 +987,7 @@ try {
   const staleStub = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
     source:
       '(function(){var real=window.fetch;function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
-      'var S={ok:true,source:"plan",vendor:"zcode-plan",label:"Plan 配额",timeMode:"none",modelId:"GLM-5.3-Flash",currency:"CNY",from:"selection"};' +
+      'var S={ok:true,source:"plan",vendor:"zcode-plan",label:"GLM Plan 配额",timeMode:"none",modelId:"GLM-5.3-Flash",currency:"CNY",from:"selection"};' +
       'var P={ok:true,source:"plan-log",logDate:"2026-09-01",stale:true,observedAt:Date.now(),serverTime:Math.floor(Date.now()/1000),remaining:240000,total:10000000,used:9760000,percentRemaining:0.024,percentUsed:0.976,nextResetAt:null,byModel:[],plans:[]};' +
       'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
       'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
@@ -993,7 +999,7 @@ try {
   const staleView = await pollEval(
     cdp,
     "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
-      "if(!l||!a||l.textContent!=='Plan 配额')return null;" +
+      "if(!l||!a||l.textContent!=='GLM Plan 配额')return null;" +
       "return JSON.stringify({amount:a.textContent,hint:h.textContent})})()",
     15000
   )
@@ -1099,6 +1105,62 @@ try {
     "(function(){var bs=document.querySelectorAll('.zcwv-panel .zcwv-panel-close');for(var i=0;i<bs.length;i++){" +
       "if(bs[i].textContent==='关闭'){bs[i].click();return true}}return false})()"
   )
+
+  // ⑯ CommandCode 三重额度卡（v1.7.8）：cmdgo 源 + /whale/cmdgo.json fixture
+  // → 气泡整卡渲染（标题 + 三窗口条最紧在前 + 池健康 + 重置行），与三行文本互斥
+  const cmdgoStub =
+    '(function(){var real=window.fetch;' +
+    'function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
+    'var S={ok:true,source:"cmdgo",vendor:"commandcode",label:"CommandCode",timeMode:"none",modelId:"zai-org/GLM-5.3",currency:"USD",from:"selection"};' +
+    'var C={ok:true,ref:"COMMANDCODE_API_KEY_TEST",pool:{available:2,total:3},plan:"Go",userName:"pigeon189",limited:false,' +
+    'monthly:{remaining:6.9,total:10,percent:0.31},' +
+    'fiveHour:{used:2.79,cap:3,exceeded:false,resetAt:' + (Date.now() + 84 * 60000) + ',remaining:0.21,percent:0.93},' +
+    'weekly:{used:4.68,cap:6,exceeded:false,resetAt:' + (Date.now() + 2 * 86400000) + ',remaining:1.32,percent:0.78},readAt:Date.now()};' +
+    'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
+    'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
+    'if(s.indexOf("/whale/cmdgo.json")!==-1)return json(C);' +
+    'if(s.indexOf("/whale/plan.json")!==-1)return json({ok:false,reason:"no-plan-log"});' +
+    'return real.apply(this,arguments)}})()'
+  const stubCmdgo = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: cmdgoStub })
+  await cdp.send('Page.reload')
+  const qcardView = await pollEval(
+    cdp,
+    "(function(){var q=document.querySelector('.zcwv-qcard');" +
+      // 用计算样式判断可见：内联置空串会退回样式表的 display:none（曾漏判此 bug）
+      "if(!q||getComputedStyle(q).display==='none')return null;" +
+      'var head=q.querySelector(".zcwv-qhead").textContent;' +
+      'var rows=[].map.call(q.querySelectorAll(".zcwv-qrow"),function(r){return{name:r.querySelector(".zcwv-qname").textContent,pct:r.querySelector(".zcwv-qpct").textContent,fill:r.querySelector(".zcwv-qbar i").style.width,fillCls:r.querySelector(".zcwv-qbar i").className}});' +
+      'var subs=[].map.call(q.querySelectorAll(".zcwv-qsub"),function(s){return s.textContent});' +
+      'var three=document.querySelector(".zcwv-label").style.display==="none";' +
+      'return JSON.stringify({head:head,rows:rows,subs:subs,textHidden:three})})()',
+    15000
+  )
+  const qcardObj = qcardView ? JSON.parse(qcardView) : null
+  check(
+    'CommandCode 额度卡：标题 + 三窗口（最紧在前）+ 池健康/账号 + 重置行，三行文本隐藏',
+    !!qcardObj &&
+      qcardObj.head === 'CommandCode 额度' &&
+      qcardObj.textHidden === true &&
+      qcardObj.rows.length === 3 &&
+      qcardObj.rows[0].name === '5小时' &&
+      qcardObj.rows[0].pct === '93%' &&
+      qcardObj.rows[1].name === '本周' &&
+      qcardObj.rows[2].name === '本月' &&
+      qcardObj.subs[0].indexOf('账号池 2/3 可用') !== -1 &&
+      qcardObj.subs[0].indexOf('pigeon189') !== -1 &&
+      qcardObj.subs[1].indexOf('后重置') !== -1,
+    JSON.stringify(qcardObj)
+  )
+  check(
+    '窗口条三档配色：<70% accent / 70–89% amber / ≥90% red',
+    !!qcardObj &&
+      qcardObj.rows[0].fillCls.indexOf('zcwv-qred') !== -1 &&
+      qcardObj.rows[1].fillCls.indexOf('zcwv-qamber') !== -1 &&
+      qcardObj.rows[2].fillCls === '' &&
+      qcardObj.rows[0].fill === '93%',
+    JSON.stringify(qcardObj && qcardObj.rows)
+  )
+  if (stubCmdgo && stubCmdgo.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubCmdgo.identifier })
 
   // ⑯ 音效库：导入集出现在下拉里、选中导入集时「删除当前」出现、内置集时隐藏
   // （导入本身走接口，页面侧只验 UI 与选择状态）
