@@ -1180,7 +1180,9 @@ try {
     'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
     'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
     'if(s.indexOf("/whale/cmdgo.json")!==-1)return json(C);' +
-    'return real.apply(this,arguments)}})()'
+    'return real.apply(this,arguments)};' +
+    // 固定随机数：⑯c 点气泡会抽随机台词，抽到 gif 组就没有文字行可断言
+    'Math.random=function(){return 0}})()'
   const stubLimited = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: cmdgoLimited })
   await cdp.send('Page.reload')
   const limitedView = await pollEval(
@@ -1211,6 +1213,50 @@ try {
     JSON.stringify(limitedObj && limitedObj.subs)
   )
   if (stubLimited && stubLimited.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubLimited.identifier })
+
+  // ⑯c 点气泡推进到第二页（随机台词 / 自定义步）：额度卡必须让位，不能与台词叠加
+  // （实测反馈：卡片的隐藏只写在 render() 顶部，而推进走 applyBubbleLines 直渲，
+  // 于是第二页台词压在卡片上）
+  // 先点鲸鱼把气泡打开（⑯ 只断言卡片在 DOM 里，气泡可能还是关着的）
+  const whaleAtNow = JSON.parse(
+    await cdp.eval(
+      "(function(){var i=document.querySelector('.zcwv-img').getBoundingClientRect();" +
+        'return JSON.stringify({x:Math.round(i.left+i.width/2),y:Math.round(i.bottom-40)})})()'
+    )
+  )
+  const clickAt = async (x, y) => {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', pointerType: 'mouse' })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1, pointerType: 'mouse' })
+  }
+  await clickAt(whaleAtNow.x, whaleAtNow.y)
+  const bubbleOpen = await pollEval(
+    cdp,
+    "(function(){var b=document.querySelector('.zcwv-bubble');return b&&b.classList.contains('zcwv-bubble-open')?true:null})()",
+    8000
+  )
+  check('⑯c 前置：点鲸鱼打开气泡', !!bubbleOpen)
+  const bubAt = JSON.parse(
+    await cdp.eval(
+      "(function(){var b=document.querySelector('.zcwv-bubble').getBoundingClientRect();" +
+        'return JSON.stringify({x:Math.round(b.left+b.width/2),y:Math.round(b.top+b.height*0.34)})})()'
+    )
+  )
+  await clickAt(bubAt.x, bubAt.y)
+  const secondPage = await pollEval(
+    cdp,
+    "(function(){var q=document.querySelector('.zcwv-qcard');if(!q)return null;" +
+      "if(getComputedStyle(q).display!=='none')return null;" +
+      'var t=[document.querySelector(".zcwv-label"),document.querySelector(".zcwv-amount"),document.querySelector(".zcwv-hint")]' +
+      '.filter(function(e){return e&&e.style.display!=="none"&&e.textContent.trim()}).length;' +
+      'return t>0?JSON.stringify({hidden:true,lines:t}):null})()',
+    15000
+  )
+  check(
+    '点气泡推进第二页：额度卡隐藏、台词独占气泡（不叠加）',
+    !!secondPage,
+    'view=' + JSON.stringify(secondPage)
+  )
 
   // ⑯ 音效库：导入集出现在下拉里、选中导入集时「删除当前」出现、内置集时隐藏
   // （导入本身走接口，页面侧只验 UI 与选择状态）
