@@ -1002,6 +1002,109 @@ function check(name, ok, detail) {
   )
 }
 
+// v1.8.0 与上游 DSH 版对齐补齐的模板：字段口径照上游（纯函数，不出网）
+{
+  const nov = TEMPLATES.novita.balance.pick({ availableBalance: 123456 })
+  const step = TEMPLATES.stepfun.balance.pick({ balance: 12.5 })
+  check(
+    '新模板：novita 原始单位 1e-4 换算 + stepfun 余额字段',
+    nov && Math.abs(nov.amount - 12.3456) < 1e-9 && nov.currency === 'USD' && step && step.amount === 12.5 && step.currency === 'CNY',
+    JSON.stringify({ nov, step })
+  )
+  const mm = TEMPLATES['minimax-coding'].quota.pick({
+    model_remains: [{ current_interval_remaining_percent: 62, current_weekly_remaining_percent: 81 }],
+  })
+  check(
+    '新模板：MiniMax 剩余% → 已用%（5 小时 + 本周两条）',
+    Array.isArray(mm) &&
+      mm.length === 2 &&
+      mm[0].label === '5 小时' &&
+      mm[0].percentUsed === 38 &&
+      mm[1].label === '本周' &&
+      mm[1].percentUsed === 19,
+    JSON.stringify(mm)
+  )
+  const oc = TEMPLATES['opencode-go'].quota.pick({
+    usage: { rolling: { percent: 42, resetsAt: 1790000000000 }, weekly: { percent: 7 }, monthly: { percent: 3 } },
+  })
+  check(
+    '新模板：OpenCode Go 三窗口（接口直接给已用%，带重置时间）',
+    Array.isArray(oc) &&
+      oc.length === 3 &&
+      oc[0].label === '5 小时' &&
+      oc[0].percentUsed === 42 &&
+      oc[0].resetAt === 1790000000000 &&
+      oc[2].label === '本月',
+    JSON.stringify(oc)
+  )
+  const kc = TEMPLATES['kimi-coding'].quota.pick({ usage: { remaining: 25, limit: 100 } })
+  check('新模板：Kimi Coding 剩余/总额 → 已用 75%', Array.isArray(kc) && kc.length === 1 && kc[0].percentUsed === 75, JSON.stringify(kc))
+  const zi = TEMPLATES['zhipu-coding-intl'].quota.pick({ data: { limits: [{ TOKENS_LIMIT: { percentage: 88 } }] } })
+  check('新模板：国际站 z.ai 与国内站同形（host 换域）', Array.isArray(zi) && zi[0].percentUsed === 88, JSON.stringify(zi))
+  check(
+    '新模板：缺字段一律返回 null（不编造额度）',
+    TEMPLATES['minimax-coding'].quota.pick({}) === null &&
+      TEMPLATES['kimi-coding'].quota.pick({ usage: { limit: 100 } }) === null &&
+      TEMPLATES.novita.balance.pick({}) === null &&
+      TEMPLATES['opencode-go'].quota.pick({ usage: {} }) === null
+  )
+  const want = [
+    'stepfun',
+    'novita',
+    'kimi-coding',
+    'minimax-coding',
+    'minimax-coding-intl',
+    'opencode-go',
+    'zhipu-coding-intl',
+    'openai',
+    'anthropic',
+    'gemini',
+    'xai',
+    'groq',
+    'mistral',
+    'together',
+    'fireworks',
+    'deepinfra',
+    'cerebras',
+    'siliconflow-cn',
+    'siliconflow-en',
+    'volcengine-ark',
+    'dashscope',
+    'qianfan',
+    'hunyuan',
+    'spark',
+    'modelscope',
+    'ollama',
+  ]
+  const missing = want.filter((id) => !TEMPLATES[id])
+  check('新补厂商模板齐全（26 条）', missing.length === 0, '缺：' + missing.join(','))
+  const matches = {
+    stepfun: matchTemplateId(['stepfun', 'Step-3.7-Flash']),
+    novita: matchTemplateId(['novita']),
+    kimiCoding: matchTemplateId(['kimi-coding', 'Kimi Coding']),
+    minimax: matchTemplateId(['minimaxi']),
+    opencode: matchTemplateId(['opencode-go']),
+    dashscope: matchTemplateId(['dashscope', 'qwen-max']),
+    anthropic: matchTemplateId(['anthropic', 'claude-sonnet']),
+    ollama: matchTemplateId(['local', 'ollama']),
+    zaiIntl: matchTemplateId(['z.ai', 'intl']),
+  }
+  check(
+    '模板匹配：新厂商关键词命中且不误伤（cmdgo-bridge / GLM 大陆站仍走原判定）',
+    matches.stepfun === 'stepfun' &&
+      matches.novita === 'novita' &&
+      matches.kimiCoding === 'kimi-coding' &&
+      matches.minimax === 'minimax-coding' &&
+      matches.opencode === 'opencode-go' &&
+      matches.dashscope === 'dashscope' &&
+      matches.anthropic === 'anthropic' &&
+      matches.ollama === 'ollama' &&
+      matches.zaiIntl === 'zhipu-coding-intl' &&
+      matchTemplateId(['zhipu-coding']) === 'bigmodel-glm' &&
+      matchTemplateId(['cmdgo-bridge']) === null,
+    JSON.stringify(matches)
+  )
+}
 // 凭据发现的短 TTL 缓存（v1.3.0 复审 N3）：默认路径 5 秒内复用，显式失效后重扫
 {
   const v2dir = path.join(tmpHome, '.zcode', 'v2')
@@ -1242,9 +1345,55 @@ try {
   const byId = {}
   for (const v of (vendors && vendors.vendors) || []) byId[v.id] = v
   check(
-    '厂商模板清单完整（7 家）',
-    vendors && vendors.ok && ['deepseek', 'zcode-plan', 'bigmodel-glm', 'openrouter', 'moonshot-cn', 'moonshot-intl', 'zhipu-quota'].every((id) => byId[id]),
+    '厂商模板清单完整（原 8 家 + v1.8.0 补齐的 26 条都在 vendors.json 里）',
+    vendors &&
+      vendors.ok &&
+      [
+        'deepseek',
+        'zcode-plan',
+        'commandcode',
+        'bigmodel-glm',
+        'openrouter',
+        'moonshot-cn',
+        'moonshot-intl',
+        'zhipu-quota',
+        'stepfun',
+        'novita',
+        'kimi-coding',
+        'minimax-coding',
+        'minimax-coding-intl',
+        'opencode-go',
+        'zhipu-coding-intl',
+        'openai',
+        'anthropic',
+        'gemini',
+        'xai',
+        'groq',
+        'mistral',
+        'together',
+        'fireworks',
+        'deepinfra',
+        'cerebras',
+        'siliconflow-cn',
+        'siliconflow-en',
+        'volcengine-ark',
+        'dashscope',
+        'qianfan',
+        'hunyuan',
+        'spark',
+        'modelscope',
+        'ollama',
+      ].every((id) => byId[id]),
     vendors && vendors.vendors ? vendors.vendors.map((v) => v.id).join(',') : '无'
+  )
+  check(
+    '新补的无余额接口模板按 kind:tokens 呈现（只判凭据，不编造余额）',
+    byId.openai &&
+      byId.openai.kind === 'tokens' &&
+      byId.openai.balance === undefined &&
+      byId.ollama &&
+      byId.ollama.kind === 'tokens',
+    JSON.stringify({ openaiKind: byId.openai && byId.openai.kind, ollamaKind: byId.ollama && byId.ollama.kind })
   )
   check(
     '自动发现命中 bigmodel 规则（key 来自 v2 provider_config）',
