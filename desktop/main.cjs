@@ -94,6 +94,31 @@ function clampFollowInterval(value) {
 }
 let followIntervalMs = clampFollowInterval(process.env.WHALE_FOLLOW_INTERVAL_MS || FOLLOW_INTERVAL_DEFAULT)
 
+// 桌宠模式（页面经 whale:pet-mode 设置）：挂件一直浮在所有窗口最上层，
+// ZCode 失焦、被别的应用盖住时**不隐身**（普通模式会隐身，见 applyZCodeBounds）。
+// 另外周期性重申置顶层级——别的应用（任务管理器、部分安装器/游戏）也会把自己
+// 设成 topmost 抢到前面，重申一次就能拉回来；频率 3s，开销可忽略。
+const PET_TOPMOST_MS = 3000
+let petMode = false
+let petTopmostTimer = null
+function setPetMode(value) {
+  petMode = !!value
+  if (petTopmostTimer) {
+    clearInterval(petTopmostTimer)
+    petTopmostTimer = null
+  }
+  if (petMode) {
+    petTopmostTimer = setInterval(() => {
+      if (!win || win.isDestroyed()) return
+      try {
+        win.setAlwaysOnTop(true, 'screen-saver')
+      } catch (err) {}
+    }, PET_TOPMOST_MS)
+    if (petTopmostTimer.unref) petTopmostTimer.unref()
+  }
+  log('pet-mode', petMode ? 'on' : 'off')
+}
+
 function createWindow() {
   // 先在主显示器工作区里把窗口建出来（尺寸马上会被 ZCode 窗口矩形覆盖），
   // 但不显示——等拿到 ZCode 窗口位置后再 show，避免鲸鱼先在别处闪一下。
@@ -420,8 +445,16 @@ function applyZCodeBounds(msg) {
   // show=false：ZCode 最小化、被别的应用盖住，或窗口暂时找不到。
   // 透明度隐身（而非 win.hide()），原因见 overlayShown 处的注释。
   if (msg.hide || msg.show === false) {
-    hideOverlay(msg.hide ? 'window-missing' : 'zcode-not-foreground')
-    return
+    if (petMode) {
+      // 桌宠模式只挡「隐身」，不挡「跟随」：
+      //  · window-missing（ZCode 最小化/找不到矩形）：保持当前位置与可见性
+      //  · zcode-not-foreground（失焦/被盖住）：继续走下面的常规路径，位置仍与
+      //    ZCode 窗口对齐，只是不再因为失焦而消失（挂件要一直在最上层）
+      if (msg.hide) return
+    } else {
+      hideOverlay(msg.hide ? 'window-missing' : 'zcode-not-foreground')
+      return
+    }
   }
   // ZCode 还在启动加载中：先隐身等着，就绪后由轮询补显示
   if (!uiReady && !refreshUiReady()) {
@@ -519,6 +552,7 @@ ipcMain.on('whale:follow-interval', (_event, value) => {
   restartFollower('interval-changed')
 })
 ipcMain.handle('whale:follow-interval-get', () => followIntervalMs)
+ipcMain.on('whale:pet-mode', (_event, value) => setPetMode(value))
 ipcMain.on('whale:quit', () => app.quit())
 ipcMain.handle('whale:workarea', () => screen.getPrimaryDisplay().workArea)
 
