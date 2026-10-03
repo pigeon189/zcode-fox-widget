@@ -121,9 +121,19 @@ const planLogLine =
 // （实测：2.4% 错值挂了一分钟）。服务必须逐级扩窗才能找到这条标记。
 const planJunkHead = Buffer.alloc(1200 * 1024, 0x78)
 const planJunkTail = Buffer.alloc(200 * 1024, 0x78)
+// v1.7.8 套餐切换间隙的空桶快照：真实日志里新套餐窗口开始前会有 balances=[]
+// 的过渡观测（实测 2026-10-02 末尾连续 4 条）。把它垫在好观测**之后**，
+// plan.json 端到端断言即验证「按行从新到旧跳过空桶、取最近的有效观测」
+const planEmptyLine =
+  '[2026-09-29 08:42:28.001] [info] [pid:1] [main] [host-log] (local-1) [host] [2026-09-29 08:42:28.001] [pid:2] [usage-stats] billing/balance 请求完成 ' +
+  JSON.stringify({
+    balances: [],
+    payload: { code: 0, data: { server_time: Math.floor(Date.now() / 1000), plans: PLAN_FIXTURE.payload.data.plans, balances: [] } },
+  }) +
+  '\n'
 fs.writeFileSync(
   path.join(planLogDir, todayKeyForLog() + '.log'),
-  Buffer.concat([planJunkHead, Buffer.from('\n' + planLogLine), planJunkTail])
+  Buffer.concat([planJunkHead, Buffer.from('\n' + planLogLine), planJunkTail, Buffer.from('\n' + planEmptyLine)])
 )
 
 // 厂商自动发现 fixture：一个 bigmodel 规则（应命中 bigmodel-glm），一个本地网关
@@ -617,6 +627,17 @@ function check(name, ok, detail) {
     legacyShaped && legacyShaped.total === 104_000_000,
     'total=' + (legacyShaped && legacyShaped.total)
   )
+  // 空桶快照（套餐切换间隙）塑形后 percentRemaining=null——读取层据此跳行；
+  // 端到端覆盖见 fixture（好观测之后垫了一条空桶行）+ plan.json 断言
+  const emptyShaped = shapePlanPayload(
+    { balances: [], payload: { code: 0, data: { server_time: 1790000000, plans: PLAN_FIXTURE.payload.data.plans, balances: [] } } },
+    today,
+    Date.now()
+  )
+  check(
+    'Plan 日志解析：空桶快照塑形为 percentRemaining=null（供读取层跳过）',
+    emptyShaped && emptyShaped.percentRemaining === null && emptyShaped.total === 0
+  )
 }
 
 // 厂商模板框架：字段路径求值与模板匹配
@@ -638,6 +659,55 @@ function check(name, ok, detail) {
       matchTemplateId(['moonshot-intl']) === 'moonshot-intl'
   )
   check('模板匹配：本地网关关键词不做 vendor 判定', matchTemplateId(['cmdgo-bridge']) === null)
+}
+
+// CommandCode 三重额度：套餐目录恢复 + 窗口塑形 + 活跃账号选择（纯函数，
+// 不出网——HTTP 层只验 vendors.json 的 no-credentials 降级）
+{
+  const { shapeCmdgoUsage, resolveCmdgoPlan, pickActiveAccount } = await import('../lib/cmdgo.mjs')
+  const credits = {
+    credits: { monthlyCredits: 6.9, purchasedCredits: 0.5, freeCredits: 0 },
+    windowLimits: {
+      fiveHour: { used: 2.79, cap: 3, exceeded: false, resetAt: 1790000000000 },
+      weekly: { used: 3.48, cap: 6, exceeded: false, resetAt: 1790500000000 },
+      limited: false,
+    },
+  }
+  const subscription = { data: { planId: 'individual-go', status: 'active', currentPeriodEnd: '2026-10-31T00:00:00Z' } }
+  const whoami = { user: { userName: 'pigeon189', name: 'P' } }
+  const shaped = shapeCmdgoUsage(credits, subscription, whoami)
+  check(
+    'CommandCode 塑形：月度池按套餐目录恢复（Go $10）、5小时/周窗口百分比',
+    shaped &&
+      shaped.plan === 'Go' &&
+      shaped.monthly &&
+      shaped.monthly.total === 10 &&
+      Math.abs(shaped.monthly.percent - 0.31) < 1e-9 &&
+      Math.abs(shaped.fiveHour.percent - 2.79 / 3) < 1e-9 &&
+      Math.abs(shaped.weekly.percent - 3.48 / 6) < 1e-9 &&
+      shaped.userName === 'pigeon189' &&
+      shaped.limited === false,
+    JSON.stringify(shaped)
+  )
+  check(
+    'CommandCode 套餐目录：帽对反查未知 planId（20%/50% → GOAT）',
+    resolveCmdgoPlan('individual-go').monthly === 10 &&
+      resolveCmdgoPlan('individual-max-20x-fallback')?.monthly === 300 &&
+      resolveCmdgoPlan('mystery-plan', 14, 35)?.id === 'individual-goat'
+  )
+  const accounts = [
+    { ref: 'A', enabled: true, cooldownUntil: 0, lastUsedAt: 1000 },
+    { ref: 'B', enabled: true, cooldownUntil: Date.now() + 600_000, lastUsedAt: 9999 },
+    { ref: 'C', enabled: false, lastUsedAt: 8888 },
+  ]
+  const picked = pickActiveAccount(accounts)
+  check(
+    'CommandCode 账号池：冷却/停用剔除，活跃账号取最近调用',
+    picked.active.ref === 'A' && picked.available === 1 && picked.total === 3
+  )
+  check('CommandCode 空池降级', pickActiveAccount([]).active === null && pickActiveAccount([]).total === 0)
+  const shapedEmpty = shapeCmdgoUsage({ credits: {}, windowLimits: {} }, undefined, undefined)
+  check('CommandCode 塑形：主路由缺失返回 null（读取层报错）', shapedEmpty === null)
 }
 
 // 凭据发现：有效 baseURL 继承内置模板、enc:v1: 密文跳过、本地网关标记
@@ -751,9 +821,9 @@ function check(name, ok, detail) {
       r('moonshot-kimi', 'kimi-k3', 'https://api.moonshot.cn/anthropic') === 'kimi'
   )
   check(
-    '计费源：网关转发靠模型名兜底（deepseek/、xiaomi/mimo-）',
-    r('cmdgo-bridge', 'deepseek/deepseek-v4-flash', 'http://127.0.0.1:11435/v1') === 'ds' &&
-      r('cmdgo-bridge', 'xiaomi/mimo-v2.6-pro', 'http://127.0.0.1:11435/v1') === 'mimo-api'
+    '计费源：cmdgo 反代 → CommandCode 额度口径（限额走其套餐池，不看模型名）',
+    r('cmdgo-bridge', 'deepseek/deepseek-v4-flash', 'http://127.0.0.1:11435/v1') === 'cmdgo' &&
+      r('cmdgo-bridge', 'xiaomi/mimo-v2.6-pro', 'http://127.0.0.1:11435/v1') === 'cmdgo'
   )
   check(
     '计费源：全未知 → tokens（不冒充任何厂商）',
@@ -970,7 +1040,13 @@ async function waitReady(port, deadlineMs) {
   return null
 }
 
-const serverEnv = { ...process.env, ZCODE_HOME: tmpHome, ZCODE_DATA_BASE_DIR: tmpHome }
+const serverEnv = {
+  ...process.env,
+  ZCODE_HOME: tmpHome,
+  ZCODE_DATA_BASE_DIR: tmpHome,
+  // CommandCode 额度读取隔离：指向空目录，绝不读真实反代凭据、绝不真出网
+  CMDGO_DIR: path.join(tmpHome, 'cmdgo-empty'),
+}
 let childLog = ''
 function spawnServer() {
   const c = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'server.mjs')], {
@@ -1229,16 +1305,16 @@ try {
   const putRes = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, moneyAlert: 5.5, deepseekBelow: -3, bigmodelDaily: 9 } }),
+    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, cmdgoPct: 15, moneyAlert: 5.5, deepseekBelow: -3, bigmodelDaily: 9 } }),
   })
   const putBody = await putRes.json()
   check(
     '预警设置写入并归一（moneyAlert 生效，旧键不再各自保留）',
-    putRes.ok && putBody.alerts && putBody.alerts.planPct === 20 && putBody.alerts.moneyAlert === 5.5 && putBody.alerts.deepseekBelow === undefined,
+    putRes.ok && putBody.alerts && putBody.alerts.planPct === 20 && putBody.alerts.cmdgoPct === 15 && putBody.alerts.moneyAlert === 5.5 && putBody.alerts.deepseekBelow === undefined,
     JSON.stringify(putBody.alerts)
   )
   const sizeBack = await getJson(port, '/whale/size.json')
-  check('预警设置持久化回读', sizeBack && sizeBack.alerts && sizeBack.alerts.planPct === 20, JSON.stringify(sizeBack.alerts))
+  check('预警设置持久化回读', sizeBack && sizeBack.alerts && sizeBack.alerts.planPct === 20 && sizeBack.alerts.cmdgoPct === 15, JSON.stringify(sizeBack.alerts))
   // 旧配置迁移：模拟升级用户的文件（只有 DS¥/BM¥ 旧键、没有 moneyAlert），
   // 读出来应是 moneyAlert=deepseekBelow（先设过的那个），旧键不再保留
   const legacyState = JSON.parse(fs.readFileSync(path.join(dataDir, 'widget-state.json'), 'utf8'))
