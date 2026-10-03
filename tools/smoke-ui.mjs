@@ -1137,7 +1137,7 @@ try {
   )
   const qcardObj = qcardView ? JSON.parse(qcardView) : null
   check(
-    'CommandCode 额度卡：标题 + 三窗口（最紧在前）+ 池健康/账号 + 重置行，三行文本隐藏',
+    'CommandCode 额度卡：标题 + 三窗口（固定顺序 5小时/本周/本月）+ 池健康/账号 + 重置行，三行文本隐藏',
     !!qcardObj &&
       qcardObj.head === 'CommandCode 额度' &&
       qcardObj.textHidden === true &&
@@ -1148,6 +1148,8 @@ try {
       qcardObj.rows[2].name === '本月' &&
       qcardObj.subs[0].indexOf('账号池 2/3 可用') !== -1 &&
       qcardObj.subs[0].indexOf('pigeon189') !== -1 &&
+      // 未撞墙时倒计时取已用最高的窗口（fixture 里 5小时 93% 最紧）
+      qcardObj.subs[1].indexOf('5小时') === 0 &&
       qcardObj.subs[1].indexOf('后重置') !== -1,
     JSON.stringify(qcardObj)
   )
@@ -1162,25 +1164,51 @@ try {
   )
   if (stubCmdgo && stubCmdgo.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubCmdgo.identifier })
 
-  // ⑯b 撞墙窗口：网关 exceeded 或已用 ≥100% 时显示「已限流」而不是 101% 这类怪数字
-  // （真实数据实测到本周窗口 101%：CommandCode 周限已耗尽）
-  const cmdgoLimited = cmdgoStub
-    .replace('fiveHour:{used:2.79,cap:3', 'fiveHour:{used:3.03,cap:3')
-    .replace('percent:0.93}', 'percent:1.01,exceeded:true}')
+  // ⑯b 撞墙窗口（真实数据实测到：三账号均撞周限）。这里构造「5小时 + 本周」同时
+  // 撞墙、且本周重置更晚的场景，一次验三件事：已限流文案（不显示 101%）、
+  // 倒计时取**最晚**重置的那道墙（本周，而不是时间更早的 5小时）、池全满时的说人话文案
+  const soonReset = Date.now() + 20 * 60000
+  const laterReset = Date.now() + 4 * 86400000
+  const cmdgoLimited =
+    '(function(){var real=window.fetch;' +
+    'function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
+    'var S={ok:true,source:"cmdgo",vendor:"commandcode",label:"CommandCode",timeMode:"none",modelId:"zai-org/GLM-5.3",currency:"USD",from:"selection"};' +
+    'var C={ok:true,ref:"K",pool:{available:0,total:3},plan:"Go",userName:"paper189xkfx",limited:true,' +
+    'monthly:{remaining:3.96,total:10,percent:0.60,resetAt:' + (Date.now() + 26 * 86400000) + '},' +
+    'fiveHour:{used:3.03,cap:3,exceeded:true,resetAt:' + soonReset + ',remaining:0,percent:1.01},' +
+    'weekly:{used:6.12,cap:6,exceeded:true,resetAt:' + laterReset + ',remaining:0,percent:1.02},readAt:Date.now()};' +
+    'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
+    'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
+    'if(s.indexOf("/whale/cmdgo.json")!==-1)return json(C);' +
+    'return real.apply(this,arguments)}})()'
   const stubLimited = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: cmdgoLimited })
   await cdp.send('Page.reload')
   const limitedView = await pollEval(
     cdp,
     "(function(){var q=document.querySelector('.zcwv-qcard');if(!q||getComputedStyle(q).display==='none')return null;" +
-      'var r=q.querySelectorAll(".zcwv-qrow")[0];' +
-      'return JSON.stringify({name:r.querySelector(".zcwv-qname").textContent,pct:r.querySelector(".zcwv-qpct").textContent,fill:r.querySelector(".zcwv-qbar i").style.width})})()',
+      'var rows=[].map.call(q.querySelectorAll(".zcwv-qrow"),function(r){return{r:r.querySelector(".zcwv-qname").textContent,p:r.querySelector(".zcwv-qpct").textContent,f:r.querySelector(".zcwv-qbar i").style.width}});' +
+      'var subs=[].map.call(q.querySelectorAll(".zcwv-qsub"),function(s){return s.textContent});' +
+      'return JSON.stringify({rows:rows,subs:subs})})()',
     15000
   )
   const limitedObj = limitedView ? JSON.parse(limitedView) : null
   check(
     'CommandCode 撞墙窗口显示「已限流」（条满宽、不显示 101%）',
-    !!limitedObj && limitedObj.name === '5小时' && limitedObj.pct === '已限流' && limitedObj.fill === '100%',
-    JSON.stringify(limitedObj)
+    !!limitedObj &&
+      limitedObj.rows[0].r === '5小时' &&
+      limitedObj.rows[0].p === '已限流' &&
+      limitedObj.rows[0].f === '100%' &&
+      limitedObj.rows[1].r === '本周' &&
+      limitedObj.rows[1].p === '已限流',
+    JSON.stringify(limitedObj && limitedObj.rows)
+  )
+  check(
+    '多窗口同时撞墙：倒计时取最晚重置的那道墙（本周），池全满时说「已全部限流」',
+    !!limitedObj &&
+      limitedObj.subs[0].indexOf('账号池已全部限流') !== -1 &&
+      limitedObj.subs[1].indexOf('本周') === 0 &&
+      limitedObj.subs[1].indexOf('4 天后重置') !== -1,
+    JSON.stringify(limitedObj && limitedObj.subs)
   )
   if (stubLimited && stubLimited.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubLimited.identifier })
 
