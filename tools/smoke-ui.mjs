@@ -695,8 +695,12 @@ try {
       )
     )
     check(
-      '主题下拉打开为主题化列表（3 项 + 当前项高亮）',
-      ddState && ddState.n === 3 && ddState.onRow === 1 && ddState.texts.indexOf('深色模式') !== -1,
+      '主题下拉打开为主题化列表（4 项：跟随/浅色/小鲸鱼蓝白/深色 + 当前项高亮）',
+      ddState &&
+        ddState.n === 4 &&
+        ddState.onRow === 1 &&
+        ddState.texts.indexOf('深色模式') !== -1 &&
+        ddState.texts.indexOf('小鲸鱼蓝白') !== -1,
       JSON.stringify(ddState)
     )
     const darkPick = JSON.parse(
@@ -749,6 +753,90 @@ try {
     )
   }
 
+  // ⑧b 小鲸鱼蓝白主题（v1.8.0）：独立的第四态，配色逐值对齐上游 DSH 原版
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, theme: 'whale' }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+  const whaleTheme = JSON.parse(
+    await cdp.eval(
+      "(function(){var root=document.documentElement;var cs=getComputedStyle(root);" +
+        "var btn=document.querySelector('.zcwv-menu-btn');var bcs=getComputedStyle(btn);" +
+        "var row=document.querySelector('.zcwv-menu-row');" +
+        "return JSON.stringify({whale:root.classList.contains('zcwv-theme-whale'),dark:root.classList.contains('zcwv-theme-dark')," +
+        "text:cs.getPropertyValue('--zcw-text').trim(),dim:cs.getPropertyValue('--zcw-text-dim').trim()," +
+        "accent:cs.getPropertyValue('--zcw-accent').trim(),radius:cs.getPropertyValue('--zcw-radius').trim()," +
+        "btnBg:bcs.backgroundColor,btnRadius:bcs.borderTopLeftRadius,btnBorder:bcs.borderTopColor," +
+        "rowColor:row?getComputedStyle(row).color:null})})()"
+    )
+  )
+  check(
+    '小鲸鱼蓝白主题：独立 class + DSH 原版配色（dim #9fb0d9 / 深蓝按钮 / 6px 圆角）',
+    whaleTheme &&
+      whaleTheme.whale === true &&
+      whaleTheme.dark === false &&
+      whaleTheme.text === '#536ba9' &&
+      whaleTheme.dim === '#9fb0d9' &&
+      whaleTheme.accent === '#203170' &&
+      whaleTheme.radius === '6px' &&
+      whaleTheme.btnBg === 'rgba(32, 49, 112, 0.85)' &&
+      whaleTheme.btnRadius === '6px' &&
+      whaleTheme.rowColor === 'rgb(32, 49, 112)',
+    JSON.stringify(whaleTheme)
+  )
+  // ⑧c 切到内置小鲸鱼 → 配色自动套用蓝白并落盘（用户要求：小鲸鱼 = 原版形象 + 原版配色）
+  await cdp.eval(
+    "(function(){var rows=document.querySelectorAll('.zcwv-role-row');" +
+      "for(var i=0;i<rows.length;i++){var p=rows[i].querySelector('.zcwv-role-pick');" +
+      "if(p&&p.textContent==='小鲸鱼'){p.click();return true}}return false})()"
+  )
+  await new Promise((r) => setTimeout(r, 500))
+  const roleTheme = JSON.parse(
+    await cdp.eval(
+      "(function(){var ss=document.querySelectorAll('select'),val=null;" +
+        "for(var k=0;k<ss.length;k++){var vs=[];for(var j=0;j<ss[k].options.length;j++)vs.push(ss[k].options[j].value);" +
+        "if(vs.indexOf('system')!==-1)val=ss[k].value}" +
+        "return JSON.stringify({whale:document.documentElement.classList.contains('zcwv-theme-whale'),val:val})})()"
+    )
+  )
+  const savedTheme = (await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()).theme
+  check(
+    '切到内置小鲸鱼：配色自动套用蓝白并落盘（theme=whale）',
+    roleTheme && roleTheme.whale === true && roleTheme.val === 'whale' && savedTheme === 'whale',
+    JSON.stringify({ whale: roleTheme && roleTheme.whale, val: roleTheme && roleTheme.val, saved: savedTheme })
+  )
+
+  // ⑧d 桌宠模式（v1.8.0）：状态持久化走服务端；这一行只对浮层渲染
+  // （浏览器模式没有「浮层显隐」这回事，整行不显示——断言这一点，防漂移）
+  const petRowInBrowser = JSON.parse(
+    await cdp.eval(
+      "(function(){var rs=document.querySelectorAll('.zcwv-menu-row'),hit=null;" +
+        "for(var i=0;i<rs.length;i++){if(rs[i].textContent.indexOf('桌宠模式')!==-1)hit=true}" +
+        'return JSON.stringify({has:!!hit,hasFollow:document.body.textContent.indexOf("跟随延迟")!==-1})})()'
+    )
+  )
+  check(
+    '桌宠模式行:浏览器模式不渲染（与「跟随延迟」同为浮层专属）',
+    petRowInBrowser && petRowInBrowser.has === false && petRowInBrowser.hasFollow === false,
+    JSON.stringify(petRowInBrowser)
+  )
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, petMode: true }),
+  })
+  const petOn = (await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()).petMode
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, petMode: false }),
+  })
+  const petOff = (await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()).petMode
+  check('桌宠模式状态持久化（PUT true → 回读 true；再置 false → 回读 false）', petOn === true && petOff === false, JSON.stringify({ petOn, petOff }))
+
   // 后面的按钮配色断言针对深色主题，这里切回去（顺带验证 dark 仍能落盘生效）
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',
@@ -759,19 +847,64 @@ try {
   await new Promise((r) => setTimeout(r, 3000))
 
   // ⑨ 预警：额度阈值泛化成一条「额度%」（GLM Plan + CommandCode 共用），
-  // 与 DS¥/BM¥ 合并成的「余额¥」并列
+  // 与 DS¥/BM¥ 合并成的「余额¥」并列。v1.8.0 起这两格在记账二级页里
+  // （面板行常驻 DOM，不必先打开面板）
   const alertRow = JSON.parse(
     await cdp.eval(
-      "(function(){var rows=document.querySelectorAll('.zcwv-menu-row'),hit=null;" +
+      "(function(){var rows=document.querySelectorAll('.zcwv-book-row'),hit=null;" +
         "for(var i=0;i<rows.length;i++){var t=rows[i].textContent;" +
         "if(t.indexOf('额度%')!==-1){hit={text:t,inputs:rows[i].querySelectorAll('input[type=number]').length}}}return JSON.stringify(hit)})()"
     )
   )
   check(
-    '预警行：额度%（泛化）与余额¥ 同一行、两个输入框',
+    '预警行：额度%（泛化）与余额¥ 同一行、两个输入框（且已收进记账二级页）',
     alertRow && alertRow.text.indexOf('余额¥') !== -1 && alertRow.inputs === 2 && alertRow.text.indexOf('DS¥') === -1 && alertRow.text.indexOf('BM¥') === -1,
     JSON.stringify(alertRow)
   )
+  // ⑨d 记账二级页（v1.8.0）：一级菜单只剩入口按钮，「用量记录及以下」的功能都在
+  // 二级页里；面板能开能关（关掉是必须的——面板锚在鲸鱼头顶，留着会挡住后面
+  // 用例的真实点击）
+  const bookEntry = JSON.parse(
+    await cdp.eval(
+      "(function(){var ts=document.querySelectorAll('.zcwv-role-trigger'),nm=null;" +
+        "for(var i=0;i<ts.length;i++){if((ts[i].title||'').indexOf('\\u9009\\u62e9\\u5f62\\u8c61')===0){" +
+        "nm=ts[i].querySelector('.zcwv-role-name').textContent}}" +
+        "var rs=document.querySelectorAll('.zcwv-menu-row'),label=null;" +
+        "for(var i=0;i<rs.length;i++){var b=rs[i].querySelector('button');" +
+        "if(b&&/^=.+记账=$/.test(b.textContent)){label=b.textContent}}return JSON.stringify({name:nm,label:label})})()"
+    )
+  )
+  // 文案必须跟着当前形象走（本用例跑到这里时内置小狐娘已被 ⑦d 删掉，选中的是小鲸鱼）
+  check(
+    '记账入口在一级菜单，文案为「=角色名记账=」且随角色名',
+    !!bookEntry && !!bookEntry.name && bookEntry.label === '=' + bookEntry.name + '记账=',
+    JSON.stringify(bookEntry)
+  )
+  const bookOpened = JSON.parse(
+    await cdp.eval(
+      "(function(){var bs=document.querySelectorAll('.zcwv-menu-row button');" +
+        "for(var i=0;i<bs.length;i++){if(/^=.+记账=$/.test(bs[i].textContent)){bs[i].click();" +
+        "var p=document.querySelector('.zcwv-book');" +
+        "return JSON.stringify({open:!!p&&p.classList.contains('zcwv-panel-open')," +
+        "rows:p?p.querySelectorAll('.zcwv-book-row').length:0," +
+        "hasUsage:!!p&&p.textContent.indexOf('用量记录')!==-1," +
+        "inputs:p?p.querySelectorAll('input[type=number]').length:0})}}return null})()"
+    )
+  )
+  // 4 个数字输入框 = 额度% + 余额¥ + 到账¥ + 扣减¥（校正也收进了这一页）
+  check(
+    '记账二级页：入口可开，含用量记录 / 两个阈值 / 两个校正输入（4 行）',
+    !!bookOpened && bookOpened.open === true && bookOpened.rows === 4 && bookOpened.hasUsage === true && bookOpened.inputs === 4,
+    JSON.stringify(bookOpened)
+  )
+  const bookClosed = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-book');if(!p)return null;var bs=p.querySelectorAll('button');" +
+        "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='返回'){bs[i].click();" +
+        "return JSON.stringify({open:p.classList.contains('zcwv-panel-open')})}}return null})()"
+    )
+  )
+  check('记账二级页：返回按钮收起面板', !!bookClosed && bookClosed.open === false, JSON.stringify(bookClosed))
 
   // ⑨b UI 审查回归（v1.7.3）：U5 分隔线节点复用 / U3 下拉实色底 / U6 编辑器复选框类
   const menuStruct = JSON.parse(
@@ -823,7 +956,7 @@ try {
   await new Promise((r) => setTimeout(r, 3000))
   const quotaBackfill = JSON.parse(
     await cdp.eval(
-      "(function(){var rows=document.querySelectorAll('.zcwv-menu-row'),out=null;" +
+      "(function(){var rows=document.querySelectorAll('.zcwv-book-row'),out=null;" +
         "for(var i=0;i<rows.length;i++){var t=rows[i].textContent;" +
         "if(t.indexOf('额度%')!==-1){var ins=rows[i].querySelectorAll('input[type=number]');" +
         "out={q:ins[0]?ins[0].value:null,m:ins[1]?ins[1].value:null}}}return JSON.stringify(out)})()"
