@@ -59,6 +59,39 @@
 
 ---
 
+## v1.7.8 新增：CommandCode 三重额度气泡 + 预警泛化 + GLM Plan 更名 + Plan 启动回退修复
+
+### CommandCode 三重额度（新计费源）
+
+CommandCode 套餐是**月度 credit 池 + 5小时/周两个滚动窗口三重叠加**，任一窗口耗尽即停（Go $10 → 5h 帽 $3 / 周帽 $6；GOAT/Pro 为 20%/50%，Max 10×/20×、Team Pro 同理）。数据取自网关自己的三条路由（与官方 CLI 同款）：
+
+- `GET /alpha/whoami`（best effort，补账号名与 orgId）
+- `GET /alpha/billing/credits` → `credits.monthlyCredits` + `windowLimits.{fiveHour,weekly}` 的 `{used,cap,exceeded,resetAt}`
+- `GET /alpha/billing/subscriptions` → `planId` / `currentPeriodEnd`（月度总额度接口不返回，按套餐目录由 planId 恢复；目录缺失时用 5h/周帽对反查，帽对与套餐一一对应）
+
+要点：**抓的是网关 API，与用哪个反代插件无关**——dsh-cmdgo-provider、cmdgo-bridge、官方 CLI 都是同一个 API 的客户端，拿到账号 key 就读同一份数据。凭据从反代本地配置（`.cmdgo-bridge/credentials.json` + `accounts.json`）**现读、不复制、不落盘**，可指多个来源；出站仅 `https://api.commandcode.ai`（显式 host 白名单，带官方 CLI 指纹头），每凭据 60s TTL 缓存、失败同样计入 TTL。路径可用 `CMDGO_DIR` 覆盖（测试隔离用）。
+
+气泡形态（新增 SOURCE_VIEW `kind:'qcard'`）：标题「CommandCode 额度」+ 三条窗口条（**按已用比例降序，最紧的排第一**）+ 两条小字（账号池 `可用数/总数` + 当前账号名；最紧窗口的重置倒计时）。条色三档：<70% 主题 accent / 70–89% amber（新增 `--zcw-amber` token）/ ≥90% 红。多账号策略：主显示**当前正在消耗额度的账号**（enabled 且不在冷却中、最近一次成功调用），池健康度用小字表达——不做账号间求和或平均（窗口按账号独立，平均数是骗人的）。
+
+### 预警泛化（每源一个阈值）
+
+阈值从「两条专用规则」变为「每个可读额度源一条」：`planPct`（GLM Plan 剩余%）/ `cmdgoPct`（CommandCode 三重窗口取剩余最低的一条）/ `moneyAlert`（DeepSeek 余额）。菜单多一行「额度%」，各自 0 = 关闭；去重键含来源与窗口名，每源每天一次、恢复后自动重新武装。后续接入新额度源照此加键即可。
+
+### GLM Plan 更名
+
+「ZCode Plan」统一改名「**GLM Plan**」（气泡标题、菜单显示档、预警行、CLI/SKILL 文案），与「CommandCode 额度」等并列时不再混淆。菜单「显示」新增 `CommandCode 额度` 档。
+
+### Plan 启动「等待中…」修复
+
+启动时 GLM Plan 气泡永远挂着加载态。根因：套餐切换间隙网关会返回 `balances: []` 的空桶快照（实测某日日志 263 条观测里，末尾连续 4 条都是空桶），而读取层**只解析最后一条**——stale 回退拿到空桶后 `percentRemaining` 为 null，气泡便再无内容可显示。修复：日志解析改为**按行从新到旧逐条塑形，跳过空桶快照取最近的有效观测**，读取层只认 `percentRemaining` 有限的观测才回退。
+
+### 其他
+
+- Kimi Code 订阅未接入——没有订阅凭据时抓不到数据，按你的要求先不做。
+- 新增路由 `/whale/cmdgo.json`；`/whale/plan.json` 的 `source` 语义不变。
+
+测试：`tools/selftest.mjs` **204/204**（+6：cmdgo 塑形/套餐目录反查/账号池选择/空池降级、空桶快照塑形、cmdgo 计费源判定改写）、`tools/smoke-ui.mjs` **54/54**（+1：额度卡整卡渲染与三档配色；断言用计算样式判可见，防「内联置空串退回 display:none」漏判）。
+
 ## v1.7.7 变更：取消消费型预警 + 补齐 GPT-5.6-cyber 与 Kimi 系价目
 
 - **消费型预警取消（用户裁决）**：「金额」阈值自 v1.3.0 起身兼两职——DeepSeek 余额低于提醒 + 消费型厂商（GLM / MiMo / Kimi / OpenAI / Claude / Qwen / MiniMax）今日已用达到提醒。但消费型厂商没有公开余额接口，不存在「见底」概念，盯消耗速度的提醒与「预警」语义混淆，且在设置里看不出出处（可见标签只写「余额¥」）。现在菜单两个阈值回归纯正语义：`预警 Plan%`（Plan 剩余低于）与 `余额¥`（**仅** DeepSeek 余额低于）；消费型厂商不再弹任何预警泡。阈值持久化键（`alerts.moneyAlert`）不变，旧配置的值继续作为 DeepSeek 余额阈值生效。
@@ -335,7 +368,7 @@ UI 设计评审（静态审查 + 演示环境实测截图）提出 5 项 P1、7 
 
 - **多厂商计价**：按模型/供应商自动识别 DeepSeek（峰谷价）与 GLM（平价，按输入 32K / 输出 0.2K 分档，价目取自 docs.bigmodel.cn 2026-09-29 版）；识别不出或无价目的供应商只统计 tokens，不虚报金额。每轮消耗按 `model_usage` **逐模型行**聚合计价。
 - **ZCode Plan 配额（零密钥）**：尾随客户端日志读取套餐余额（剩余 tokens、百分比、到期时间），套餐扣费的轮次气泡显示「本轮 tokens · 占当前配额 Y%」。
-- **厂商模板**：`node lib/cli.mjs vendors` 或 `/whale/vendors.json` 查看 7 家模板状态（DeepSeek / ZCode Plan / GLM 按量 / OpenRouter / Kimi 国内国际 / 智谱 Coding Plan 配额窗口）。凭据自动发现自 `v2/provider_config.json` 与 `cli/config.json`（本地网关自动跳过、密钥不复制进挂件配置），也可在 `~/.zcode/whale/config.json` 的 `vendorKeys` 手动填写。
+- **厂商模板**：`node lib/cli.mjs vendors` 或 `/whale/vendors.json` 查看 8 家模板状态（DeepSeek / GLM Plan（客户端日志）/ CommandCode 三重额度 / GLM 按量 / OpenRouter / Kimi 国内国际 / 智谱 Coding Plan 配额窗口）。凭据自动发现自 `v2/provider_config.json` 与 `cli/config.json`（本地网关自动跳过、密钥不复制进挂件配置），也可在 `~/.zcode/whale/config.json` 的 `vendorKeys` 手动填写（CommandCode 凭据另从反代本地配置现读）。
 - **用量记录**：菜单「用量记录」打开面板——今日金额与模型占比条、近 7 天逐日、最近 50 条明细。
 - **预警**：菜单三阈值（0 关闭）——Plan 剩余%、DeepSeek 余额¥、GLM 按量今日¥；每日一次去重，恢复后自动重新武装。
 - **余额校正与充值检测**：余额上升不冲减消费并提示「待核对余额调整」；菜单「余额校正」按「当日起点 + 累计到账 − 非调用扣减 − 当前余额」重算；换 key 自动分本（旧账归档不混算）。
@@ -522,7 +555,7 @@ node lib/cli.mjs json            # 结构化输出，便于脚本消费
 | 按压泡泡 | 自定义按压泡泡队列（文本/随机语句/内置视图模块，v1.5.0 起为 DSH 式两窗编辑器，支持占位符） |
 | 每轮消耗提示 | 是否在每轮结束后弹消耗气泡；自动关闭秒数（0 = 手动关） |
 | 避让滚动条 | 让挂件右侧避开滚动条的像素宽度（默认关） |
-| 预警 | Plan 剩余% 与余额¥ 两个阈值，0 = 关闭（同一行；余额¥ 只管 DeepSeek 余额见底——消费型今日已用预警 v1.7.7 起取消） |
+| 预警 | 每源一个阈值（0 = 关闭）：GLM Plan% 与余额¥ 一行；CommandCode 额度% 单独一行。余额¥ 只管 DeepSeek 余额见底（消费型今日已用预警 v1.7.7 起取消）；额度% 看 CommandCode 三重窗口里剩余最低的一条 |
 | 角色 | 选择形象；导入的图片可改名（✎）或删除（×）；内置形象也可删（隐藏记在 roles.json 的 hiddenBuiltins，清掉即找回） |
 | 余额校正 | DeepSeek 记账模式的到账/扣减折算 |
 | 跟随延迟 | **仅浮层**：探测 ZCode 窗口位置的间隔，16–250ms |

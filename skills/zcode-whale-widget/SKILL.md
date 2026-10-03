@@ -1,6 +1,6 @@
 ---
 name: zcode-whale-widget
-description: 操作与排查 ZCode 版 DeepSeek 余额小鲸鱼挂件。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止鲸鱼挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭）；配置 DeepSeek API Key、对账口径（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；调整主题（浅色/深色/跟随 ZCode）、角色（导入图片、改名、删除，内置形象可隐藏找回）、音效（导入/删除）、预警阈值（Plan 剩余% 与余额）、按压泡泡（自定义点击队列）与今日排名口径（按金额/按 Token）；以及界面看不到挂件、余额获取失败、今日已用为 0、每轮消耗不弹窗、峰谷判定不对、和挂件互动后 ZCode 画面卡住等问题。
+description: 操作与排查 ZCode 版 DeepSeek 余额小鲸鱼挂件。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止鲸鱼挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭）；配置 DeepSeek API Key、对账口径（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；调整主题（浅色/深色/跟随 ZCode）、角色（导入图片、改名、删除，内置形象可隐藏找回）、音效（导入/删除）、预警阈值（GLM Plan 剩余% / CommandCode 额度% / DeepSeek 余额）、按压泡泡（自定义点击队列）与今日排名口径（按金额/按 Token）；以及界面看不到挂件、余额获取失败、CommandCode 三重额度（月度池 + 5小时/周窗口）读不到、今日已用为 0、每轮消耗不弹窗、峰谷判定不对、和挂件互动后 ZCode 画面卡住等问题。
 ---
 
 # ZCode 版 DeepSeek 余额小鲸鱼挂件
@@ -64,7 +64,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" window stop     # 关闭浮层
 node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行时（浮层前置，一次性）
 ```
 
-服务接口（排查时可直接 curl）：`/whale/health`、`/whale/balance.json`、`/whale/last-turn.json`、`/whale/size.json`（GET/PUT）、`/whale/session.json`、`/whale/plan.json`、`/whale/vendors.json`、`/whale/usage-records.json`、`/whale/roles.json`、`/whale/role-upload.json`、`/whale/role-rename.json`（POST）、`/whale/role-delete.json`（POST）、`/whale/bubble-content.json`（GET/POST）、`/whale/balance-adjustments.json`（GET/POST）、`/whale/sounds.json`、`/whale/sound-upload.json`（POST）、`/whale/sound-delete.json`（POST）、`/whale/zcode-theme.json`、`/whale/image.png`、`/whale/rua.gif`、`/whale/sound/press.mp3` 与 `/whale/sound/release.mp3`（`?set=<音效集 id>`）、`/whale/widget.js`、`/whale/shutdown`（POST，需 `server.json` 令牌）。
+服务接口（排查时可直接 curl）：`/whale/health`、`/whale/balance.json`、`/whale/last-turn.json`、`/whale/size.json`（GET/PUT）、`/whale/session.json`、`/whale/plan.json`（GLM Plan 配额）、`/whale/cmdgo.json`（CommandCode 三重额度，`?refresh=1` 强制绕缓存）、`/whale/vendors.json`、`/whale/usage-records.json`、`/whale/roles.json`、`/whale/role-upload.json`、`/whale/role-rename.json`（POST）、`/whale/role-delete.json`（POST）、`/whale/bubble-content.json`（GET/POST）、`/whale/balance-adjustments.json`（GET/POST）、`/whale/sounds.json`、`/whale/sound-upload.json`（POST）、`/whale/sound-delete.json`（POST）、`/whale/zcode-theme.json`、`/whale/image.png`、`/whale/rua.gif`、`/whale/sound/press.mp3` 与 `/whale/sound/release.mp3`（`?set=<音效集 id>`）、`/whale/widget.js`、`/whale/shutdown`（POST，需 `server.json` 令牌）。
 
 ## 配置字段（`~/.zcode/whale/config.json`）
 
@@ -80,7 +80,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 
 挂件自身的外观与开关（大小、音效、音量、主题、气泡、每轮消耗提示与自动关闭秒数、避让滚动条、预警阈值、角色选择、显示跟随）在 `~/.zcode/whale/widget-state.json`，由挂件菜单直接写入：
 - `theme`：`light` / `dark` / `system`——`system` 即「跟随 ZCode」（三层判定：浮层观测 ZCode 窗口的 DWM 暗色标志 > 用户级配置 `ui.theme` > 操作系统深浅色，实现见 `lib/zcode-theme.mjs`）。
-- `alerts`：`planPct`（Plan 剩余% 阈值，低于提醒）与 `moneyAlert`（DeepSeek 余额阈值，低于提醒；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。阈值单位是人民币。消费型厂商（GLM / MiMo / Kimi / OpenAI / Claude / Qwen / MiniMax，无公开余额接口）的「今日已用达到」预警 v1.7.7 起取消。每个来源每天只提醒一次，去重键含阈值。
+- `alerts`：每源一个阈值——`planPct`（GLM Plan 剩余% 低于提醒）/ `cmdgoPct`（CommandCode 三重窗口取剩余最低的一条低于提醒）/ `moneyAlert`（DeepSeek 余额低于提醒；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。阈值单位是人民币。消费型厂商（GLM / MiMo / Kimi / OpenAI / Claude / Qwen / MiniMax，无公开余额接口）的「今日已用达到」预警 v1.7.7 起取消。每个来源每天只提醒一次，去重键含阈值与窗口名。
 - `roleId`：当前形象（内置 `fox` 小狐娘 / `whale` 小鲸鱼，或导入件 id；导入件的索引与图片在 `roles.json` + `roles/`），未指定即小狐娘。`fox` 在 v1.7.3 及之前叫 `xiaohuniang`，持久化里的旧值读取时自动归一。
 - 按压泡泡队列在 `~/.zcode/whale/bubble-content.json`：**v2 格式** `{v:2, tapAdvance, steps:[{modules:[…]}]}`——每步一组模块，模块三种：`text`（支持 `{balance}` `{today}` `{tokens}` `{plan}` `{model}` `{vendor}` `{time}` `{period}` `{reset}` 占位符，按换行分行）、`rand`（语句池随机取一，留空用内置随机台词）、`view`（内置视图 = 跟随计费源的默认余额/配额内容）。第 1 步按压时显示，之后每点一下气泡推进一步，走完收起；`tapAdvance:false` 时点气泡直接收起。旧 v1 配置（`{v, first, items}`）读写时自动迁移，无感升级。
 
