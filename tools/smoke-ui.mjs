@@ -695,12 +695,8 @@ try {
       )
     )
     check(
-      '主题下拉打开为主题化列表（4 项：跟随/浅色/小鲸鱼蓝白/深色 + 当前项高亮）',
-      ddState &&
-        ddState.n === 4 &&
-        ddState.onRow === 1 &&
-        ddState.texts.indexOf('深色模式') !== -1 &&
-        ddState.texts.indexOf('小鲸鱼蓝白') !== -1,
+      '主题下拉打开为主题化列表（3 项：跟随/浅色/深色 + 当前项高亮）',
+      ddState && ddState.n === 3 && ddState.onRow === 1 && ddState.texts.indexOf('深色模式') !== -1,
       JSON.stringify(ddState)
     )
     const darkPick = JSON.parse(
@@ -753,63 +749,37 @@ try {
     )
   }
 
-  // ⑧b 小鲸鱼蓝白主题（v1.8.0）：独立的第四态，配色逐值对齐上游 DSH 原版
+  // ⑧b 主题回滚回归（v1.8.1）：「小鲸鱼蓝白」第四态已回滚——写 theme:'whale'
+  // 必须被服务端归一成 light，页面不得出现 zcwv-theme-whale
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scale: 1.5, theme: 'whale' }),
   })
+  const rolledBack = (await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()).theme
   await cdp.send('Page.reload')
   await new Promise((r) => setTimeout(r, 2500))
-  const whaleTheme = JSON.parse(
+  const noWhale = JSON.parse(
     await cdp.eval(
-      "(function(){var root=document.documentElement;var cs=getComputedStyle(root);" +
-        "var btn=document.querySelector('.zcwv-menu-btn');var bcs=getComputedStyle(btn);" +
-        "var row=document.querySelector('.zcwv-menu-row');" +
-        "return JSON.stringify({whale:root.classList.contains('zcwv-theme-whale'),dark:root.classList.contains('zcwv-theme-dark')," +
-        "text:cs.getPropertyValue('--zcw-text').trim(),dim:cs.getPropertyValue('--zcw-text-dim').trim()," +
-        "accent:cs.getPropertyValue('--zcw-accent').trim(),radius:cs.getPropertyValue('--zcw-radius').trim()," +
-        "btnBg:bcs.backgroundColor,btnRadius:bcs.borderTopLeftRadius,btnBorder:bcs.borderTopColor," +
-        "rowColor:row?getComputedStyle(row).color:null})})()"
+      "(function(){var ss=document.querySelectorAll('select'),vals=null;" +
+        'for(var k=0;k<ss.length;k++){var vs=[];for(var j=0;j<ss[k].options.length;j++)vs.push(ss[k].options[j].value);' +
+        "if(vs.indexOf('system')!==-1)vals=vs}" +
+        'return JSON.stringify({theme:document.documentElement.className,' +
+        'opts:vals})})()'
     )
   )
   check(
-    '小鲸鱼蓝白主题：独立 class + DSH 原版配色（dim #9fb0d9 / 深蓝按钮 / 6px 圆角）',
-    whaleTheme &&
-      whaleTheme.whale === true &&
-      whaleTheme.dark === false &&
-      whaleTheme.text === '#536ba9' &&
-      whaleTheme.dim === '#9fb0d9' &&
-      whaleTheme.accent === '#203170' &&
-      whaleTheme.radius === '6px' &&
-      whaleTheme.btnBg === 'rgba(32, 49, 112, 0.85)' &&
-      whaleTheme.btnRadius === '6px' &&
-      whaleTheme.rowColor === 'rgb(32, 49, 112)',
-    JSON.stringify(whaleTheme)
-  )
-  // ⑧c 切到内置小鲸鱼 → 配色自动套用蓝白并落盘（用户要求：小鲸鱼 = 原版形象 + 原版配色）
-  await cdp.eval(
-    "(function(){var rows=document.querySelectorAll('.zcwv-role-row');" +
-      "for(var i=0;i<rows.length;i++){var p=rows[i].querySelector('.zcwv-role-pick');" +
-      "if(p&&p.textContent==='小鲸鱼'){p.click();return true}}return false})()"
-  )
-  await new Promise((r) => setTimeout(r, 500))
-  const roleTheme = JSON.parse(
-    await cdp.eval(
-      "(function(){var ss=document.querySelectorAll('select'),val=null;" +
-        "for(var k=0;k<ss.length;k++){var vs=[];for(var j=0;j<ss[k].options.length;j++)vs.push(ss[k].options[j].value);" +
-        "if(vs.indexOf('system')!==-1)val=ss[k].value}" +
-        "return JSON.stringify({whale:document.documentElement.classList.contains('zcwv-theme-whale'),val:val})})()"
-    )
-  )
-  const savedTheme = (await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()).theme
-  check(
-    '切到内置小鲸鱼：配色自动套用蓝白并落盘（theme=whale）',
-    roleTheme && roleTheme.whale === true && roleTheme.val === 'whale' && savedTheme === 'whale',
-    JSON.stringify({ whale: roleTheme && roleTheme.whale, val: roleTheme && roleTheme.val, saved: savedTheme })
+    '蓝白主题已回滚：theme=whale 不再被接受（保留前值），主题下拉只有 3 项',
+    rolledBack !== 'whale' &&
+      noWhale &&
+      noWhale.theme.indexOf('zcwv-theme-whale') === -1 &&
+      Array.isArray(noWhale.opts) &&
+      noWhale.opts.length === 3 &&
+      noWhale.opts.indexOf('whale') === -1,
+    JSON.stringify({ rolledBack, opts: noWhale && noWhale.opts })
   )
 
-  // ⑧d 桌宠模式（v1.8.0）：状态持久化走服务端；这一行只对浮层渲染
+  // ⑧c 桌宠模式（v1.8.0）：状态持久化走服务端；这一行只对浮层渲染
   // （浏览器模式没有「浮层显隐」这回事，整行不显示——断言这一点，防漂移）
   const petRowInBrowser = JSON.parse(
     await cdp.eval(
