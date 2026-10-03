@@ -455,9 +455,14 @@ public static class WhaleFollow
                     // main process resets its startup gate when they change (new
                     // launch = hide the overlay until the main window is ready).
                     // dark = DWM immersive-dark flag of that window (-1 = unknown).
+                    // minimized matters in pet mode: a minimized window reports a
+                    // sentinel rect (-32000-ish) that must not be used to position
+                    // the overlay, so the main process has to tell the two
+                    // "show=false" cases apart (minimized vs merely covered).
                     Console.Out.WriteLine(
                         "{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + w + ",\"h\":" + h +
                         ",\"show\":" + (show ? "true" : "false") +
+                        ",\"minimized\":" + (minimized ? "true" : "false") +
                         ",\"pid\":" + _targetPid + ",\"pidStart\":" + ((long)_targetPidStart) +
                         ",\"dark\":" + dark + "}");
                     Console.Out.Flush();

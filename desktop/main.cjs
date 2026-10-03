@@ -447,10 +447,12 @@ function applyZCodeBounds(msg) {
   if (msg.hide || msg.show === false) {
     if (petMode) {
       // 桌宠模式只挡「隐身」，不挡「跟随」：
-      //  · window-missing（ZCode 最小化/找不到矩形）：保持当前位置与可见性
-      //  · zcode-not-foreground（失焦/被盖住）：继续走下面的常规路径，位置仍与
-      //    ZCode 窗口对齐，只是不再因为失焦而消失（挂件要一直在最上层）
-      if (msg.hide) return
+      //  · window-missing（ZCode 关了/找不到窗口）或窗口最小化：**没有可用的窗口
+      //    矩形**（最小化时 Windows 报的是 -32000 一类哨兵坐标 + 159x27 的假尺寸），
+      //    保持当前位置与可见性不动——桌面宠物的语义就是「一直在那儿」
+      //  · 只是失焦/被别的应用盖住：矩形有效，继续走下面的常规路径（位置照常与
+      //    ZCode 窗口对齐），只是不再因为失焦而消失
+      if (msg.hide || msg.minimized) return
     } else {
       hideOverlay(msg.hide ? 'window-missing' : 'zcode-not-foreground')
       return
@@ -464,6 +466,15 @@ function applyZCodeBounds(msg) {
   }
 
   let rect = { x: msg.x, y: msg.y, width: msg.w, height: msg.h }
+  // 哨兵矩形兜底：最小化窗口的矩形是假的（Windows 报 -32000 一类坐标 + 159x27
+  // 的尺寸），拿它定位会把浮层甩到屏幕外——实测「开着桌宠模式 + ZCode 最小化」
+  // 就撞上过：浮层被放到 -21333,-21333 并显示在那。msg.minimized 是首选判据，
+  // 这一条防的是字段缺失（旧跟随脚本）或其它哨兵形态。
+  if (rect.x < -10000 || rect.y < -10000) {
+    if (petMode) return
+    hideOverlay('window-missing')
+    return
+  }
   // ZCode 给的是物理像素，Electron 的坐标是 DIP
   try {
     if (screen.screenToDipRect) {
