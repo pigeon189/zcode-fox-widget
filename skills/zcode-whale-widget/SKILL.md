@@ -1,6 +1,6 @@
 ---
 name: zcode-whale-widget
-description: 操作与排查 ZCode 版 DeepSeek 余额小鲸鱼挂件。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止鲸鱼挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭）；配置 DeepSeek API Key、对账口径（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；调整主题（浅色/深色/跟随 ZCode）、角色（导入图片、改名、删除，内置形象可隐藏找回）、音效（导入/删除）、预警阈值（GLM Plan 剩余% / CommandCode 额度% / DeepSeek 余额）、按压泡泡（自定义点击队列）与今日排名口径（按金额/按 Token）；以及界面看不到挂件、余额获取失败、CommandCode 三重额度（月度池 + 5小时/周窗口）读不到、今日已用为 0、每轮消耗不弹窗、峰谷判定不对、和挂件互动后 ZCode 画面卡住等问题。
+description: 操作与排查 ZCode 版 DeepSeek 余额小鲸鱼挂件。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止鲸鱼挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭、**桌宠模式**：失焦也不隐身、锁在最上层）；配置 DeepSeek API Key、对账口径（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；调整主题（浅色 / **小鲸鱼蓝白** / 深色 / 跟随 ZCode）、角色（导入图片、改名、删除，内置形象可隐藏找回；切到内置小鲸鱼会自动套用蓝白配色）、音效（导入/删除）、预警阈值（泛化后的「额度%」覆盖 GLM Plan 与 CommandCode + DeepSeek 余额¥）、按压泡泡（自定义点击队列）、**记账二级页**（一级菜单的「=角色名记账=」入口，内含用量记录 / 预警 / 余额校正）与今日排名口径（按金额/按 Token）；以及界面看不到挂件、余额获取失败、CommandCode 三重额度（月度池 + 5 小时/周窗口）读不到、厂商模板余额读不到、今日已用为 0、每轮消耗不弹窗、峰谷判定不对、和挂件互动后 ZCode 画面卡住等问题。
 ---
 
 # ZCode 版 DeepSeek 余额小鲸鱼挂件
@@ -78,9 +78,10 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | `autoStartOverlay` | 默认 `true`，会话启动时是否顺带拉起桌面浮层（Electron 运行时未安装时静默跳过） |
 | `followIntervalMs` | 跟随探测间隔（毫秒），默认 40；越小鲸鱼跟得越紧。挂件菜单里的「跟随延迟」会覆盖它 |
 
-挂件自身的外观与开关（大小、音效、音量、主题、气泡、每轮消耗提示与自动关闭秒数、避让滚动条、预警阈值、角色选择、显示跟随）在 `~/.zcode/whale/widget-state.json`，由挂件菜单直接写入：
-- `theme`：`light` / `dark` / `system`——`system` 即「跟随 ZCode」（三层判定：浮层观测 ZCode 窗口的 DWM 暗色标志 > 用户级配置 `ui.theme` > 操作系统深浅色，实现见 `lib/zcode-theme.mjs`）。
-- `alerts`：每源一个阈值——`planPct`（GLM Plan 剩余% 低于提醒）/ `cmdgoPct`（CommandCode 三重窗口取剩余最低的一条低于提醒）/ `moneyAlert`（DeepSeek 余额低于提醒；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。阈值单位是人民币。消费型厂商（GLM / MiMo / Kimi / OpenAI / Claude / Qwen / MiniMax，无公开余额接口）的「今日已用达到」预警 v1.7.7 起取消。每个来源每天只提醒一次，去重键含阈值与窗口名。
+挂件自身的外观与开关（大小、音效、音量、角色、主题、气泡、每轮消耗提示与自动关闭秒数、避让滚动条、桌宠模式、跟随延迟、预警阈值、显示跟随）在 `~/.zcode/whale/widget-state.json`，由挂件菜单直接写入：
+- `theme`：`light` / `whale`（小鲸鱼蓝白，逐值照抄上游 DSH 版那套配色）/ `dark` / `system`——`system` 即「跟随 ZCode」（三层判定：浮层观测 ZCode 窗口的 DWM 暗色标志 > 用户级配置 `ui.theme` > 操作系统深浅色，实现见 `lib/zcode-theme.mjs`）。切到内置小鲸鱼形象时界面会自动把 `theme` 设成 `whale` 并落盘。
+- `petMode`：桌宠模式（浮层专属，默认 false）。开着时 ZCode 失焦/被别的应用盖住也不隐身，且每 3 秒重申一次置顶层级；关掉即回到「随 ZCode 前台隐身」。
+- `alerts`：v1.8.0 泛化后**两条阈值**——`quotaPct`（额度不足提醒，对 GLM Plan 剩余% 与 CommandCode 三重窗口同时生效：各来源用自己的单位表达「剩余比例低于阈值」，CommandCode 卡片画的是已用进度，折算 `剩余 = 100 − 已用` 再比，于是「阈值 20%」在它那边表现为「进度涨过 80% 才提醒」）/ `moneyAlert`（DeepSeek 余额低于提醒；旧键 `deepseekBelow` / `bigmodelDaily` 读取时自动迁移）。旧键 `planPct` / `cmdgoPct` 读取时折入 `quotaPct`（只设过其中一条的用户设置不会丢）。阈值单位是人民币。消费型厂商（GLM / MiMo / Kimi / OpenAI / Claude / Qwen / MiniMax，无公开余额接口）的「今日已用达到」预警 v1.7.7 起取消。每个来源每天只提醒一次，去重键含阈值与窗口名。
 - `roleId`：当前形象（内置 `fox` 小狐娘 / `whale` 小鲸鱼，或导入件 id；导入件的索引与图片在 `roles.json` + `roles/`），未指定即小狐娘。`fox` 在 v1.7.3 及之前叫 `xiaohuniang`，持久化里的旧值读取时自动归一。
 - 按压泡泡队列在 `~/.zcode/whale/bubble-content.json`：**v2 格式** `{v:2, tapAdvance, steps:[{modules:[…]}]}`——每步一组模块，模块三种：`text`（支持 `{balance}` `{today}` `{tokens}` `{plan}` `{model}` `{vendor}` `{time}` `{period}` `{reset}` 占位符，按换行分行）、`rand`（语句池随机取一，留空用内置随机台词）、`view`（内置视图 = 跟随计费源的默认余额/配额内容）。第 1 步按压时显示，之后每点一下气泡推进一步，走完收起；`tapAdvance:false` 时点气泡直接收起。旧 v1 配置（`{v, first, items}`）读写时自动迁移，无感升级。
 

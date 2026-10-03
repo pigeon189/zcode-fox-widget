@@ -1,8 +1,8 @@
 # ZCode 版 DeepSeek 余额小鲸鱼挂件
 
-> 在 ZCode 里常驻一只小鲸鱼：显示 **DeepSeek 余额**、**ZCode Plan 剩余配额**、**各厂商今日已用**（八家价目、缓存/峰谷分档计价）、**当前峰谷时段**，每轮对话结束还会弹一个气泡告诉你 **上一轮花了多少钱 / 占了多少配额**。
+> 在 ZCode 里常驻一只小鲸鱼：显示 **DeepSeek 余额**、**GLM Plan 剩余配额**、**CommandCode 三重额度**（月度池 + 5 小时/周窗口）、**各厂商今日已用**（八家价目 + 34 个厂商模板、缓存/峰谷分档计价）、**当前峰谷时段**，每轮对话结束还会弹一个气泡告诉你 **上一轮花了多少钱 / 占了多少配额**。
 >
-> 它浮在 ZCode 窗口的右下角，跟着窗口移动/最小化/关闭，指针不在它身上时点击直接穿透到下面的应用——**不挡任何操作**。
+> 它浮在 ZCode 窗口的右下角，跟着窗口移动/最小化/关闭，指针不在它身上时点击直接穿透到下面的应用——**不挡任何操作**；开「桌宠模式」后连切换应用也不隐身，一直浮在最上层。
 
 ---
 
@@ -53,9 +53,50 @@
 - **今日已用**（v1.7.0 起口径重排）：主口径固定**本机库**——读 ZCode 落库的每轮模型用量、按各厂商价目折算，按模型看得见、不受充值干扰；**小鲸鱼记账 / 实时·令牌**退居「对账 + 兜底」（详见「数据与计价口径」）。
 - **每轮对话消耗**：读取 ZCode 记录的每轮真实 token 用量，换算金额后弹出红色金额气泡（自动关闭秒数可设，填 0 表示手动关闭）。可逐档核对明细。
 - **挂件交互**：拖拽、四边四分之一吸附、左吸附水平镜像（文字保持可读）、按压 Q 弹 + 音效、余额变化数字滚动、点击鲸鱼弹气泡、再点切随机台词（含 rua 动图；台词按内置角色分套——小鲸鱼 = 原版文案，小狐娘 = 换皮版，上传角色默认鲸鱼套）。
-- **汉堡菜单**：大小 0.6–2.5×、音效、音量、用量模式、峰谷文案风格、气泡开关、每轮消耗提示与自动关闭秒数、避让滚动条，浮层下还有「跟随延迟」。
+- **余额与额度**：DeepSeek 走内置余额接口；**GLM Plan 剩余配额**（零密钥，尾随客户端日志）；**CommandCode 三重额度**（月度 credit 池 + 5 小时/周滚动窗口，读反代本地凭据后直连网关 API）；另有 **34 个厂商模板**（上游 DSH 版同款口径，含 Kimi Coding / MiniMax Coding / OpenCode Go 等订阅窗口，以及 OpenAI / Anthropic / Gemini / 硅基流动 / 火山方舟 等 19 家「官方没有 API key 查余额」的厂商——这类只报凭据状态，金额走本机 token 用量）。
+- **今日已用**（v1.7.0 起口径重排）：主口径固定**本机库**——读 ZCode 落库的每轮模型用量、按各厂商价目折算，按模型看得见、不受充值干扰；**小鲸鱼记账 / 实时·令牌**退居「对账 + 兜底」（详见「数据与计价口径」）。
+- **每轮对话消耗**：读取 ZCode 记录的每轮真实 token 用量，换算金额后弹出红色金额气泡（自动关闭秒数可设，填 0 表示手动关闭）。可逐档核对明细。
+- **记账二级页**（v1.8.0）：一级菜单只留一个「**=角色名记账=**」入口，用量记录、额度预警、余额预警、余额校正都收进这一页——菜单不再越拉越长。
+- **预警**（v1.8.0 泛化）：一条「额度%」阈值对 GLM Plan 与 CommandCode 同时生效（判定一律是「剩余不足」；CommandCode 按已用进度换算，进度超过 `100−阈值` 即提醒），加一条「余额¥」管 DeepSeek 余额见底。
+- **桌宠模式**（v1.8.0，浮层专属）：开启后挂件锁在所有窗口最上层，切到别的应用、ZCode 被盖住也不隐身（关闭时随 ZCode 前台隐身）。
+- **挂件交互**：拖拽、四边四分之一吸附、左吸附水平镜像（文字保持可读）、按压 Q 弹 + 音效、余额变化数字滚动、点击鲸鱼弹气泡、再点切随机台词（含 rua 动图；台词按内置角色分套——小鲸鱼 = 原版文案，小狐娘 = 换皮版，上传角色默认鲸鱼套）。
+- **汉堡菜单**：大小 0.6–2.5×、音效、音量、角色、对账口径、峰谷文案风格、主题（跟随 ZCode / 浅色 / **小鲸鱼蓝白** / 深色）、显示、气泡开关、每轮消耗提示与自动关闭秒数、避让滚动条，浮层下还有「桌宠模式」与「跟随延迟」。
+- **小鲸鱼蓝白主题**（v1.8.0）：切到内置「小鲸鱼」形象时自动套用上游 DSH 版那套蓝白配色（不是浅色主题的近似——次要文字 `#9fb0d9`、控件圆角 6px、菜单按钮深蓝底白杠都按原版）。
 - **会话自启**：打开 ZCode（新会话）时自动拉起，不用手动开。
-- **随窗口联动**：ZCode 移动/缩放时跟着走，最小化或被别的应用盖住时隐藏，ZCode 退出时一起退出。
+- **随窗口联动**：ZCode 移动/缩放时跟着走，最小化或被别的应用盖住时隐藏（除非开了桌宠模式），ZCode 退出时一起退出。
+
+---
+
+## v1.8.0 新增与修复：桌宠模式 / 记账二级页 / 小鲸鱼蓝白 / 厂商模板补齐 + 一轮审查清零
+
+本轮来自三份审查报告（PR 规范、UI/UX、代码）与用户新需求，一起落地。
+
+**新增（用户需求）**
+
+- **桌宠模式**：菜单开关（浮层专属）。开启后主进程**只挡「隐身」不挡「跟随」**——ZCode 失焦（被别的应用盖住）时仍按窗口矩形跟随，只是不再透明隐身；ZCode 最小化/找不到窗口时保持当前位置不动；另外每 3 s 重申一次 `setAlwaysOnTop(true,'screen-saver')`，把被其他 topmost 应用（任务管理器、部分安装器）抢走的最上层拉回来。开关只影响显隐策略，命中检测与点击接管链路完全不动——开不开都能点。
+- **记账二级页**：一级菜单只剩「=角色名记账=」入口（跟随当前形象，小狐娘/小鲸鱼各显示各的）；**用量记录 / 额度预警 / 余额预警 / 余额校正**都收进这一页。控制件是原来一级菜单里的同一批 DOM，只搬位置不新建（事件与读写逻辑零改动）；面板壳复用 `.zcwv-panel`，因此自动继承开合过渡、`CHROME_SELECTOR` 命中白名单（可点）与「气泡显示期间临时隐藏」。角色行同时上移到音效设置之后（音效 / 音量 / 角色同属形象设置）。
+- **小鲸鱼蓝白主题**：新增第四态 `theme='whale'`，配色**逐值照抄**上游 DSH 版（`--zcw-text-dim: #9fb0d9`、控件圆角 6px、菜单按钮 `rgba(32,49,112,.85)` + 白杠、行文字 `#203170`）。切换到**内置小鲸鱼**形象时自动套用并落盘；选小狐娘或导入形象不动主题，随时可在菜单改回来。
+- **厂商模板 +26**：与上游 DSH 版的 `API_TEMPLATES` 对齐补齐——可读余额的 `stepfun` / `novita`；可读订阅窗口的 `kimi-coding` / `minimax-coding` / `minimax-coding-intl` / `opencode-go` / `zhipu-coding-intl`；以及 19 家「官方没有 API key 查余额接口」的厂商（`openai` / `anthropic` / `gemini` / `xai` / `groq` / `mistral` / `together` / `fireworks` / `deepinfra` / `cerebras` / `siliconflow-cn` / `siliconflow-en` / `volcengine-ark` / `dashscope` / `qianfan` / `hunyuan` / `spark` / `modelscope` / `ollama`，`kind:tokens` 只报凭据状态）。合计 **34 个模板**（原 8 + 26）。
+- **额度预警泛化**：原来的 `planPct`（GLM Plan）+ `cmdgoPct`（CommandCode）两条阈值合并为一条 `quotaPct`——判定一律是「剩余比例低于阈值」，CommandCode 那张卡画的是**已用进度**（0→100，100 = 撞墙），所以折算成 `剩余 = 100 − 已用` 再比，「阈值 20%」在用户侧表现为「进度涨到 80% 以上才提醒」。旧键读取侧归一（只设过其中一条的用户设置不会丢）。
+
+**修复（代码审查：3 重要 + 6 建议）**
+
+- **M1 · 额度卡绕过气泡内容守卫**：`render()` 里 qcard 分支自带 `return`，而「自定义步优先 / 随机台词重放 / 手动推进中不改写」三道守卫排在它之后，于是 CommandCode 源下**额度卡会整页顶掉用户正在看的那一页**（打开气泡与 60 s 轮询都会走到）。守卫前移到所有 `view.kind` 分派之前。这是 v1.7.11「卡片与文字互斥」的另一半：那次只修了「卡片→文字」叠加。
+- **M2 · 停用账号仍被当作可用**：凭据兜底路（`credentials.json` 有 key 但 `accounts.json` 无条目）不查 `enabled`，用户在 bridge 里显式停用的账号会被选成「当前账号」显示额度、还计入「账号池 X/Y 可用」。现在按 `enabled === false` 过滤。
+- **M3 · CommandCode 口径未声明**：cmdo 反代下的模型行按市场价折算后**全额**计入「今日已用」，与「套餐行不计真金白银」的既定原则并存却无说明。裁定为**有意保留的等价口径**（credit 池是预付美元，额度由额度卡按百分比表达，「这一轮烧掉多少」只有折成钱才有量纲），并在 `usage-records.mjs` 头注释与本文「数据与计价口径」写明已知代价（credit 以 USD 计、行情是各厂商本币价，多币种日是等价口径而非账单口径）。
+- **S1–S6**：排名占比条的分母标注同款币种局限；cmdgo 候选取数改并行（原串行，池越大越慢）并把 TTL 60 s → 45 s（与页面轮询错开，避免每次必错过缓存）；cmdgo 变更检测剔除 `readAt`（时间戳让轮询每次都判「有变化」，白跑整卡重绘）；`WIDGET_DEFAULTS.alerts` 补键；删除未使用的 `modelsWeek` 导出与一个未使用变量；注释里的 `ZCode Plan` 统一为 `GLM Plan`。
+
+**修复（UI/UX 审查：1 P0 + 2 P1 + 4 P2）**
+
+- **U16（P0）· 额度阈值只写不读**：`applyConfig` 恢复配置时漏了 `cmdgoPct`，用户设完一刷新页面输入框就归 0、预警静默失效（挂件每个会话都会重新加载页面）。随预警泛化一并解决：`quotaPct` 读取时回填输入框，旧键 `planPct`/`cmdgoPct` 折入。
+- **U17 · 额度卡「已限流」压住进度条**：百分比列 96u 只有约 28px，三个 CJK 字（约 37px）右对齐时向左溢出、压住条末端——撞墙恰是最该看清的状态。列宽改为 132u（= 名称列），并给下方小字加 `nowrap + ellipsis` 溢出保护。
+- **U18 · GLM Plan 失败态是死代码**：`pollPlan` 把 `ok:false` 载荷丢成 `null`，渲染里的失败分支永远走不到——没有日志或断网的机器永远停在「加载中…」（首轮 U1 的同款缺陷在新数据源上重现）。改为保留失败载荷并区分「日志未找到」与「读取失败」；`pollCmdgo` 网络失败也不再静默留旧值。
+- **U19 · 预警文案的负百分比**：卡片 v1.7.9 已改「已限流」，预警句还在做减法打印「剩余 -0.7%」。撞墙时改用同一套措辞。
+- **U20 · 浅色 amber 不达 AA**：`--zcw-amber` 是新 token（无上游包袱），原值 `#c98a1b` 在白底只有 2.94:1 却承载 12px 百分比数字；加深到 `#96660c`（≈5:1）。
+- **U21 · 失败提示断词**：`用量获取失败 · 点击重试` 在默认档被折成「点击|重试」；统一走 `COPY_FETCH_FAIL` 常量。
+- **U22 · reduced-motion 下 JS 调度照跑**：CSS 过渡被媒体查询压掉后，`setHint` / `swapBubbleContent` 的「淡出 190ms → 换字 → 淡入」只剩白等约 400 ms。抽 `prefersReducedMotion()` 并在这两处 + `animateAmount` 统一短路。
+
+测试：`tools/selftest.mjs` **217/217**（+13：账号候选与停用过滤、凭据两种形状、whoami 降级重试、预警旧键迁移、26 个新模板的换算与窗口口径）、`tools/smoke-ui.mjs` **67/67**（+9：蓝白主题逐值、角色联动、桌宠持久化、记账二级页开合、额度阈值回填、M1 回归）。
 
 ---
 
@@ -69,8 +110,8 @@ CommandCode 额度卡显示期间再点一下气泡，第二页的随机台词�
 
 ## v1.7.10 修复：额度卡窗口顺序 / 重置倒计时 / 池可用数
 
-- **窗口条固定顺序**：改为 **5小时 → 本周 → 本月**。此前按已用比例降序排列（「最紧的排第一」），每次刷新顺序都可能变，常看的那一行会「跑位」；现在固定的版式 + 配色表达紧张度（<70% accent / 70–89% amber / ≥90% 或撞墙红）。
-- **重置倒计时取「绑定约束」窗口**：多个窗口同时撞墙时，只报**最晚**的那个重置时间——必须等它，早重置的窗口不解锁（例：5小时 20 分钟后重置、本周 4 天后重置，两个都满则显示「本周 4 天后重置」，因为 5 小时窗口回满也没用）。没有窗口撞墙时取已用比例最高的那个窗口。
+- **窗口条固定顺序**：改为 **5 小时 → 本周 → 本月**。此前按已用比例降序排列（「最紧的排第一」），每次刷新顺序都可能变，常看的那一行会「跑位」；现在固定的版式 + 配色表达紧张度（<70% accent / 70–89% amber / ≥90% 或撞墙红）。
+- **重置倒计时取「绑定约束」窗口**：多个窗口同时撞墙时，只报**最晚**的那个重置时间——必须等它，早重置的窗口不解锁（例：5 小时窗口 20 分钟后重置、本周 4 天后重置，两个都满则显示「本周 4 天后重置」，因为 5 小时窗口回满也没用）。没有窗口撞墙时取已用比例最高的那个窗口。
 - **池可用数按额度算**：此前「账号池 X/Y 可用」数的是 `accounts.json` 里 enabled 且不在冷却中的账号——撞墙后 bridge 还没来得及置冷却（或冷却已过期），这些账号仍被算作「可用」，于是出现「全部撞限却显示 2/3 可用」。现在逐账号取额度快照后统计**还有额度可烧**的个数；全部撞墙时直接说「账号池已全部限流」。
 
 测试：`tools/selftest.mjs` **204/204**、`tools/smoke-ui.mjs` **56/56**（+1：多窗口同时撞墙时倒计时取最晚重置 + 全限流文案）。
@@ -89,7 +130,7 @@ v1.7.8 落地后用真实凭据实测抓到三处问题：
 
 ### CommandCode 三重额度（新计费源）
 
-CommandCode 套餐是**月度 credit 池 + 5小时/周两个滚动窗口三重叠加**，任一窗口耗尽即停（Go $10 → 5h 帽 $3 / 周帽 $6；GOAT/Pro 为 20%/50%，Max 10×/20×、Team Pro 同理）。数据取自网关自己的三条路由（与官方 CLI 同款）：
+CommandCode 套餐是**月度 credit 池 + 5 小时/周两个滚动窗口三重叠加**，任一窗口耗尽即停（Go $10 → 5 小时帽 $3 / 周帽 $6；GOAT/Pro 为 20%/50%，Max 10×/20×、Team Pro 同理）。数据取自网关自己的三条路由（与官方 CLI 同款）：
 
 - `GET /alpha/whoami`（best effort，补账号名与 orgId）
 - `GET /alpha/billing/credits` → `credits.monthlyCredits` + `windowLimits.{fiveHour,weekly}` 的 `{used,cap,exceeded,resetAt}`
@@ -393,10 +434,10 @@ UI 设计评审（静态审查 + 演示环境实测截图）提出 5 项 P1、7 
 ## v1.1.0 新增：多厂商计费与 ZCode 深度集成
 
 - **多厂商计价**：按模型/供应商自动识别 DeepSeek（峰谷价）与 GLM（平价，按输入 32K / 输出 0.2K 分档，价目取自 docs.bigmodel.cn 2026-09-29 版）；识别不出或无价目的供应商只统计 tokens，不虚报金额。每轮消耗按 `model_usage` **逐模型行**聚合计价。
-- **ZCode Plan 配额（零密钥）**：尾随客户端日志读取套餐余额（剩余 tokens、百分比、到期时间），套餐扣费的轮次气泡显示「本轮 tokens · 占当前配额 Y%」。
-- **厂商模板**：`node lib/cli.mjs vendors` 或 `/whale/vendors.json` 查看 8 家模板状态（DeepSeek / GLM Plan（客户端日志）/ CommandCode 三重额度 / GLM 按量 / OpenRouter / Kimi 国内国际 / 智谱 Coding Plan 配额窗口）。凭据自动发现自 `v2/provider_config.json` 与 `cli/config.json`（本地网关自动跳过、密钥不复制进挂件配置），也可在 `~/.zcode/whale/config.json` 的 `vendorKeys` 手动填写（CommandCode 凭据另从反代本地配置现读）。
-- **用量记录**：菜单「用量记录」打开面板——今日金额与模型占比条、近 7 天逐日、最近 50 条明细。
-- **预警**：菜单三阈值（0 关闭）——Plan 剩余%、DeepSeek 余额¥、GLM 按量今日¥；每日一次去重，恢复后自动重新武装。
+- **ZCode Plan 配额（零密钥）**：尾随客户端日志读取套餐余额（剩余 tokens、百分比、到期时间），套餐扣费的轮次气泡显示「本轮 tokens · 占当前配额 Y%」。（本节按 v1.1.0 当时交付的内容记录：那时这条叫「ZCode Plan」，v1.7.8 起界面更名为 **GLM Plan**。）
+- **厂商模板**：`node lib/cli.mjs vendors` 或 `/whale/vendors.json` 查看 7 家模板状态（DeepSeek / ZCode Plan（客户端日志）/ GLM 按量 / OpenRouter / Kimi 国内国际 / 智谱 Coding Plan 配额窗口）。凭据自动发现自 `v2/provider_config.json` 与 `cli/config.json`（本地网关自动跳过、密钥不复制进挂件配置），也可在 `~/.zcode/whale/config.json` 的 `vendorKeys` 手动填写。（当时 7 家；v1.8.0 已扩到 34 家，见顶部「功能」。）
+- **用量记录**：菜单「用量记录」打开面板——今日金额与模型占比条、近 7 天逐日、最近 50 条明细。（v1.8.0 起该入口与预警、校正一起收进「=角色名记账=」二级页。）
+- **预警**：菜单三阈值（0 关闭）——Plan 剩余%、DeepSeek 余额¥、GLM 按量今日¥；每日一次去重，恢复后自动重新武装。（v1.7.7 取消消费型阈值、v1.8.0 泛化为「额度% + 余额¥」两条。）
 - **余额校正与充值检测**：余额上升不冲减消费并提示「待核对余额调整」；菜单「余额校正」按「当日起点 + 累计到账 − 非调用扣减 − 当前余额」重算；换 key 自动分本（旧账归档不混算）。
 - **自定义角色**：菜单「角色」可上传本地图片（png/gif/jpeg ≤3MB）或切换形象，「恢复默认」随时回退。
 - **主题**：菜单「主题」切换浅色（原版蓝系）/ 深色（取自 ZCode 客户端 zai-dark 的实测配色 token）。
@@ -550,7 +591,7 @@ node lib/cli.mjs window stop     # 关闭浮层
 node lib/cli.mjs window status   # 浮层与运行时状态
 node lib/cli.mjs desktop install # 安装 Electron 运行时（仅浮层需要，一次性）
 node lib/cli.mjs key sk-...      # 写入 API Key
-node lib/cli.mjs mode ledger|token  # 切换用量统计模式
+node lib/cli.mjs mode ledger|token  # 切换对账口径（小鲸鱼记账 / 实时·令牌）
 node lib/cli.mjs json            # 结构化输出，便于脚本消费
 ```
 
@@ -564,7 +605,7 @@ node lib/cli.mjs json            # 结构化输出，便于脚本消费
 | `whale_balance` | 余额、今日已用、当前峰谷时段 |
 | `whale_last_turn` | 上一轮消耗金额与逐档明细 |
 | `whale_widget` | `start` / `stop` / `status` / `url`，以及浮层的 `overlay_start` / `overlay_stop` / `overlay_status` |
-| `whale_config` | 查看或修改配置（API Key、用量模式、端口、自启、跟随间隔） |
+| `whale_config` | 查看或修改配置（API Key、对账口径、端口、自启、跟随间隔） |
 
 ### 挂件菜单
 
@@ -669,6 +710,11 @@ DeepSeek 调价时改 `lib/pricing.mjs` 顶部的 `PEAK_HOURS` / `BASE_PRICE` / 
 | 峰谷判定不对 | 看 `lib/pricing.mjs` 的 `PEAK_HOURS` 等常量；工作日高峰为北京时间 9–12、14–18，2026-08-23 起周末全天谷价 |
 | 换了图片/音效不生效 | 资产路由每次读盘且 `no-store`，强刷即可；确认替换的是 `assets/` 下的同名文件 |
 | Plan 剩余配额不显示 / 提示「Plan 日志未找到」 | 多半是数据目录迁移后的机器在**普通终端**里手动跑服务：没有 `ZCODE_DATA_BASE_DIR`，只会在 `~/.zcode/v2/logs` 下找日志（旧目录可能只剩迁移前的残留）。由 ZCode 进程拉起的服务不受影响；终端调试请先设置该变量。`/whale/plan.json` 的 `no-plan-log` 响应带 `probedDirs`（实际探测了哪些目录、各目录最新日志是哪天），照着看即可 |
+| CommandCode 额度读不到 / 卡片说「未找到反代凭据」 | 凭据是**现读**反代本地配置 `~/.cmdgo-bridge/credentials.json`（只支持本机反代），不在环境变量里；反代没跑或该文件不存在时就是这个提示。v1.7.9 起兼容两种凭据形状（纯字符串与 `{value,source}` 对象）。`cmdgo-bridge` 换过数据目录时用 `CMDGO_DIR` 指过去 |
+| CommandCode 额度卡显示「已限流」 | 网关的 `exceeded` 或已用 ≥100%：某一窗口到顶，补满前不可用。卡片最下面那行是**绑定约束**窗口的重置时间（多窗口同时撞墙时报最晚的那个，早重置的不解锁）；「账号池已全部限流」= 所有账号都没额度了 |
+| CommandCode 额度卡/气泡里出现 $ 之外的换算疑虑 | credit 池以美元计价，而「今日已用」按各厂商本币价目折算，多币种日是**等价口径**而非账单口径（见「数据与计价口径」） |
+| 开了桌宠模式后挂件不消失了，想让它跟着 ZCode 走 | 菜单「桌宠模式」取消勾选即可（该开关只在浮层下出现）。开启时另外每 3 秒重申一次置顶层级，用来压住任务管理器一类同样把自己设为 topmost 的应用 |
+| 想要小鲸鱼那张原版脸配原版配色 | 主题选「小鲸鱼蓝白」，或直接把形象切成内置「小鲸鱼」——会自动套用上游 DSH 版那套蓝白 |
 
 ---
 
@@ -709,7 +755,8 @@ zcode-whale-widget/
 │  ├─ turn-cost.mjs            每轮消耗（读 turn_usage，回退模型 I/O 日志）
 │  ├─ pricing.mjs              八家价目 + 峰谷时段判定 + token→金额（含输入口径拆分）
 │  ├─ source.mjs               计费源判定（provider/model/baseURL → Plan / DeepSeek / 按量厂商）
-│  ├─ plan-balance.mjs         ZCode Plan 配额（尾随客户端日志）与轮级套餐百分比
+│  ├─ plan-balance.mjs         GLM Plan 配额（尾随客户端日志）与轮级套餐百分比
+│  ├─ cmdgo.mjs                CommandCode 三重额度（月度池 + 5 小时/周窗口，网关 API 直读）
 │  ├─ vendors.mjs              厂商余额/配额模板框架（host 白名单、缓存、归一化）
 │  ├─ discover.mjs             厂商凭据自动发现（多路径扫描 + 短 TTL 缓存）
 │  ├─ zcode-theme.mjs          「跟随 ZCode」主题三层判定（观测 > 配置 > 系统）
@@ -744,7 +791,7 @@ zcode-whale-widget/
 | `autostart.log` | 每次会话启动的自启结果 |
 | `desktop-runtime/` | Electron 运行时（约 370MB，删掉即回收，浮层随之失效） |
 
-服务接口（排查时可直接 curl）：页面与资产 `/`（`/index.html`）、`/whale/widget.js`、`/whale/image.png`、`/whale/rua.gif`、`/whale/sound/press.mp3` 与 `/whale/sound/release.mp3`（`?set=<音效集 id>`）；状态查询 `/whale/health`、`/whale/balance.json`、`/whale/plan.json`、`/whale/vendors.json`、`/whale/usage-records.json`、`/whale/session.json`、`/whale/last-turn.json`、`/whale/sounds.json`、`/whale/roles.json`、`/whale/bubble-content.json`（GET/POST）、`/whale/balance-adjustments.json`（GET/POST）、`/whale/size.json`（GET/PUT）、`/whale/zcode-theme.json`；写操作 `/whale/role-upload.json`、`/whale/role-rename.json`、`/whale/role-delete.json`、`/whale/sound-upload.json`、`/whale/sound-delete.json`（写操作校验 Origin）；关停 `/whale/shutdown`（需 `server.json` 随机令牌）。
+服务接口（排查时可直接 curl）：页面与资产 `/`（`/index.html`）、`/whale/widget.js`、`/whale/image.png`、`/whale/rua.gif`、`/whale/sound/press.mp3` 与 `/whale/sound/release.mp3`（`?set=<音效集 id>`）；状态查询 `/whale/health`、`/whale/balance.json`、`/whale/plan.json`、`/whale/cmdgo.json`（CommandCode 三重额度，`?refresh=1` 强制绕缓存）、`/whale/vendors.json`、`/whale/usage-records.json`、`/whale/session.json`、`/whale/last-turn.json`、`/whale/sounds.json`、`/whale/roles.json`、`/whale/bubble-content.json`（GET/POST）、`/whale/balance-adjustments.json`（GET/POST）、`/whale/size.json`（GET/PUT）、`/whale/zcode-theme.json`；写操作 `/whale/role-upload.json`、`/whale/role-rename.json`、`/whale/role-delete.json`、`/whale/sound-upload.json`、`/whale/sound-delete.json`（写操作校验 Origin）；关停 `/whale/shutdown`（需 `server.json` 随机令牌）。
 
 ---
 
