@@ -664,7 +664,8 @@ function check(name, ok, detail) {
 // CommandCode 三重额度：套餐目录恢复 + 窗口塑形 + 活跃账号选择（纯函数，
 // 不出网——HTTP 层只验 vendors.json 的 no-credentials 降级）
 {
-  const { shapeCmdgoUsage, resolveCmdgoPlan, pickActiveAccount } = await import('../lib/cmdgo.mjs')
+  const { shapeCmdgoUsage, resolveCmdgoPlan, pickActiveAccount, accountCandidates, readCmdgoAccounts, fetchCmdgoKey } =
+    await import('../lib/cmdgo.mjs')
   const credits = {
     credits: { monthlyCredits: 6.9, purchasedCredits: 0.5, freeCredits: 0 },
     windowLimits: {
@@ -708,6 +709,80 @@ function check(name, ok, detail) {
   check('CommandCode 空池降级', pickActiveAccount([]).active === null && pickActiveAccount([]).total === 0)
   const shapedEmpty = shapeCmdgoUsage({ credits: {}, windowLimits: {} }, undefined, undefined)
   check('CommandCode 塑形：主路由缺失返回 null（读取层报错）', shapedEmpty === null)
+
+  // 候选组装（代码审查 M2 的落点）：停用账号既不进候选（不会被选成「当前账号」
+  // 显示额度）也不计池可用数；纯字符串 / {value,source} 两种凭据形状都收
+  const candDir = path.join(tmpHome, 'cmdgo-candidates')
+  fs.mkdirSync(candDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(candDir, 'credentials.json'),
+    JSON.stringify({ REF_A: { value: 'k-a', source: 'file' }, REF_B: { value: 'k-b' }, REF_C: 'k-c' }),
+    'utf8'
+  )
+  fs.writeFileSync(
+    path.join(candDir, 'accounts.json'),
+    JSON.stringify({
+      version: 1,
+      accounts: [
+        { id: 'a', ref: 'REF_A', userName: 'acct-a', enabled: true, lastUsedAt: 200 },
+        { id: 'b', ref: 'REF_B', userName: 'acct-b', enabled: false, lastUsedAt: 300 },
+      ],
+    }),
+    'utf8'
+  )
+  const cands = accountCandidates(candDir)
+  const candRefs = cands.ordered.map((c) => c.ref)
+  check(
+    '账号候选：停用账号被排除（展示与池计数都不含），裸 key 仍是候选',
+    candRefs.indexOf('REF_A') !== -1 &&
+      candRefs.indexOf('REF_C') !== -1 &&
+      candRefs.indexOf('REF_B') === -1 &&
+      candRefs[0] === 'REF_A' &&
+      cands.pool.total === 2 &&
+      cands.pool.available === 1,
+    JSON.stringify({ refs: candRefs, pool: cands.pool })
+  )
+  const shapes = readCmdgoAccounts(candDir)
+  check(
+    '凭据两种形状都收（{value,source} 对象 + 纯字符串，v1.7.9 实修点回归）',
+    shapes.keys.REF_A === 'k-a' && shapes.keys.REF_B === 'k-b' && shapes.keys.REF_C === 'k-c',
+    JSON.stringify(Object.keys(shapes.keys))
+  )
+
+  // whoami 失败降级：丢掉 orgId 直接重试主路由，credits 仍要拿到（此前只靠人工实测）
+  {
+    const realFetch = globalThis.fetch
+    const urls = []
+    globalThis.fetch = async (url) => {
+      const u = String(url)
+      urls.push(u)
+      if (u.indexOf('/alpha/whoami') !== -1) throw new Error('whoami down')
+      if (u.indexOf('/alpha/billing/credits') !== -1) {
+        return new Response(
+          JSON.stringify({ data: { credits: { monthlyCredits: 4 }, windowLimits: { fiveHour: { used: 1, cap: 3 } } } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+      if (u.indexOf('/alpha/billing/subscriptions') !== -1) {
+        return new Response(JSON.stringify({ data: { planId: 'individual-go', currentPeriodEnd: '2026-11-01T00:00:00Z' } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error('unexpected ' + u)
+    }
+    try {
+      const got = await fetchCmdgoKey('https://api.commandcode.ai', 'k')
+      const creditUrl = urls.filter((u) => u.indexOf('/credits') !== -1)[0] || ''
+      check(
+        'whoami 失败降级重试主路由（无 orgId 仍取到 credits）',
+        !!got.credits && urls.filter((u) => u.indexOf('/whoami') !== -1).length === 1 && creditUrl.indexOf('orgId') === -1,
+        JSON.stringify(urls.map((u) => u.replace('https://api.commandcode.ai', '')))
+      )
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  }
 }
 
 // 凭据发现：有效 baseURL 继承内置模板、enc:v1: 密文跳过、本地网关标记
@@ -1301,20 +1376,31 @@ try {
     'mcp=' + mcpVersion + ' plugin.json=' + pluginJson.version
   )
 
-  // 预警设置归一：DS/BM 两个阈值合并成单一 moneyAlert，负数/非法值归 0
+  // 预警设置归一：额度阈值泛化为单一 quotaPct（旧键 planPct/cmdgoPct 折入），
+  // moneyAlert 仍由 DS/BM 两个旧键合并，负数/非法值归 0
   const putRes = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, cmdgoPct: 15, moneyAlert: 5.5, deepseekBelow: -3, bigmodelDaily: 9 } }),
+    body: JSON.stringify({ scale: 1.5, alerts: { quotaPct: 20, moneyAlert: 5.5, deepseekBelow: -3, bigmodelDaily: 9 } }),
   })
   const putBody = await putRes.json()
   check(
-    '预警设置写入并归一（moneyAlert 生效，旧键不再各自保留）',
-    putRes.ok && putBody.alerts && putBody.alerts.planPct === 20 && putBody.alerts.cmdgoPct === 15 && putBody.alerts.moneyAlert === 5.5 && putBody.alerts.deepseekBelow === undefined,
+    '预警阈值写入并归一（quotaPct + moneyAlert 两条，旧键不再各自保留）',
+    putRes.ok &&
+      putBody.alerts &&
+      putBody.alerts.quotaPct === 20 &&
+      putBody.alerts.moneyAlert === 5.5 &&
+      putBody.alerts.planPct === undefined &&
+      putBody.alerts.cmdgoPct === undefined &&
+      putBody.alerts.deepseekBelow === undefined,
     JSON.stringify(putBody.alerts)
   )
   const sizeBack = await getJson(port, '/whale/size.json')
-  check('预警设置持久化回读', sizeBack && sizeBack.alerts && sizeBack.alerts.planPct === 20 && sizeBack.alerts.cmdgoPct === 15, JSON.stringify(sizeBack.alerts))
+  check(
+    '预警设置持久化回读',
+    sizeBack && sizeBack.alerts && sizeBack.alerts.quotaPct === 20 && sizeBack.alerts.moneyAlert === 5.5,
+    JSON.stringify(sizeBack.alerts)
+  )
   // 旧配置迁移：模拟升级用户的文件（只有 DS¥/BM¥ 旧键、没有 moneyAlert），
   // 读出来应是 moneyAlert=deepseekBelow（先设过的那个），旧键不再保留
   const legacyState = JSON.parse(fs.readFileSync(path.join(dataDir, 'widget-state.json'), 'utf8'))
@@ -1322,12 +1408,22 @@ try {
   fs.writeFileSync(path.join(dataDir, 'widget-state.json'), JSON.stringify(legacyState), 'utf8')
   const legacyBack = await getJson(port, '/whale/size.json')
   check(
-    '预警旧键迁移（deepseekBelow/bigmodelDaily → moneyAlert）',
+    '预警旧键迁移（planPct → quotaPct，deepseekBelow/bigmodelDaily → moneyAlert）',
     legacyBack &&
       legacyBack.alerts &&
+      legacyBack.alerts.quotaPct === 20 &&
       legacyBack.alerts.moneyAlert === 7.5 &&
       legacyBack.alerts.deepseekBelow === undefined,
     JSON.stringify(legacyBack.alerts)
+  )
+  // 只设过 cmdgoPct 的用户（v1.7.8 那一格是只写不读的）设置要折进 quotaPct 而不是丢
+  legacyState.alerts = { cmdgoPct: 15 }
+  fs.writeFileSync(path.join(dataDir, 'widget-state.json'), JSON.stringify(legacyState), 'utf8')
+  const cmdgoLegacyBack = await getJson(port, '/whale/size.json')
+  check(
+    'cmdgoPct 旧值折入 quotaPct（只设过它的用户不丢设置）',
+    cmdgoLegacyBack && cmdgoLegacyBack.alerts && cmdgoLegacyBack.alerts.quotaPct === 15,
+    JSON.stringify(cmdgoLegacyBack.alerts)
   )
 
   // 角色库：内置小狐娘（默认）/小鲸鱼固定在前，上传件自动启用；未指定时默认小狐娘

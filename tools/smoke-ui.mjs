@@ -758,16 +758,17 @@ try {
   await cdp.send('Page.reload')
   await new Promise((r) => setTimeout(r, 3000))
 
-  // ⑨ 预警：DS¥/BM¥ 合并成同一行里的「余额¥」，与 Plan% 并列
+  // ⑨ 预警：额度阈值泛化成一条「额度%」（GLM Plan + CommandCode 共用），
+  // 与 DS¥/BM¥ 合并成的「余额¥」并列
   const alertRow = JSON.parse(
     await cdp.eval(
       "(function(){var rows=document.querySelectorAll('.zcwv-menu-row'),hit=null;" +
         "for(var i=0;i<rows.length;i++){var t=rows[i].textContent;" +
-        "if(t.indexOf('GLM Plan%')!==-1){hit={text:t,inputs:rows[i].querySelectorAll('input[type=number]').length}}}return JSON.stringify(hit)})()"
+        "if(t.indexOf('额度%')!==-1){hit={text:t,inputs:rows[i].querySelectorAll('input[type=number]').length}}}return JSON.stringify(hit)})()"
     )
   )
   check(
-    '预警行：GLM Plan% 与余额¥ 同一行、两个输入框',
+    '预警行：额度%（泛化）与余额¥ 同一行、两个输入框',
     alertRow && alertRow.text.indexOf('余额¥') !== -1 && alertRow.inputs === 2 && alertRow.text.indexOf('DS¥') === -1 && alertRow.text.indexOf('BM¥') === -1,
     JSON.stringify(alertRow)
   )
@@ -808,13 +809,30 @@ try {
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scale: 1.5, alerts: { planPct: 20, moneyAlert: 1.5 } }),
+    body: JSON.stringify({ scale: 1.5, alerts: { quotaPct: 20, moneyAlert: 1.5 } }),
   })
   const alertBack = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
   check(
-    '余额预警阈值持久化（moneyAlert）',
-    alertBack.alerts && alertBack.alerts.planPct === 20 && alertBack.alerts.moneyAlert === 1.5,
+    '余额/额度预警阈值持久化（quotaPct + moneyAlert）',
+    alertBack.alerts && alertBack.alerts.quotaPct === 20 && alertBack.alerts.moneyAlert === 1.5,
     JSON.stringify(alertBack.alerts)
+  )
+  // ⑨c UI 审查回归（U16）：额度阈值必须**回填进输入框**——v1.7.8 的 cmdgoPct 只写不读，
+  // 用户设完一刷新页面输入框就显示 0、预警静默失效（挂件每个会话都会重新加载页面）
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  const quotaBackfill = JSON.parse(
+    await cdp.eval(
+      "(function(){var rows=document.querySelectorAll('.zcwv-menu-row'),out=null;" +
+        "for(var i=0;i<rows.length;i++){var t=rows[i].textContent;" +
+        "if(t.indexOf('额度%')!==-1){var ins=rows[i].querySelectorAll('input[type=number]');" +
+        "out={q:ins[0]?ins[0].value:null,m:ins[1]?ins[1].value:null}}}return JSON.stringify(out)})()"
+    )
+  )
+  check(
+    '额度阈值刷新后回填输入框（U16：只写不读回归）',
+    !!quotaBackfill && quotaBackfill.q === '20' && quotaBackfill.m === '1.5',
+    JSON.stringify(quotaBackfill)
   )
 
   // ⑩ 自定义气泡文字：首次点击显示自定义文字（占位符被替换），再点依次走队列，走完收起
@@ -923,7 +941,7 @@ try {
       body: JSON.stringify(body),
     }).then((r) => r.json())
 
-  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 0 } })
+  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { quotaPct: 0, moneyAlert: 0 } })
   const stubA = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: stubScript(false) })
   await cdp.send('Page.reload')
   await new Promise((r) => setTimeout(r, 4000))
@@ -962,7 +980,7 @@ try {
   // ⑫ 消费型预警已取消（v1.7.7）：美元厂商今日已用再大也不弹预警泡，「余额¥」
   // 只剩 DeepSeek 余额见底一个语义（冒烟环境没有 DS key，凑不出余额见底，负向
   // 断言：喂 OpenAI 消耗数据后 9 秒内不得出现任何「预警」标题的泡泡）
-  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 5 } })
+  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { quotaPct: 0, moneyAlert: 5 } })
   const stubB = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: stubScript(true) })
   await cdp.send('Page.reload')
   let alertSeen = null
@@ -980,7 +998,7 @@ try {
     'saw=' + JSON.stringify(alertSeen)
   )
   if (stubB && stubB.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubB.identifier })
-  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { planPct: 0, moneyAlert: 0 } })
+  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { quotaPct: 0, moneyAlert: 0 } })
 
   // ⑬ Plan 观测 stale（客户端今天还没刷新过日志）：显示旧值 + 「数据截至」
   //    日期标注，而不是一直挂在「加载中…」（v1.4.1）
@@ -1257,6 +1275,48 @@ try {
     !!secondPage,
     'view=' + JSON.stringify(secondPage)
   )
+
+  // ⑯d 代码审查 M1 回归：cmdgo 源 + 自定义「首次按压」步 —— 额度卡不得顶掉自定义
+  // 内容。render() 的 qcard 分支自带 return，过去排在「自定义步优先」三道守卫之前，
+  // 于是卡片稳定覆盖首步（打开气泡与 60s 轮询都会走到 render）。
+  await fetch('http://127.0.0.1:' + PORT + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 1, first: { text: '冒烟自定义首步', size: 'B' }, items: [] }),
+  })
+  const stubFirstStep = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: cmdgoStub })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  const whaleFirst = JSON.parse(
+    await cdp.eval(
+      "(function(){var i=document.querySelector('.zcwv-img').getBoundingClientRect();" +
+        'return JSON.stringify({x:Math.round(i.left+i.width/2),y:Math.round(i.bottom-40)})})()'
+    )
+  )
+  await clickAt(whaleFirst.x, whaleFirst.y)
+  const firstStepView = await pollEval(
+    cdp,
+    "(function(){var q=document.querySelector('.zcwv-qcard');var a=document.querySelector('.zcwv-amount');" +
+      'if(!a)return null;' +
+      "var cardHidden=!q||getComputedStyle(q).display==='none';" +
+      "var txt=a.style.display!=='none'&&a.textContent.indexOf('冒烟自定义首步')!==-1;" +
+      'return cardHidden&&txt?JSON.stringify({card:false,text:a.textContent}):null})()',
+    15000
+  )
+  check(
+    '⑯d cmdgo 源下自定义首步优先于额度卡（M1 回归：卡片不再绕过守卫）',
+    !!firstStepView,
+    'view=' + JSON.stringify(firstStepView)
+  )
+  if (stubFirstStep && stubFirstStep.identifier) {
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubFirstStep.identifier })
+  }
+  // 复位气泡内容，免得影响后面的用例
+  await fetch('http://127.0.0.1:' + PORT + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 1, first: null, items: [] }),
+  })
 
   // ⑯ 音效库：导入集出现在下拉里、选中导入集时「删除当前」出现、内置集时隐藏
   // （导入本身走接口，页面侧只验 UI 与选择状态）
