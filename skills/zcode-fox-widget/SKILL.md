@@ -1,11 +1,11 @@
 ---
-name: zcode-whale-widget
-description: 操作与排查 Widget of ZCode（ZCode 版 DeepSeek 余额小鲸鱼挂件）。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止鲸鱼挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭、**桌宠模式**：界面扩展为整个屏幕工作区、可拖出 ZCode 窗口、失焦也不隐身、锁在最上层）；配置 DeepSeek API Key、对账口径（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；调整主题（浅色/深色/跟随 ZCode）、角色（导入图片、改名、删除，内置形象可隐藏找回）、音效（导入/删除）、预警阈值（泛化后的「额度%」覆盖 GLM Plan 与 CommandCode + DeepSeek 余额¥）、按压泡泡（自定义点击队列）、**记账二级页**（一级菜单的「=角色名记账=」入口，内含用量记录 / 预警 / 余额校正）与今日排名口径（按金额/按 Token）；以及界面看不到挂件、余额获取失败、CommandCode 三重额度（月度池 + 5 小时/周窗口）读不到、厂商模板余额读不到、今日已用为 0、每轮消耗不弹窗、峰谷判定不对、和挂件互动后 ZCode 画面卡住、挂件周期性消失重现（冻结自愈误判）等问题。
+name: zcode-fox-widget
+description: 操作与排查 ZCode狐娘小挂件（zcode-fox-widget）。适用于：查询 DeepSeek 账户余额、今日已用金额、当前峰谷时段或上一轮对话消耗；启动/停止挂件，把鲸鱼作为桌面浮层显示在 ZCode 界面之上（安装 Electron 运行时、浮层点不动或不显示、浮层关闭、**桌宠模式**：界面扩展为整个屏幕工作区、可拖出 ZCode 窗口、失焦也不隐身、锁在最上层）；配置 DeepSeek API Key、对账口径（小鲸鱼记账 / 实时·令牌）、挂件端口或会话自启；调整主题（浅色/深色/跟随 ZCode）、角色（导入图片、改名、删除，内置形象可隐藏找回）、音效（导入/删除）、预警阈值（泛化后的「额度%」覆盖 GLM Plan 与 CommandCode + DeepSeek 余额¥）、按压泡泡（自定义点击队列）、**记账二级页**（一级菜单的「=角色名记账=」入口，内含用量记录 / 预警 / 余额校正）与今日排名口径（按金额/按 Token）；以及界面看不到挂件、余额获取失败、CommandCode 三重额度（月度池 + 5 小时/周窗口）读不到、厂商模板余额读不到、今日已用为 0、每轮消耗不弹窗、峰谷判定不对、和挂件互动后 ZCode 画面卡住、挂件周期性消失重现（冻结自愈误判）等问题。
 ---
 
-# Widget of ZCode
+# ZCode狐娘小挂件（zcode-fox-widget）
 
-把 DSH 版网页挂件（[MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)，MIT）移植到 ZCode：同一只鲸鱼、同一套交互，换成 ZCode 能提供的扩展点。
+把 DSH 版网页挂件（[MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)，MIT）移植到 ZCode，并在移植版基础上持续开发（署名链见 NOTICE）：同一套交互，换成 ZCode 能提供的扩展点。
 
 ## 架构（先读这段再动手排查）
 
@@ -92,9 +92,9 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | **界面上看不到挂件** | 插件无法注入 ZCode 客户端界面，必须走桌面浮层：先 `desktop install` 装运行时，再 `window start`。装好后会话启动会自动拉起 |
 | **打开 ZCode 没有自动出现鲸鱼** | 自启由 SessionStart hook（`lib/autostart.mjs`）负责，先看 `~/.zcode/whale/autostart.log` 最后一行：`server=... overlay=...`。没有新行说明 hook 没被加载（插件未启用，或改完配置后还没重启会话）；`overlay=skipped:no-runtime` 说明 Electron 运行时没装（`desktop install`）；`overlay=failed:...` 看括号里的原因。也可以直接 `node lib/autostart.mjs` 手动跑一次验证 |
 | **鲸鱼不跟着 ZCode 走** | 跟随由 `desktop/follow-window.ps1` 常驻探测（默认每 40ms 读一次 ZCode 主窗口矩形与前台状态）。完全不动时先确认该 PowerShell 子进程是否还活着（`window stop` 后 `window start` 重建）；跟进脚本的输出与判断依据会写进 `~/.zcode/whale/overlay-debug.log`（仅在 `WHALE_DEBUG_PORT` 开启时记录） |
-| 跟得不跟手 / 想更省资源 | 挂件菜单「跟随延迟」可即时切换 5/16/40/100/250ms（改完不需重启浮层），也可写进 `config.json` 的 `followIntervalMs`。默认 40ms 实测端到端延迟约 13ms、稳态 CPU 约 0.16% 单核；5ms 档实测 CPU 同量级（≈0.26%）但实际周期 ≈11ms（受系统定时器量子约束），详见 README v1.8.1 实测表 |
+| 跟得不跟手 / 想更省资源 | 挂件菜单「跟随延迟」可即时切换 5/16/40/100/250ms（改完不需重启浮层），也可写进 `config.json` 的 `followIntervalMs`。默认 40ms 实测端到端延迟约 13ms、稳态 CPU 约 0.16% 单核；5ms 档实测 CPU 同量级（≈0.26%）但实际周期 ≈11ms（受系统定时器量子约束），详见 CHANGELOG 的 v1.8.1 实测表 |
 | 探测脚本秒退 / 浮层跟着消失 | 多为 `follow-window.ps1` 里的 C# 编译失败或脚本被写成非 ASCII。`overlay-debug.log` 里搜 `csharp-compile-failed` / `follow-loop-error`；该文件必须保持纯 ASCII（PS 5.1 按 ANSI 代码页读） |
-| 鲸鱼位置错乱 / 跑到窗口外 | 透明窗口的合成层错位，通常是有人重新打开了定位过渡或改回 `setBounds` 贴窗口。见 README「与上游的差异」里的两条踩坑记录 |
+| 鲸鱼位置错乱 / 跑到窗口外 | 透明窗口的合成层错位，通常是有人重新打开了定位过渡或改回 `setBounds` 贴窗口。见 README「已知限制」的踩坑记录 |
 | 挂件画面冻结（鲸鱼在但不动/点了没反应），进程却活着 | v1.3.3 已加自愈：透明置顶窗口被全屏应用覆盖后，Chromium 的原生遮挡计算可能卡死在「被遮挡」而停止出帧（页面逻辑照常跑，画面停在旧帧）。现在已禁用该计算（`disable-features=CalculateNativeWinOcclusion`）、页面加载完成才上屏、重显与每 60 秒强制重送一帧（`kickPresentation`）。等 60 秒自愈，或立刻 `node lib/cli.mjs window restart` 一键重建窗口。**注意**：GDI 截屏（CopyFromScreen/GetPixel）拍不到这个透明窗口的合成表面，诊断画面问题以 CDP 截图和肉眼为准 |
 | 浮层起来了但点不动鲸鱼 | 浮层默认鼠标穿透，指针必须先停在鲸鱼上（此时光标变 `grab`、右上角出现菜单按钮）才能点。若整块区域都点不动，检查是否被其它置顶窗口压住 |
 | 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框就能打字（浮层在文本类控件上临时接管键盘焦点，离开即交还；v1.3.2 起下拉也换成自定义组件，不再走系统弹窗、不再需要这条路）。还不行就确认浮层版本与插件一致（`window status` 或 `/whale/health` 的 `version`），或改用网页版直接键入 |

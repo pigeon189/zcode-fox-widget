@@ -1300,7 +1300,7 @@ async function waitReady(port, deadlineMs) {
   while (Date.now() < deadline) {
     try {
       const health = await getJson(port, '/whale/health')
-      if (health && health.app === 'zcode-whale-widget') return health
+      if (health && health.app === 'zcode-fox-widget') return health
     } catch (err) {}
     await new Promise((r) => setTimeout(r, 200))
   }

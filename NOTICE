@@ -1,12 +1,20 @@
 NOTICE
 ======
 
-ZCode 版 DeepSeek 余额小鲸鱼挂件（zcode-whale-widget）是以下项目的移植版本：
+ZCode狐娘小挂件（zcode-fox-widget，https://github.com/pigeon189/zcode-fox-widget）的完整沿革：
 
-    MeteorNOX / DeepSeek-Balance-Whale-Widget
-    https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget
-    Copyright (c) 2026 MeteorNOX
-    MIT License（见本目录 LICENSE）
+    1. MeteorNOX / DeepSeek-Balance-Whale-Widget（原版，DSH Web 插件）
+       https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget
+       Copyright (c) 2026 MeteorNOX
+
+    2. nb10yyds / zcode-whale-widget（ZCode 移植版，本仓库 fork 的基线）
+       https://github.com/nb10yyds/zcode-whale-widget
+       Copyright (c) 2026 nb10yyds
+
+    3. pigeon189 / zcode-fox-widget（本仓库，fork 后独立发展）
+       Copyright (c) 2026 pigeon189
+
+第 2 项是第 1 项的移植版本；本仓库在第 2 项的基础上继续开发（v1.1.0 起）。
 
 沿用自上游的部分
 ----------------
@@ -85,3 +93,16 @@ ZCode 版 DeepSeek 余额小鲸鱼挂件（zcode-whale-widget）是以下项目�
 
 上游许可为 MIT，允许使用、复制、修改、合并、发布、分发、再许可和/或销售本软件的
 副本，前提是保留上述版权声明与许可声明。本目录内 LICENSE 即为上游许可原文。
+
+2026-09-29 起的 fork 延续开发（v1.1.0 – v1.8.5）
+----------------------------------------------
+
+ZCode 版 DeepSeek 余额小鲸鱼挂件自 v1.1.0 起在本仓库（pigeon189 fork）持续开发：
+多厂商计价内核（八家价目 + 34 个厂商模板）、GLM Plan 配额、CommandCode 三重额度与
+多账号池、按压泡泡（DSH 式队列编辑器）、桌宠模式（全屏工作区漫游）、冻结自愈体系、
+「跟随 ZCode」主题、UI/UX 修复与可访问性、价目复核流程等，逐版本说明见仓库
+CHANGELOG.md 与各版本 tag。2026-10-05 起以「ZCode狐娘小挂件（zcode-fox-widget）」
+为名独立发布。
+
+    Copyright (c) 2026 pigeon189（ZCode狐娘小挂件 / zcode-fox-widget）
+    MIT License（见本目录 LICENSE）

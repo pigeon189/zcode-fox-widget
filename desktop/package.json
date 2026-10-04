@@ -1,7 +1,7 @@
 {
-  "name": "zcode-whale-overlay",
+  "name": "zcode-fox-overlay",
   "version": "1.0.0",
   "private": true,
-  "description": "Transparent always-on-top overlay window that hosts Widget of ZCode.",
+  "description": "Transparent always-on-top overlay window that hosts ZCode Fox Widget (zcode-fox-widget).",
   "main": "main.cjs"
 }

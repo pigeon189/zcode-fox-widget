@@ -1,12 +1,12 @@
 {
-  "name": "zcode-whale-local",
+  "name": "zcode-fox-local",
   "version": 1,
   "description": "Local marketplace for the ZCode DeepSeek balance whale widget.",
   "plugins": [
     {
-      "name": "zcode-whale-widget",
-      "version": "1.8.4",
-      "description": "Widget of ZCode（ZCode 版小鲸鱼挂件）：余额、今日已用、多厂商计价（34 个厂商模板）、GLM Plan 配额、CommandCode 三重额度、记账二级页、自定义角色与按压泡泡、桌宠模式（全屏漫游）。",
+      "name": "zcode-fox-widget",
+      "version": "1.8.5",
+      "description": "ZCode狐娘小挂件（zcode-fox-widget）：余额、今日已用、多厂商计价（34 个厂商模板）、GLM Plan 配额、CommandCode 三重额度、记账二级页、自定义角色与按压泡泡、桌宠模式（全屏漫游）。",
       "source": "."
     }
   ]

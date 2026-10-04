@@ -1,4 +1,4 @@
-// Widget of ZCode 的桌面浮层窗口。
+// ZCode狐娘小挂件（zcode-fox-widget）的桌面浮层窗口。
 //
 // ZCode 插件无法往客户端界面注入内容，所以这里用独立 Electron 窗口把挂件页面
 // 「浮」在 ZCode 上。为了让它表现得像界面的一部分：
@@ -172,7 +172,7 @@ function createWindow() {
     focusable: process.platform !== 'win32',
     show: false,
     alwaysOnTop: true,
-    title: 'Widget of ZCode',
+    title: 'ZCode狐娘小挂件',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

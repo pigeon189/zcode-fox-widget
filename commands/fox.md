@@ -1,10 +1,10 @@
 ---
-description: 查看 DeepSeek 余额、今日已用与上一轮消耗，或启停小鲸鱼挂件（网页版 / 桌面浮层）
+description: 查看 DeepSeek 余额、今日已用与上一轮消耗，或启停 ZCode狐娘小挂件（网页版 / 桌面浮层）
 argument-hint: "[status|start|stop|turn|url|window start|window stop|key <sk-...>|mode ledger|token]"
 allowed-tools: Bash, mcp__whale__whale_balance, mcp__whale__whale_widget, mcp__whale__whale_last_turn, mcp__whale__whale_config
 ---
 
-用户请求操作 ZCode 的 DeepSeek 余额小鲸鱼挂件。参数：`$ARGUMENTS`
+用户请求操作 ZCode狐娘小挂件（zcode-fox-widget）。参数：`$ARGUMENTS`
 
 按参数分派：
 

@@ -162,7 +162,7 @@ async function waitReady(port, deadlineMs) {
   while (Date.now() < deadline) {
     try {
       const h = await (await fetch('http://127.0.0.1:' + port + '/whale/health', { signal: AbortSignal.timeout(1500) })).json()
-      if (h && h.app === 'zcode-whale-widget') return h
+      if (h && h.app === 'zcode-fox-widget') return h
     } catch (err) {}
     await new Promise((r) => setTimeout(r, 200))
   }

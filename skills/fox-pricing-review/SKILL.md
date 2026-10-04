@@ -1,9 +1,9 @@
 ---
-name: whale-pricing-review
-description: 手动复核并更新 Widget of ZCode（小鲸鱼挂件）的多厂商价目（lib/pricing.mjs）。当用户说「复核价目」「更新价目」「价目快照过期了」「核对某家厂商的价格」「DeepSeek/GLM/OpenAI/Claude/Qwen/MiniMax/MiMo/Kimi 调价了」时使用。本项目没有自动价目更新机制，所有价目更新都由用户发起、按本技能流程人工复核后写入仓库。
+name: fox-pricing-review
+description: 手动复核并更新 ZCode狐娘小挂件（zcode-fox-widget）的多厂商价目（lib/pricing.mjs）。当用户说「复核价目」「更新价目」「价目快照过期了」「核对某家厂商的价格」「DeepSeek/GLM/OpenAI/Claude/Qwen/MiniMax/MiMo/Kimi 调价了」时使用。本项目没有自动价目更新机制，所有价目更新都由用户发起、按本技能流程人工复核后写入仓库。
 ---
 
-# Widget of ZCode 价目复核与更新
+# ZCode狐娘小挂件 价目复核与更新
 
 价目全部在 `lib/pricing.mjs`，文件头注释记录每家的**口径与来源及快照日期**。
 复核 = 用权威来源核对现值 → 把有出入的条目改掉 → 同步断言与文档 → 走部署管道。
@@ -47,13 +47,13 @@ description: 手动复核并更新 Widget of ZCode（小鲸鱼挂件）的多厂
 
 1. **改 `lib/pricing.mjs`**：只改对应厂商的表；同步文件头该家的快照日期与来源注释；估算值保留行内注释惯例（如「缓存写未公布 → 按通行折扣 125% 输入估算」「cw 未公布记 0」）。
 2. **改 `tools/selftest.mjs` 钉死断言**（数值全部写死，改价必改断言）：计价断言集中在「计价口径」段（GLM 系、DeepSeek 峰谷、GPT/Claude/Qwen/MiniMax/Kimi/MiMo 各一条）；另有若干**间接依赖价目的断言**（余额/今日已用、last-turn 金额、USD 折算）——按改动的厂商全数核对，跑 selftest 看哪条红改哪条。
-3. **README.md**：顶部按版本惯例加小节（`## vX.Y.Z 调价：…`），写明哪几家、什么口径变了、快照日期。
-4. **版本号**：`lib/server.mjs` 的 `VERSION`、`.zcode-plugin/plugin.json`、`marketplace.json` 三处同步 +1（本地缓存目录名固定 1.0.0 不动）。
+3. **CHANGELOG.md**：新增 `## vX.Y.Z 调价：…` 小节，写明哪几家、什么口径变了、快照日期。
+4. **版本号**：`lib/server.mjs` 的 `VERSION`、`.zcode-plugin/plugin.json`、`marketplace.json` 三处同步 +1。
 5. **提交与部署**（仓库工作目录执行）：
    ```bash
-   git add lib/pricing.mjs tools/selftest.mjs README.md .zcode-plugin/plugin.json marketplace.json lib/server.mjs
+   git add lib/pricing.mjs tools/selftest.mjs CHANGELOG.md .zcode-plugin/plugin.json marketplace.json lib/server.mjs
    git commit -m "pricing(vX.Y.Z): <厂商> 价目复核更新（快照 YYYY-MM-DD）"
-   git --git-dir="C:/Users/paper/.zcode/cli/plugins/marketplaces/zcode-whale-widget/.git" archive HEAD | tar -x -C "C:/Users/paper/.zcode/cli/plugins/cache/zcode-whale-local/zcode-whale-widget/1.0.0"
+   git --git-dir="<本仓库根目录>/.git" archive HEAD | tar -x -C "<本机插件缓存目录>"
    node lib/cli.mjs window restart && node lib/cli.mjs stop && node lib/cli.mjs start
    ```
 6. **验证**：`node tools/selftest.mjs` 全绿 → `curl -s http://127.0.0.1:39321/whale/health` 版本正确 → `node lib/cli.mjs turn` 看上一轮逐档明细与改动一致 → 需要看气泡效果用 `node tools/demo.mjs`（假数据，不碰真实账单）。
