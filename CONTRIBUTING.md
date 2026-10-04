@@ -60,6 +60,7 @@ README / SKILL / commands 的标点与空格漂移是反复出现的问题，这
 
   | 用法 | 不写 |
   | --- | --- |
+  | Widget of ZCode（产品名；标题/描述/窗口名统一用它） | ZCode 版 DeepSeek 余额小鲸鱼挂件 / 小鲸鱼挂件（指代产品名时） |
   | GLM Plan（v1.7.8 起；template id 仍是 `zcode-plan`） | ZCode Plan |
   | 对账口径（v1.7.0 起；值仍是 `ledger` / `token`） | 用量模式 / 用量统计模式 |
   | CommandCode 三重额度 | CommandCode 限额 / 周限额套餐 |

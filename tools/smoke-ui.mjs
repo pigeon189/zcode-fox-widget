@@ -807,6 +807,113 @@ try {
   const petOff = (await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()).petMode
   check('桌宠模式状态持久化（PUT true → 回读 true；再置 false → 回读 false）', petOn === true && petOff === false, JSON.stringify({ petOn, petOff }))
 
+  // ⑧e 帧调度逃生门（v1.8.2）：渲染被遮挡节流时 CSS 过渡拿不到起始帧，浮层
+  // UI 会「开了但停在透明态」。逃生门给 <html> 挂 zcwv-anim-off 关掉过渡——
+  // 断言挂上后过渡时长真的归零（主线程样式不受节流影响，状态立即到位）。
+  await cdp.eval("document.documentElement.classList.add('zcwv-anim-off')")
+  const animOff = JSON.parse(
+    await cdp.eval(
+      "(function(){var m=document.querySelector('.zcwv-menu');return JSON.stringify({dur:getComputedStyle(m).transitionDuration})})()"
+    )
+  )
+  await cdp.eval("document.documentElement.classList.remove('zcwv-anim-off')")
+  const animOn = JSON.parse(
+    await cdp.eval(
+      "(function(){var m=document.querySelector('.zcwv-menu');return JSON.stringify({dur:getComputedStyle(m).transitionDuration})})()"
+    )
+  )
+  check(
+    '帧调度逃生门：zcwv-anim-off 时浮层 UI 过渡归零、摘除后恢复',
+    !!animOff && animOff.dur.indexOf('0s') === 0 && !!animOn && animOn.dur.indexOf('0s') !== 0,
+    JSON.stringify({ off: animOff, on: animOn })
+  )
+
+  // ⑧f 桌宠纵向贴顶（v1.8.2）：root 顶部 40.55% 是气泡区、角色 PNG 又常带
+  // 透明边——按 root 整盒钳制的话角色永远拖不到屏幕顶。桌宠模式下纵向下界
+  // 改按「角色图不透明内容」计算：拖到顶后 root 顶部允许伸出屏幕（top<0），
+  // 而图片内容的可视上缘齐屏顶。浏览器模式下 petMode 经 PUT+reload 生效
+  // （PUT 不通知运行中的页面，与真实浮层行为一致）。
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, petMode: true }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+  const dragTop = JSON.parse(
+    await cdp.eval(
+      "(function(){var img=document.querySelector('.zcwv-root img');var r=img.getBoundingClientRect();" +
+        'return JSON.stringify({cx:r.left+r.width/2,cy:r.top+r.height/2})})()'
+    )
+  )
+  async function injectedDrag(fromX, fromY, toX, toY) {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: Math.round(fromX), y: Math.round(fromY), button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
+    for (let i = 1; i <= 10; i++) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: Math.round(fromX + ((toX - fromX) * i) / 10),
+        y: Math.round(fromY + ((toY - fromY) * i) / 10),
+        button: 'left',
+        buttons: 1,
+        pointerType: 'mouse',
+      })
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: Math.round(toX), y: Math.round(toY), button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  await injectedDrag(dragTop.cx, dragTop.cy, dragTop.cx, 4)
+  const afterTop = JSON.parse(
+    await cdp.eval(
+      "(function(){var root=document.querySelector('.zcwv-root');var img=document.querySelector('.zcwv-root img');" +
+        'var rr=root.getBoundingClientRect();var ir=img.getBoundingClientRect();' +
+        // 角色图的不透明内容上缘（画布实测，与 measureArtPads 同口径）：
+        // 贴顶后它必须齐屏顶（img 盒顶可以带 PNG 自身的透明顶边略负）
+        'var c=document.createElement("canvas");c.width=610;c.height=610;' +
+        'var ctx=c.getContext("2d");ctx.drawImage(img,0,0,610,610);' +
+        'var d=ctx.getImageData(0,0,610,610).data;var first=-1;' +
+        'for(var y=0;y<610&&first<0;y++){for(var x=0;x<610;x++){if(d[(y*610+x)*4+3]>10){first=y;break}}}' +
+        'var artTop=first<0?ir.top:ir.top+(first/610)*ir.height;' +
+        'return JSON.stringify({rootTop:Math.round(rr.top),imgTop:Math.round(ir.top),artTop:Math.round(artTop),imgBottom:Math.round(ir.bottom),vh:innerHeight})})()'
+    )
+  )
+  check(
+    '桌宠贴顶：拖到屏顶后 root 允许伸出（top<0）且角色不透明内容齐屏顶',
+    afterTop.rootTop < -80 && afterTop.artTop >= -3 && afterTop.artTop <= 8 && afterTop.imgBottom <= afterTop.vh + 1,
+    JSON.stringify(afterTop)
+  )
+  // 气泡防裁切：贴顶时点鲸鱼出泡，气泡（锚在 root 顶部）应被整体下移、完整在屏内
+  const clickPt = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.querySelector('.zcwv-root img').getBoundingClientRect();" +
+        'return JSON.stringify({cx:r.left+r.width/2,cy:r.top+r.height/2})})()'
+    )
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: Math.round(clickPt.cx), y: Math.round(clickPt.cy), button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
+  await new Promise((r) => setTimeout(r, 60))
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: Math.round(clickPt.cx), y: Math.round(clickPt.cy), button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+  await new Promise((r) => setTimeout(r, 600))
+  const bubbleNudge = JSON.parse(
+    await cdp.eval(
+      "(function(){var b=document.querySelector('.zcwv-bubble');var r=b.getBoundingClientRect();" +
+        'return JSON.stringify({open:b.classList.contains(\'zcwv-bubble-open\'),top:Math.round(r.top),style:b.style.top||""})})()'
+    )
+  )
+  check(
+    '桌宠贴顶出泡：气泡整体下移伸出量、完整在屏内',
+    !!bubbleNudge && bubbleNudge.open === true && bubbleNudge.top >= 0,
+    JSON.stringify(bubbleNudge)
+  )
+  // 还原：关桌宠 + 回到贴底位置（后续用例的深色配色断言不受位置影响，但
+  // petMode 残留会让「浏览器模式不渲染桌宠行」类断言读到 true）
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, petMode: false }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+
   // 后面的按钮配色断言针对深色主题，这里切回去（顺带验证 dark 仍能落盘生效）
   await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
     method: 'PUT',

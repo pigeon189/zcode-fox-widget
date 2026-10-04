@@ -1,4 +1,4 @@
-// ZCode 鲸鱼挂件的桌面浮层窗口。
+// Widget of ZCode 的桌面浮层窗口。
 //
 // ZCode 插件无法往客户端界面注入内容，所以这里用独立 Electron 窗口把挂件页面
 // 「浮」在 ZCode 上。为了让它表现得像界面的一部分：
@@ -29,6 +29,17 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // 关掉这条计算——代价只是被覆盖期间也照常出帧，而浮层本来就常年被 ZCode
 // 透过来看，这份开销是设计内的。（须在 app ready 前设置）
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+
+// 第二道保险（2026-10-04 真机实锤）：即便遮挡计算被禁，特定窗口环境（另一块
+// 同区域置顶透明窗叠加、或第三方置顶悬浮窗压在挂件上方）仍会把渲染帧调度
+// 节流到 1–4fps——页面 visibilityState 仍是 visible、backgroundThrottling:false
+// 也拦不住这条原生路径。节流期间 CSS 过渡拿不到起始帧（getAnimations 里
+// startTime=null），菜单/角色/峰谷「开了但停在透明态」，用户看到的就是点了
+// 没反应。这三个开关按 Chromium 经典口径逐层关掉后台化/节流；页面侧另有
+// 帧调度逃生门（widget.js 的 zcwv-anim-off）兜最后一道。
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
 
 // 排查用日志：常开。这是冻结/点击取证的黑匣子，必须覆盖 hook 自启的日常
 // 实例（v1.4.2 及以前只在 WHALE_DEBUG_PORT 实例写入，日常冻结拿不到第一
@@ -161,7 +172,7 @@ function createWindow() {
     focusable: process.platform !== 'win32',
     show: false,
     alwaysOnTop: true,
-    title: 'DeepSeek 余额小鲸鱼',
+    title: 'Widget of ZCode',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

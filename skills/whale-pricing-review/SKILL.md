@@ -1,9 +1,9 @@
 ---
 name: whale-pricing-review
-description: 手动复核并更新小鲸鱼挂件的多厂商价目（lib/pricing.mjs）。当用户说「复核价目」「更新价目」「价目快照过期了」「核对某家厂商的价格」「DeepSeek/GLM/OpenAI/Claude/Qwen/MiniMax/MiMo/Kimi 调价了」时使用。本项目没有自动价目更新机制，所有价目更新都由用户发起、按本技能流程人工复核后写入仓库。
+description: 手动复核并更新 Widget of ZCode（小鲸鱼挂件）的多厂商价目（lib/pricing.mjs）。当用户说「复核价目」「更新价目」「价目快照过期了」「核对某家厂商的价格」「DeepSeek/GLM/OpenAI/Claude/Qwen/MiniMax/MiMo/Kimi 调价了」时使用。本项目没有自动价目更新机制，所有价目更新都由用户发起、按本技能流程人工复核后写入仓库。
 ---
 
-# 小鲸鱼挂件价目复核与更新
+# Widget of ZCode 价目复核与更新
 
 价目全部在 `lib/pricing.mjs`，文件头注释记录每家的**口径与来源及快照日期**。
 复核 = 用权威来源核对现值 → 把有出入的条目改掉 → 同步断言与文档 → 走部署管道。
