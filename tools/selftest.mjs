@@ -749,6 +749,68 @@ function check(name, ok, detail) {
     JSON.stringify(Object.keys(shapes.keys))
   )
 
+  // 池可用判定与展示账号选择（2026-10-04 真机实锤）：网关 limited=true 的账号
+  // 即使三个窗口都没满也不算「可用」——月池见底时网关已开始拒绝请求，窗口
+  // 算术看不见这道墙。全部撞墙时展示账号选「最早解锁」的（把最短的那面墙和
+  // 它的重置倒计时摆出来），限流但看不见墙的账号按最晚重置时间排最后。
+  {
+    const { chooseSnapshot, snapshotUsable } = await import('../lib/cmdgo.mjs')
+    const snap = (ref, data) => ({ cand: { ref }, entry: { at: 0, data } })
+    const H = 3600_000
+    const now = Date.now()
+    // 真机三账号形状：A=月池见底被网关限流（窗口全没满，月池重置最晚）、
+    // B=本周超额（今天稍晚重置）、C=本周超额（两天后重置）
+    const acctA = {
+      limited: true,
+      userName: 'pigeon189',
+      monthly: { remaining: 0.0457, total: 10, percent: 0.9954, resetAt: now + 22 * 24 * H },
+      fiveHour: { used: 0.912, cap: 3, exceeded: false, resetAt: now + 5 * H, remaining: 2.088, percent: 0.3041 },
+      weekly: { used: 3.947, cap: 6, exceeded: false, resetAt: now + 6 * 24 * H, remaining: 2.053, percent: 0.6578 },
+    }
+    const acctB = {
+      limited: true,
+      fiveHour: null,
+      weekly: { used: 6.009, cap: 6, exceeded: true, resetAt: now + 4 * H, remaining: 0, percent: 1.0015 },
+      monthly: { remaining: 3.99, total: 10, percent: 0.6009, resetAt: now + 23 * 24 * H },
+    }
+    const acctC = {
+      limited: true,
+      fiveHour: null,
+      weekly: { used: 6.044, cap: 6, exceeded: true, resetAt: now + 2 * 24 * H, remaining: 0, percent: 1.0073 },
+      monthly: { remaining: 3.96, total: 10, percent: 0.6044, resetAt: now + 25 * 24 * H },
+    }
+    check(
+      'snapshotUsable：网关 limited=true 即不可用（窗口全没满也一样），关掉标志恢复判定',
+      snapshotUsable(acctA) === false &&
+        snapshotUsable(acctB) === false &&
+        snapshotUsable({ ...acctA, limited: false }) === true,
+      JSON.stringify({ a: snapshotUsable(acctA), aNoFlag: snapshotUsable({ ...acctA, limited: false }) })
+    )
+    // 生产顺序 = 最近使用优先：C 最新、A 次之、B 最旧；全部撞墙 → 选 B（今天重置）
+    const allDead = chooseSnapshot([snap('C', acctC), snap('A', acctA), snap('B', acctB)])
+    check(
+      '全撞墙时展示账号选最早解锁的（B 今天重置 < C 两天后 < A 限流无墙按最晚重置排最后）',
+      allDead.usable.length === 0 &&
+        allDead.withData.length === 3 &&
+        allDead.chosen &&
+        allDead.chosen.cand.ref === 'B',
+      JSON.stringify({ usable: allDead.usable.length, chosen: allDead.chosen && allDead.chosen.cand.ref })
+    )
+    // 有可用账号时仍按「最近使用」优先，不被「别人解锁更早」干扰
+    const hasUsable = chooseSnapshot([
+      snap('B', acctB),
+      snap('D', { limited: false, fiveHour: { used: 1, cap: 3, exceeded: false, percent: 0.333 }, weekly: { used: 2, cap: 6, exceeded: false, percent: 0.333 }, monthly: { percent: 0.5 } }),
+    ])
+    check(
+      '存在可用账号时优先展示可用账号（不因其他账号解锁更早而换人）',
+      hasUsable.usable.length === 1 && hasUsable.chosen.cand.ref === 'D',
+      JSON.stringify({ chosen: hasUsable.chosen && hasUsable.chosen.cand.ref })
+    )
+    // 空数组 / 全失败：chosen 为 null，readCmdgoQuota 据此走「读取失败」分支
+    const empty = chooseSnapshot([])
+    check('chooseSnapshot 空入参降级（无 chosen、无异常）', empty.withData.length === 0 && empty.chosen === null && empty.usable.length === 0)
+  }
+
   // whoami 失败降级：丢掉 orgId 直接重试主路由，credits 仍要拿到（此前只靠人工实测）
   {
     const realFetch = globalThis.fetch

@@ -1442,6 +1442,49 @@ try {
   )
   if (stubLimited && stubLimited.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubLimited.identifier })
 
+  // ⑯b2 不到 100% 不谎报「已限流」（2026-10-04 真机实锤）：月池 99.54% 四舍五入
+  // 成 100 会被旧逻辑标成「已限流」，而账号其实还剩 0.046 credit——单账号池被
+  // 网关限流（limited=true）时服务端仍会把这个账号送来展示，卡片必须如实显示
+  // 一位小数（99.5%），「已限流」只留给网关 exceeded 或比例真到 100% 的窗口
+  const nearReset = Date.now() + 22 * 86400000
+  const cmdgoNearWall =
+    '(function(){var real=window.fetch;' +
+    'function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
+    'var S={ok:true,source:"cmdgo",vendor:"commandcode",label:"CommandCode",timeMode:"none",modelId:"zai-org/GLM-5.3",currency:"USD",from:"selection"};' +
+    'var C={ok:true,ref:"K1",pool:{available:0,total:1},plan:"Go",userName:"pigeon189",limited:true,' +
+    'monthly:{remaining:0.0457,total:10,percent:0.9954,resetAt:' + nearReset + '},' +
+    'fiveHour:{used:0.912,cap:3,exceeded:false,resetAt:' + (Date.now() + 5 * 3600000) + ',remaining:2.088,percent:0.3041},' +
+    'weekly:{used:3.947,cap:6,exceeded:false,resetAt:' + (Date.now() + 6 * 86400000) + ',remaining:2.053,percent:0.6578},readAt:Date.now()};' +
+    'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
+    'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
+    'if(s.indexOf("/whale/cmdgo.json")!==-1)return json(C);' +
+    'return real.apply(this,arguments)};' +
+    // 固定随机数：⑯c 点气泡会抽随机台词，抽到 gif 组就没有文字行可断言
+    'Math.random=function(){return 0}})()'
+  const stubNearWall = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: cmdgoNearWall })
+  await cdp.send('Page.reload')
+  const nearWallView = await pollEval(
+    cdp,
+    "(function(){var q=document.querySelector('.zcwv-qcard');if(!q||getComputedStyle(q).display==='none')return null;" +
+      'var rows=[].map.call(q.querySelectorAll(".zcwv-qrow"),function(r){return{r:r.querySelector(".zcwv-qname").textContent,p:r.querySelector(".zcwv-qpct").textContent,f:r.querySelector(".zcwv-qbar i").style.width}});' +
+      'var subs=[].map.call(q.querySelectorAll(".zcwv-qsub"),function(s){return s.textContent});' +
+      'return JSON.stringify({rows:rows,subs:subs})})()',
+    15000
+  )
+  const nearWallObj = nearWallView ? JSON.parse(nearWallView) : null
+  check(
+    '月池 99.54% 显示一位小数（不谎报已限流），其余窗口正常百分比，限流单账号说「已全部限流」',
+    !!nearWallObj &&
+      nearWallObj.rows[2].r === '本月' &&
+      nearWallObj.rows[2].p === '99.5%' &&
+      nearWallObj.rows[2].f === '99.54%' &&
+      nearWallObj.rows[1].p === '66%' &&
+      nearWallObj.rows[0].p === '30%' &&
+      nearWallObj.subs[0].indexOf('账号池已全部限流') !== -1,
+    JSON.stringify(nearWallObj && nearWallObj.rows)
+  )
+  if (stubNearWall && stubNearWall.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubNearWall.identifier })
+
   // ⑯c 点气泡推进到第二页（随机台词 / 自定义步）：额度卡必须让位，不能与台词叠加
   // （实测反馈：卡片的隐藏只写在 render() 顶部，而推进走 applyBubbleLines 直渲，
   // 于是第二页台词压在卡片上）
