@@ -780,11 +780,38 @@ function check(name, ok, detail) {
       monthly: { remaining: 3.96, total: 10, percent: 0.6044, resetAt: now + 25 * 24 * H },
     }
     check(
-      'snapshotUsable：网关 limited=true 即不可用（窗口全没满也一样），关掉标志恢复判定',
+      'snapshotUsable：limited 需佐证才采信——窗口撞墙或月池≥99% 即不可用；配额全满的粘滞残留（GOAT 升级）不算不可用',
       snapshotUsable(acctA) === false &&
         snapshotUsable(acctB) === false &&
-        snapshotUsable({ ...acctA, limited: false }) === true,
-      JSON.stringify({ a: snapshotUsable(acctA), aNoFlag: snapshotUsable({ ...acctA, limited: false }) })
+        // pigeon189 去掉月池佐证（percent < 0.99）后即使 limited=true 也恢复可用
+        snapshotUsable({ ...acctA, limited: false }) === true &&
+        snapshotUsable({ ...acctA, monthly: { ...acctA.monthly, percent: 0.5 } }) === true,
+      JSON.stringify({
+        a: snapshotUsable(acctA),
+        aNoFlag: snapshotUsable({ ...acctA, limited: false }),
+        aHalfPool: snapshotUsable({ ...acctA, monthly: { ...acctA.monthly, percent: 0.5 } }),
+      })
+    )
+    // GOAT 升级回归（2026-10-04 二次真机）：limited 粘滞残留 + 配额全满 → 可用，
+    // 且在有可用账号时优先展示它（不被「其他账号解锁更早」换人）
+    const goat = {
+      limited: true,
+      userName: 'pigeon189',
+      plan: 'GOAT',
+      monthly: { remaining: 69.23, total: 70, percent: 0.0111, resetAt: now + 31 * 24 * H },
+      fiveHour: { used: 0.774, cap: 14, exceeded: false, resetAt: now + 5 * H, remaining: 13.226, percent: 0.0553 },
+      weekly: { used: 0.774, cap: 35, exceeded: false, resetAt: now + 7 * 24 * H, remaining: 34.226, percent: 0.0221 },
+    }
+    check(
+      'GOAT 升级粘滞 limited：配额全满仍判可用，展示账号选它而非旧超额账号',
+      snapshotUsable(goat) === true,
+      JSON.stringify({ usable: snapshotUsable(goat) })
+    )
+    const withGoat = chooseSnapshot([snap('GOAT', goat), snap('C', acctC), snap('B', acctB)])
+    check(
+      '池里唯一健康的 GOAT 账号被选为展示账号（pool 可用数 1）',
+      withGoat.usable.length === 1 && withGoat.chosen.cand.ref === 'GOAT',
+      JSON.stringify({ usable: withGoat.usable.length, chosen: withGoat.chosen && withGoat.chosen.cand.ref })
     )
     // 生产顺序 = 最近使用优先：C 最新、A 次之、B 最旧；全部撞墙 → 选 B（今天重置）
     const allDead = chooseSnapshot([snap('C', acctC), snap('A', acctA), snap('B', acctB)])
