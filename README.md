@@ -1,5 +1,7 @@
 # ZCode狐娘小挂件（zcode-fox-widget）
 
+<div align="center"><img src="assets/fox.png" width="420" alt="ZCode狐娘小挂件"></div>
+
 > 产品名 **ZCode狐娘小挂件**（英文名 ZCode Fox Widget；更名前曾以「ZCode 版 DeepSeek 余额小鲸鱼挂件」「Widget of ZCode」发布）。在 ZCode 里常驻一位小狐娘（可一键切回原版小鲸鱼，或上传任意形象）：显示 **DeepSeek 余额**、**GLM Plan 剩余配额**、**CommandCode 三重额度**（月度池 + 5 小时/周窗口，多账号池）、**各厂商今日已用**（八家价目 + 34 个厂商模板、缓存/峰谷分档计价）、**当前峰谷时段**，每轮对话结束还会弹一个气泡告诉你 **上一轮花了多少钱 / 占了多少配额**。
 >
 > 它浮在 ZCode 窗口的右下角，跟着窗口移动/最小化/关闭，指针不在它身上时点击直接穿透到下面的应用——**不挡任何操作**；开「桌宠模式」后以整个屏幕工作区为家，切应用也不隐身，一直浮在最上层。
