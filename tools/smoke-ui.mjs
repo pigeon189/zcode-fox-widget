@@ -1225,9 +1225,9 @@ try {
     )
   )
   check(
-    'Kimi 余额进气泡小字：今日已用主数字不变，hint 带「· 余额 ¥ 8.51」',
-    !!kimiView && kimiView.label === 'Kimi 今日已用' && kimiView.amount === '¥ 0.28' &&
-      typeof kimiView.hint === 'string' && kimiView.hint.indexOf('余额 ¥ 8.51') !== -1,
+    'Kimi 余额主显示（v1.8.9 重构）：label「Kimi 余额」、amount ¥ 8.51、hint 今日已用 ¥ 0.28',
+    !!kimiView && kimiView.label === 'Kimi 余额' && kimiView.amount === '¥ 8.51' &&
+      typeof kimiView.hint === 'string' && kimiView.hint.indexOf('今日已用 ¥ 0.28') !== -1,
     JSON.stringify(kimiView)
   )
   if (stubVendor && stubVendor.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubVendor.identifier })

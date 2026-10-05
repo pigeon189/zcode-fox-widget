@@ -1,53 +1,24 @@
 # 更新日志（Changelog）
 
-本文件记录 ZCode狐娘小挂件（zcode-fox-widget）自 fork 以来（v1.1.0 起）每个版本的变更；各版本在仓库中均有对应的 tag 与 GitHub Release（v1.8.7/v1.8.8 应用户要求未单独发版，内容并入 v1.8.9 的 tag 与 Release）。
+本文件记录 ZCode狐娘小挂件（zcode-fox-widget）自 fork 以来（v1.1.0 起）每个版本的变更；各版本在仓库中均有对应的 tag 与 GitHub Release（v1.8.7–v1.8.10 的变更统一并入 v1.8.9 发版，中间版本号按用户要求跳过）。
 
 > 命名说明：v1.8.4 及更早的版本发布时，产品曾使用「ZCode 版 DeepSeek 余额小鲸鱼挂件」「Widget of ZCode」等名称；v1.8.5 起统一为 **ZCode狐娘小挂件**（zcode-fox-widget）。下文条目中的产品名一律按新名称书写，功能与修复的描述保持发布当时的原文。
 
 ---
 
-## v1.8.10 修复：Kimi 余额显示未生效——listVendorStatus 返回的是对象不是数组
+## v1.8.9 变更：Kimi 显示重构（余量主显示）+ 厂商余额链路修复 + kimi-coding 模板修复 + 用量记录回流
 
-v1.8.8 的 `attachVendorBalance` 按 `Array.isArray(list)` 取模板列表，而 `listVendorStatus()` 实际返回 `{ ok, vendors: [...] }` 包装（selftest 一直以 `vendors.vendors` 取数）——`vendorBalance` 从未被附进 session.json，气泡小字依旧没有余额。smoke 的桩直接把 vendorBalance 注进页面数据，没走这条真实路径，71/71 全绿属假阴性。
+> 发版说明（用户裁决，2026-10-05）：v1.8.7–v1.8.10 的累计变更统一以 v1.8.9 发版，中间版本号跳过，tag 指向本版。
 
-- 抽出并导出纯函数 `pickVendorBalance(list, templateIds)`（`lib/vendors.mjs`）：同时接受数组与包装对象、按优先级取第一个 `ok` 且 `balance` 为数字的模板；server 侧 attach 改用它。
-- selftest **228/228**（+2：包装形态+优先级、不可用条目跳过）。
+- **Kimi 显示重构（本版核心，用户指定）**：Kimi 源不再以「今日已用」为主数字——改为与 GLM Plan/余额视图同排版，主数字直接显示**账户余量**（标题「Kimi 余额」、大字 ¥ x、小字「今日已用 ¥ x」）；余额来自厂商模板（`session.json` 的 `vendorBalance`，5 分钟刷新），不可用时大字 `--`、小字照常。`{balance}` 占位符同步取余量；新增 `SOURCE_VIEW` 的 `vendor-balance` 视图类型。
+- **厂商余额接入 UI**：`/whale/vendors.json` 此前从未被前端消费——服务端 `readSessionSource()` 异步化，`SOURCE_BALANCE_TEMPLATES`（`kimi → moonshot-cn/moonshot-intl`，按优先级取第一个抓到余额的）+ `attachVendorBalance()` 把模板余额（复用其 5 分钟远程缓存，3 秒轮询不放大请求）附进 `session.json`。
+- **pickVendorBalance 修复**：`listVendorStatus()` 返回 `{ ok, vendors: [...] }` 包装对象，按数组取列表导致 `vendorBalance` 永远附不上（smoke 桩直接注字段造成假阴性）——抽出纯函数 `pickVendorBalance`（`lib/vendors.mjs`，兼容两种形态 + 优先级 + 只认 ok 且 balance 数字）并单测。
+- **kimi-coding 模板修复**：`api.kimi.com/coding/v1/usages` 无稳定 `remaining` 字段——字段宽容映射（`used/usage/consumed`、`limit/total/quota`、`remaining/left/remain` 缺失时 `limit − used` 兜底、`resetTime` 系）+ 双窗口（`usage`＝周额度，`limits[]` 折算 250–360 分钟识别 5 小时窗口，明细取 `row.detail || row`），与 MiniMax Coding 模板同形态；接口为官方服务器上的非公开接口（官方控制台在用，社区广泛逆向使用），字段可能变动。
+- **用量记录回流一级菜单**：「用量记录…」放回 v1.8.0 收纳前的位置（避让滚动条 / 桌宠 / 跟随延迟行之后、分隔线之前），按钮文案与点击行为与收纳前一致；记账二级页保留额度预警 / 余额预警 / 余额校正。
+- **随机台词权重调整（用户指定）**：rua 动图组 10 → 5、quotes 六条文案组 7 → 10、tail 三句尾语组 3 → 5；组内单条仍是均匀随机。
+- **README**：标题下加入小狐娘形象图 `assets/fox.png`（用户供图）。
 
----
-
-## v1.8.9 修复：kimi-coding 订阅模板字段错位——接口给 used/limit（无 remaining），并补双窗口
-
-上一版核实（官方文档 + 社区解析器）发现 `kimi-coding` 模板读 `usage.remaining`，而 `api.kimi.com/coding/v1/usages` 的响应**没有稳定的 remaining 字段**——`pick()` 恒返回 null，模板抓不到数据。
-
-- **字段宽容映射**：已用 `used/usage/consumed`、上限 `limit/total/quota`、剩余 `remaining/left/remain`（缺失时 `limit − used` 兜底）、重置时间 `resetTime/reset_time/resetAt/nextResetTime`。
-- **双窗口**：`usage`（或 `detail`）＝周（7 天）窗口；`limits[]` 滚动窗口数组按 `window.duration`+`timeUnit`（HOUR/DAY/SECOND/分钟）折算分钟，250–360 分钟识别为 **5 小时**会话窗口（明细取 `row.detail || row`）。输出两条：`周额度` + `5 小时`，与 MiniMax Coding 模板同款形态。
-- 兼容：旧的 `usage.remaining` 夹具在新逻辑下结果不变（selftest 原断言保留并通过）。
-- 说明：该接口为官方服务器上的非公开接口（官方控制台/IDE 插件在用，社区广泛逆向使用），字段可能变动，官方不承诺稳定；本版无 `sk-kimi-` 凭据，未能真机实测，解析按社区多源交叉核实。
-
-测试：`tools/selftest.mjs` **226/226**（+3：used/limit 口径、双窗口 HOUR、SECOND 折算与缺 resetAt）。
-- **发版说明**：本 tag 覆盖 v1.8.7–v1.8.9 的累计变更（v1.8.7 用量记录回流一级菜单 + 台词权重调整、v1.8.8 Kimi/Moonshot 余额显示进气泡、本版 kimi-coding 模板修复）；v1.8.7/v1.8.8 按用户要求未单独打 tag，直接跳过，提交清单见 Release 下方（v1.8.6 起全部列出）。
-
----
-
-## v1.8.8 新增：Kimi/Moonshot 余额显示进气泡（厂商模板余额接入 UI）
-
-用户实测：配置 Kimi（api.moonshot.cn）provider 后对话，气泡只有「今日已用」——余额其实已被 `moonshot-cn` 模板抓到（真机 `/whale/vendors.json` 返回 `ok:true`、可用余额 ¥8.51，凭据自动发现自 provider 配置），但 `/whale/vendors.json` 从未被前端消费，厂商模板余额没有任何 UI 出口。
-
-- **服务端**：`readSessionSource()` 异步化，新增 `SOURCE_BALANCE_TEMPLATES`（source id → 模板 id，当前 `kimi → moonshot-cn/moonshot-intl`，按优先级取第一个抓到余额的）与 `attachVendorBalance()`，把模板余额（复用其 5 分钟远程缓存，3 秒轮询不放大请求）附进 `/whale/session.json` 的 `vendorBalance` 字段。
-- **前端**：money 视图小字追加「· 余额 ¥ x」（主数字保持今日已用，v1.2.0 口径不变）；按压泡泡的 `{balance}` 占位符在该厂商有余额时改显示真实余额（原为今日已用）。
-- 顺带核实（2026-10-05 官方文档 + 社区工具）：余额接口 `GET /v1/users/me/balance` 为官方文档接口（platform.kimi.com/docs/api/balance）；Kimi For Coding 用量接口 `api.kimi.com/coding/v1/usages` 为非官方内部接口，响应是 `used`/`limit`（无 `remaining`）——现有 `kimi-coding` 模板读 `usage.remaining` 抓不到数据，待后续修复（需 `sk-kimi-` 凭据验证）。
-
-测试：`tools/selftest.mjs` 223/223、`tools/smoke-ui.mjs` 71/71（+1：Kimi 源小字带「· 余额 ¥ 8.51」断言）。
-
----
-
-## v1.8.7 变更：随机台词权重调整（用户指定）；用量记录移回一级菜单
-
-- **台词权重**（用户指定）：rua 动图组 10 → **5**、quotes 六条文案组 7 → **10**、tail 三句尾语组 3 → **5**；峰谷时段页 45、好模型/好女孩 7、哦鲸鲸 1 不变。组内单条台词仍是均匀随机（无逐条权重），想提高某句话的出现率可在其数组里重复一份。
-- **用量记录移回一级菜单**：v1.8.0 曾把「用量记录及以下」全部收进「=角色名记账=」二级页，本次把「用量记录…」放回收纳前的位置（避让滚动条 / 桌宠 / 跟随延迟行之后、分隔线之前），按钮文案与点击行为与收纳前一致；记账二级页保留额度预警 / 余额预警 / 余额校正。
-- 按用户要求，本版**未打 tag、未发布 Release**（CHANGELOG 照常记录）。
-
-测试：`tools/selftest.mjs` 223/223、`tools/smoke-ui.mjs` 70/70（记账页断言改为 3 行且不含用量记录，新增一级菜单「用量记录…」按钮断言）。
+测试：`tools/selftest.mjs` **228/228**、`tools/smoke-ui.mjs` **71/71**（Kimi 断言更新为余额主显示）。
 
 ---
 
