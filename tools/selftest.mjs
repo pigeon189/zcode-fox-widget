@@ -1927,6 +1927,38 @@ try {
   })
   const bcReset = await getJson(port, '/whale/bubble-content.json')
   check('按压泡泡可恢复默认（清空序列）', bcReset && bcReset.v === 2 && bcReset.steps.length === 0, JSON.stringify(bcReset).slice(0, 80))
+  // 大而合法的定制配置必须能存（回归：写入路由曾走默认 8KB 请求体上限，
+  // 编辑器允许的合法配置保存必被 400「body too large」拒掉——审查 P2-1）
+  const bigSteps = []
+  for (let i = 0; i < 12; i++) {
+    bigSteps.push({
+      modules: [
+        { type: 'rand', size: 'A', lines: Array.from({ length: 12 }, (_, j) => '字'.repeat(199) + j) },
+        { type: 'text', size: 'B', text: '文'.repeat(200) },
+        { type: 'rand', size: 'C', lines: Array.from({ length: 12 }, () => '词'.repeat(200)) },
+      ],
+    })
+  }
+  const bigBc = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: bigSteps }),
+  })
+  const bigBcBody = await bigBc.json()
+  check(
+    '按压泡泡大而合法的配置可保存（12 步 × 3 模块 × 12 行 × 200 字 ≈ 200KB）',
+    bigBc.ok && bigBcBody.ok === true && bigBcBody.steps.length === 12 &&
+      bigBcBody.steps[0].modules.length === 3 &&
+      bigBcBody.steps[0].modules[0].type === 'rand' && bigBcBody.steps[0].modules[0].lines.length === 12 &&
+      bigBcBody.steps[0].modules[0].lines[0].length === 200 &&
+      bigBcBody.steps[0].modules[1].text.length === 200,
+    JSON.stringify({ status: bigBc.status, steps: bigBcBody.steps && bigBcBody.steps.length })
+  )
+  await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: [] }),
+  })
 
   // 余额校正接口：GET 汇总 + POST 落账（自检环境无 DeepSeek 账本，应为空本形态）
   const adjGet = await getJson(port, '/whale/balance-adjustments.json')
