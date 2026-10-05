@@ -6,6 +6,15 @@
 
 ---
 
+## v1.8.10 修复：Kimi 余额显示未生效——listVendorStatus 返回的是对象不是数组
+
+v1.8.8 的 `attachVendorBalance` 按 `Array.isArray(list)` 取模板列表，而 `listVendorStatus()` 实际返回 `{ ok, vendors: [...] }` 包装（selftest 一直以 `vendors.vendors` 取数）——`vendorBalance` 从未被附进 session.json，气泡小字依旧没有余额。smoke 的桩直接把 vendorBalance 注进页面数据，没走这条真实路径，71/71 全绿属假阴性。
+
+- 抽出并导出纯函数 `pickVendorBalance(list, templateIds)`（`lib/vendors.mjs`）：同时接受数组与包装对象、按优先级取第一个 `ok` 且 `balance` 为数字的模板；server 侧 attach 改用它。
+- selftest **228/228**（+2：包装形态+优先级、不可用条目跳过）。
+
+---
+
 ## v1.8.9 修复：kimi-coding 订阅模板字段错位——接口给 used/limit（无 remaining），并补双窗口
 
 上一版核实（官方文档 + 社区解析器）发现 `kimi-coding` 模板读 `usage.remaining`，而 `api.kimi.com/coding/v1/usages` 的响应**没有稳定的 remaining 字段**——`pick()` 恒返回 null，模板抓不到数据。

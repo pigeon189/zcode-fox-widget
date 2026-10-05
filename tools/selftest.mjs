@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
 import { shapePlanPayload, turnPlanUsage, extraAmountsOfTurn, quotaBucketForModel, readPlanBalance } from '../lib/plan-balance.mjs'
-import { getPath, TEMPLATES, fetchFromTemplate } from '../lib/vendors.mjs'
+import { getPath, TEMPLATES, fetchFromTemplate, pickVendorBalance } from '../lib/vendors.mjs'
 import { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } from '../lib/discover.mjs'
 import { computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } from '../lib/balance.mjs'
 import { mapZcodeTheme, themeOfConfig, resolveZcodeTheme } from '../lib/zcode-theme.mjs'
@@ -1146,6 +1146,19 @@ function check(name, ok, detail) {
       kd[1].label === '5 小时' && kd[1].percentUsed === 10 && kd[1].resetAt === '2026-10-05T18:00:00Z',
     JSON.stringify(kd)
   )
+  // v1.8.10：pickVendorBalance 兼容数组与 {vendors:[...]} 包装两种形态，
+  // 按优先级取第一个 ok 且 balance 为数字的模板；不可用条目跳过
+  const pvb = pickVendorBalance(
+    { ok: true, vendors: [{ id: 'moonshot-intl', ok: true, balance: 2.5, currency: 'USD' }, { id: 'moonshot-cn', ok: true, balance: 8.5, currency: 'CNY' }] },
+    ['moonshot-cn', 'moonshot-intl']
+  )
+  check(
+    '厂商余额挑选：包装对象形态 + 优先级取 moonshot-cn（CNY）',
+    pvb && pvb.id === 'moonshot-cn' && pvb.amount === 8.5 && pvb.currency === 'CNY',
+    JSON.stringify(pvb)
+  )
+  const pva = pickVendorBalance([{ id: 'moonshot-cn', available: false, reason: '未配置凭据' }], ['moonshot-cn', 'moonshot-intl'])
+  check('厂商余额挑选：数组形态 + 不可用条目跳过（返回 null）', pva === null, JSON.stringify(pva))
   const kb = TEMPLATES['kimi-coding'].quota.pick({
     usage: { used: 30, limit: 100 },
     limits: [{ window: { duration: 18000, timeUnit: 'TIME_UNIT_SECOND' }, detail: { used: 9, limit: 10 } }],
