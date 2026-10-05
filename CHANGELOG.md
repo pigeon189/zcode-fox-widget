@@ -6,6 +6,18 @@
 
 ---
 
+## v1.8.6 变更：移除「活性点 + DXGI」主动冻结检测，保留全部被动防线
+
+**用户可见的问题**：拖动 ZCode 窗口时，角色身上的活体检测点会延迟跟随——该点是 4px 实体 DOM，每 700ms 才重排一次位置并上报；拖动期间采样矩形与点的真实位置错位，还会误报「冻结」，触发肉眼可见的透明度闪烁。
+
+**审查结论（为什么移除而不是修）**：该机制 2026-10-01（v1.4.2）引入时，浮层对「合成器级冻结」没有任何防线，只能靠桌面像素对账来发现。此后防线逐版本前移，检测针对的失效模式已在源头被覆盖：遮挡计算禁用 + 三个后台化开关（v1.3.3/v1.8.2）冻结的最常见成因；首帧上屏门控（v1.3.3）与 60 秒出帧保险（`kickPresentation`，真冻结最迟 60 秒自愈）；DPI 变更自动重建窗口（v1.4.1，交换链死亡的对应解法）；显隐改透明度切换（v1.4.3）；视口钳制与帧调度逃生门（v1.8.1/v1.8.2，检测器自己引发的最坏 bug「每 5 秒自愈循环」的教训）。检测的独立价值只剩「4 秒发现 + 主动闪烁/重建」，代价却是一条永远可能时序错位的跨进程采样链（页面写矩形 → 文件 → PowerShell 桌面复制）、渲染器里一个永久存在的隐形像素 hack、一个常驻 C# 进程，以及拖动场景下的误报闪烁——被动防线 + `window restart` 一键重建完全覆盖其场景，故整体移除。
+
+**移除范围**：`lib/widget.js` 的活性点（`#__zcwLive`）与位置上报、`desktop/preload.cjs` 的 `sendLiveRect`、`desktop/main.cjs` 的 `whale:live-rect` 接收 / `dxgi-watch.ps1` 拉起 / 冻结判定 / 「闪烁 → 重建」自愈阶梯，删除 `desktop/dxgi-watch.ps1`。**保留**：`kickPresentation` 60 秒出帧保险、DPI 变更重建、`window restart`。黑匣子日志不再出现 `freeze-detected` / `freeze-heal` / `watcher-*` 行，`~/.zcode/whale/live-rect.json` 不再写入。
+
+测试：`tools/selftest.mjs` 223/223、`tools/smoke-ui.mjs` 69/69（-1：活性点断言随功能移除）。
+
+---
+
 ## v1.8.5 变更：更名「ZCode狐娘小挂件」（zcode-fox-widget），脱离 fork 独立建仓
 
 - **产品更名**：Widget of ZCode → **ZCode狐娘小挂件**（英文名 zcode-fox-widget）。README 标题、plugin.json / marketplace.json 描述、浮层窗口标题、页面 `<title>`、CLI 横幅、服务就绪日志、技能与命令文案全部更新；插件标识符由 `zcode-whale-widget` 改为 `zcode-fox-widget`，`/whale` 命令更名为 `/fox`。

@@ -43,7 +43,4 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
       } catch (err) {}
     })
   },
-  // 冻结检测：页面把「活性点」的物理屏幕矩形持续报上来，主进程用 DXGI
-  // 桌面复制采样该处像素做对账（页面在翻、屏幕不动 = 合成器冻结）
-  sendLiveRect: (rect) => ipcRenderer.send('whale:live-rect', rect),
 })

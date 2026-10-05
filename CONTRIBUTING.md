@@ -43,7 +43,7 @@
 
 - **不改写已推送历史**：不 force-push 已推送分支、不 rebase 已进入 PR 的提交；修错用新提交。
 - 提交前自检：`node tools/selftest.mjs` 全绿；改了前端交互再跑 `node tools/smoke-ui.mjs`。
-- **`desktop/*.ps1` 必须纯 ASCII**（`follow-window.ps1`、`dxgi-watch.ps1`）：提交前跑 `grep -nP '[^\x00-\x7F]' desktop/*.ps1`，必须零输出。Windows PowerShell 5.1 按 ANSI 代码页读取无 BOM 的 `.ps1`，非 ASCII 注释会解码成破坏语法的字节，脚本直接退出、跟随失效。
+- **`desktop/*.ps1` 必须纯 ASCII**（`follow-window.ps1`）：提交前跑 `grep -nP '[^\x00-\x7F]' desktop/*.ps1`，必须零输出。Windows PowerShell 5.1 按 ANSI 代码页读取无 BOM 的 `.ps1`，非 ASCII 注释会解码成破坏语法的字节，脚本直接退出、跟随失效。
 - 源码、示例与测试中不得出现可用凭据字面量；日志与 CLI 只输出掩码（如 `sk-8a…8c5`）。
 - SQL 一律参数绑定；出站请求走 `assertSafeUpstream` 白名单（扩展目标改 `lib/credentials.mjs`，厂商模板须显式声明 `host`）。
 

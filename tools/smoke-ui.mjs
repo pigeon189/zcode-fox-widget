@@ -1239,30 +1239,6 @@ try {
   )
   if (staleStub && staleStub.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: staleStub.identifier })
 
-  // ⑭ 冻结检测活性点：6px 灰点坐在鲸鱼不透明区，每 700ms 黑白翻转并暴露
-  // phase（主进程拿它与桌面像素哈希对账）。页面侧验证：点存在、phase 在
-  // 推进、位置落在鲸鱼图片矩形内。eval 无 awaitPromise，用 pollEval 的
-  // 轮询观察 phase 推进（首次见到记 p1，phase 超过 p1 才返回样本）
-  await cdp.send('Page.reload')
-  await new Promise((r) => setTimeout(r, 3500))
-  const liveView = await pollEval(
-    cdp,
-    "(function(){var L=window.__zcwLive,d=document.getElementById('__zcwLive');" +
-      'if(!L||!d)return null;' +
-      'if(window.__smokeP1===undefined){window.__smokeP1=L.phase;return null}' +
-      'if(L.phase<=window.__smokeP1)return null;' +
-      "var ir=document.querySelector('.zcwv-img'),dr=d.getBoundingClientRect(),r2=ir?ir.getBoundingClientRect():null;" +
-      'return JSON.stringify({p1:window.__smokeP1,p2:L.phase,' +
-      'inImg:!!(r2&&dr.left>=r2.left-2&&dr.right<=r2.right+2&&dr.top>=r2.top-2&&dr.bottom<=r2.bottom+2),' +
-      'w:dr.width})})()',
-    12000
-  )
-  const liveObj = liveView ? JSON.parse(liveView) : null
-  check(
-    '冻结检测活性点：存在、phase 推进、坐在鲸鱼图内',
-    !!liveObj && liveObj.p2 > liveObj.p1 && liveObj.inImg && liveObj.w <= 8,
-    JSON.stringify(liveObj)
-  )
   // ⑮ 用量记录：今日模型排名可在「按金额 / 按 Token」之间切换（v1.6.0）。
   // 先补一轮「小而贵」的模型，让两个榜的头部必然不同：GLM-4.7-Flash 是套餐
   // （金额 0、token 很大）→ token 榜第一；deepseek-flash 按量计价（金额 > 0）
