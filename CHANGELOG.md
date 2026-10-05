@@ -1,8 +1,22 @@
 # 更新日志（Changelog）
 
-本文件记录 ZCode狐娘小挂件（zcode-fox-widget）自 fork 以来（v1.1.0 起）每个版本的变更；v1.8.6 及更早的版本在仓库中有对应的 tag 与 GitHub Release。
+本文件记录 ZCode狐娘小挂件（zcode-fox-widget）自 fork 以来（v1.1.0 起）每个版本的变更；各版本在仓库中均有对应的 tag 与 GitHub Release（v1.8.7/v1.8.8 应用户要求未单独发版，内容并入 v1.8.9 的 tag 与 Release）。
 
 > 命名说明：v1.8.4 及更早的版本发布时，产品曾使用「ZCode 版 DeepSeek 余额小鲸鱼挂件」「Widget of ZCode」等名称；v1.8.5 起统一为 **ZCode狐娘小挂件**（zcode-fox-widget）。下文条目中的产品名一律按新名称书写，功能与修复的描述保持发布当时的原文。
+
+---
+
+## v1.8.9 修复：kimi-coding 订阅模板字段错位——接口给 used/limit（无 remaining），并补双窗口
+
+上一版核实（官方文档 + 社区解析器）发现 `kimi-coding` 模板读 `usage.remaining`，而 `api.kimi.com/coding/v1/usages` 的响应**没有稳定的 remaining 字段**——`pick()` 恒返回 null，模板抓不到数据。
+
+- **字段宽容映射**：已用 `used/usage/consumed`、上限 `limit/total/quota`、剩余 `remaining/left/remain`（缺失时 `limit − used` 兜底）、重置时间 `resetTime/reset_time/resetAt/nextResetTime`。
+- **双窗口**：`usage`（或 `detail`）＝周（7 天）窗口；`limits[]` 滚动窗口数组按 `window.duration`+`timeUnit`（HOUR/DAY/SECOND/分钟）折算分钟，250–360 分钟识别为 **5 小时**会话窗口（明细取 `row.detail || row`）。输出两条：`周额度` + `5 小时`，与 MiniMax Coding 模板同款形态。
+- 兼容：旧的 `usage.remaining` 夹具在新逻辑下结果不变（selftest 原断言保留并通过）。
+- 说明：该接口为官方服务器上的非公开接口（官方控制台/IDE 插件在用，社区广泛逆向使用），字段可能变动，官方不承诺稳定；本版无 `sk-kimi-` 凭据，未能真机实测，解析按社区多源交叉核实。
+
+测试：`tools/selftest.mjs` **226/226**（+3：used/limit 口径、双窗口 HOUR、SECOND 折算与缺 resetAt）。
+- **发版说明**：本 tag 覆盖 v1.8.7–v1.8.9 的累计变更（v1.8.7 用量记录回流一级菜单 + 台词权重调整、v1.8.8 Kimi/Moonshot 余额显示进气泡、本版 kimi-coding 模板修复）；v1.8.7/v1.8.8 按用户要求未单独打 tag，直接跳过，提交清单见 Release 下方（v1.8.6 起全部列出）。
 
 ---
 

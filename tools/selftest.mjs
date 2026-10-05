@@ -1128,6 +1128,33 @@ function check(name, ok, detail) {
   )
   const kc = TEMPLATES['kimi-coding'].quota.pick({ usage: { remaining: 25, limit: 100 } })
   check('新模板：Kimi Coding 剩余/总额 → 已用 75%', Array.isArray(kc) && kc.length === 1 && kc[0].percentUsed === 75, JSON.stringify(kc))
+  // v1.8.9：真实响应是 used/limit（无 remaining）+ usage=周窗口 + limits[]=滚动窗口；
+  // 5 小时窗口 = window.duration(timeUnit) 折算 250–360 分钟
+  const kw = TEMPLATES['kimi-coding'].quota.pick({ usage: { used: 30, limit: 100, resetTime: '2026-10-12T00:00:00Z' } })
+  check(
+    'kimi-coding：used/limit 口径 → 周额度 70%，resetTime 透传',
+    Array.isArray(kw) && kw.length === 1 && kw[0].label === '周额度' && kw[0].percentUsed === 30 && kw[0].resetAt === '2026-10-12T00:00:00Z',
+    JSON.stringify(kw)
+  )
+  const kd = TEMPLATES['kimi-coding'].quota.pick({
+    usage: { used: 30, limit: 100, resetTime: '2026-10-12T00:00:00Z' },
+    limits: [{ window: { duration: 5, timeUnit: 'TIME_UNIT_HOUR' }, detail: { used: 2, limit: 20, resetTime: '2026-10-05T18:00:00Z' } }],
+  })
+  check(
+    'kimi-coding：双窗口——周额度在前，5 小时窗口（HOUR×5=300 分钟）取 row.detail',
+    Array.isArray(kd) && kd.length === 2 && kd[0].label === '周额度' && kd[0].percentUsed === 30 &&
+      kd[1].label === '5 小时' && kd[1].percentUsed === 10 && kd[1].resetAt === '2026-10-05T18:00:00Z',
+    JSON.stringify(kd)
+  )
+  const kb = TEMPLATES['kimi-coding'].quota.pick({
+    usage: { used: 30, limit: 100 },
+    limits: [{ window: { duration: 18000, timeUnit: 'TIME_UNIT_SECOND' }, detail: { used: 9, limit: 10 } }],
+  })
+  check(
+    'kimi-coding：SECOND 单位折算（18000s=300 分钟）也识别为 5 小时窗口；缺 resetAt 为 null',
+    Array.isArray(kb) && kb.length === 2 && kb[1].label === '5 小时' && kb[1].percentUsed === 90 && kb[1].resetAt === null,
+    JSON.stringify(kb)
+  )
   const zi = TEMPLATES['zhipu-coding-intl'].quota.pick({ data: { limits: [{ TOKENS_LIMIT: { percentage: 88 } }] } })
   check('新模板：国际站 z.ai 与国内站同形（host 换域）', Array.isArray(zi) && zi[0].percentUsed === 88, JSON.stringify(zi))
   check(
