@@ -6,6 +6,18 @@
 
 ---
 
+## v1.8.8 新增：Kimi/Moonshot 余额显示进气泡（厂商模板余额接入 UI）
+
+用户实测：配置 Kimi（api.moonshot.cn）provider 后对话，气泡只有「今日已用」——余额其实已被 `moonshot-cn` 模板抓到（真机 `/whale/vendors.json` 返回 `ok:true`、可用余额 ¥8.51，凭据自动发现自 provider 配置），但 `/whale/vendors.json` 从未被前端消费，厂商模板余额没有任何 UI 出口。
+
+- **服务端**：`readSessionSource()` 异步化，新增 `SOURCE_BALANCE_TEMPLATES`（source id → 模板 id，当前 `kimi → moonshot-cn/moonshot-intl`，按优先级取第一个抓到余额的）与 `attachVendorBalance()`，把模板余额（复用其 5 分钟远程缓存，3 秒轮询不放大请求）附进 `/whale/session.json` 的 `vendorBalance` 字段。
+- **前端**：money 视图小字追加「· 余额 ¥ x」（主数字保持今日已用，v1.2.0 口径不变）；按压泡泡的 `{balance}` 占位符在该厂商有余额时改显示真实余额（原为今日已用）。
+- 顺带核实（2026-10-05 官方文档 + 社区工具）：余额接口 `GET /v1/users/me/balance` 为官方文档接口（platform.kimi.com/docs/api/balance）；Kimi For Coding 用量接口 `api.kimi.com/coding/v1/usages` 为非官方内部接口，响应是 `used`/`limit`（无 `remaining`）——现有 `kimi-coding` 模板读 `usage.remaining` 抓不到数据，待后续修复（需 `sk-kimi-` 凭据验证）。
+
+测试：`tools/selftest.mjs` 223/223、`tools/smoke-ui.mjs` 71/71（+1：Kimi 源小字带「· 余额 ¥ 8.51」断言）。
+
+---
+
 ## v1.8.7 变更：随机台词权重调整（用户指定）；用量记录移回一级菜单
 
 - **台词权重**（用户指定）：rua 动图组 10 → **5**、quotes 六条文案组 7 → **10**、tail 三句尾语组 3 → **5**；峰谷时段页 45、好模型/好女孩 7、哦鲸鲸 1 不变。组内单条台词仍是均匀随机（无逐条权重），想提高某句话的出现率可在其数组里重复一份。

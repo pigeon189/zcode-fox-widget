@@ -1200,6 +1200,38 @@ try {
   )
   if (stubA && stubA.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubA.identifier })
 
+  // ⑪b 厂商余额进气泡小字（v1.8.8）：有官方余额模板的按量厂商（Kimi/Moonshot），
+  // 服务端把模板余额附进 session.json（vendorBalance），小字显示「· 余额 ¥ x」，
+  // 主数字保持今日已用。桩直接给 vendorBalance + Kimi 的 byVendor 用量。
+  await putSize({ scale: 1.5, theme: 'dark', displayMode: 'auto', alerts: { quotaPct: 0, moneyAlert: 0 } })
+  const stubVendor = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source:
+      '(function(){var real=window.fetch;function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
+      'var S={ok:true,source:"kimi",vendor:"kimi",label:"Kimi 今日已用",timeMode:"none",modelId:"kimi-k3",currency:"CNY",from:"selection",vendorBalance:{id:"moonshot-cn",amount:8.508731,currency:"CNY"}};' +
+      'var U={ok:true,today:{total:0.28,tokens:54000,totals:{CNY:0.28},byVendor:{Kimi:{amount:0.28,tokens:54000,currency:"CNY"}},models:[]}};' +
+      'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
+      'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
+      'if(s.indexOf("/whale/usage-records.json")!==-1)return json(U);' +
+      'return real.apply(this,arguments)}})()',
+  })
+  await cdp.send('Page.reload')
+  // 首次用量拉取在页面加载后 8 秒（setTimeout(refreshUsageSummary, 8000)），
+  // amount/hint 依赖 usageToday，必须等过这个节拍
+  await new Promise((r) => setTimeout(r, 9500))
+  const kimiView = JSON.parse(
+    await cdp.eval(
+      "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
+        'return JSON.stringify({label:l?l.textContent:null,amount:a?a.textContent:null,hint:h?h.textContent:null})})()'
+    )
+  )
+  check(
+    'Kimi 余额进气泡小字：今日已用主数字不变，hint 带「· 余额 ¥ 8.51」',
+    !!kimiView && kimiView.label === 'Kimi 今日已用' && kimiView.amount === '¥ 0.28' &&
+      typeof kimiView.hint === 'string' && kimiView.hint.indexOf('余额 ¥ 8.51') !== -1,
+    JSON.stringify(kimiView)
+  )
+  if (stubVendor && stubVendor.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubVendor.identifier })
+
   // ⑫ 消费型预警已取消（v1.7.7）：美元厂商今日已用再大也不弹预警泡，「余额¥」
   // 只剩 DeepSeek 余额见底一个语义（冒烟环境没有 DS key，凑不出余额见底，负向
   // 断言：喂 OpenAI 消耗数据后 9 秒内不得出现任何「预警」标题的泡泡）
