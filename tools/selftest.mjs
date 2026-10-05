@@ -17,6 +17,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
 import { shapePlanPayload, turnPlanUsage, extraAmountsOfTurn, quotaBucketForModel, readPlanBalance } from '../lib/plan-balance.mjs'
 import { getPath, TEMPLATES, fetchFromTemplate, pickVendorBalance } from '../lib/vendors.mjs'
+import { isBlockedHost } from '../lib/blocked-host.mjs'
 import { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } from '../lib/discover.mjs'
 import { computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } from '../lib/balance.mjs'
 import { mapZcodeTheme, themeOfConfig, resolveZcodeTheme } from '../lib/zcode-theme.mjs'
@@ -1380,6 +1381,24 @@ try {
     'keySource=' + health.keySource + ' entries=' + ((health.keyProbe && health.keyProbe.entries) || []).length
   )
   const port = health.port
+
+  // 审查 P2-2：版本号单一来源——health（server 动态读 plugin.json）、清单、
+  // marketplace.json 副本三者一致，漂移即发版漏改
+  const pluginManifest = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, '.zcode-plugin', 'plugin.json'), 'utf8'))
+  const marketplaceManifest = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'marketplace.json'), 'utf8'))
+  check(
+    '版本号单一来源：health = plugin.json = marketplace.json',
+    health.version === pluginManifest.version && marketplaceManifest.plugins[0].version === pluginManifest.version,
+    JSON.stringify({ health: health.version, plugin: pluginManifest.version, market: marketplaceManifest.plugins[0].version })
+  )
+  // 审查 P3-2：本地/私有判定统一口径——link-local / CGNAT / 0.0.0.0/8 都拦、
+  // 公网域名放行；discover 与 credentials 共用 lib/blocked-host.mjs
+  check(
+    '本地判定统一口径：169.254/100.64/0.0.0.0 拦截、公网放行',
+    isBlockedHost('169.254.169.254') && isBlockedHost('100.64.0.1') && isBlockedHost('0.1.2.3') &&
+      isBlockedHost('localhost') && isBlockedHost('192.168.1.1') && !isBlockedHost('api.deepseek.com'),
+    JSON.stringify({ linkLocal: isBlockedHost('169.254.169.254'), cgnat: isBlockedHost('100.64.0.1'), thisNet: isBlockedHost('0.1.2.3') })
+  )
 
   const first = await getJson(port, '/whale/last-turn.json')
   check('启动时对齐历史轮次（seq=0，不弹旧轮次）', first.seq === 0 && first.turn === null, JSON.stringify(first))

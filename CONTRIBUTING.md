@@ -37,7 +37,7 @@
 ### 版本号（release 纪律）
 
 - 版本变更必须独立成 `chore(release): vX.Y.Z`，body 列变更清单。**禁止把版本号变更悄悄夹带进 feat/fix**（v1.6.0–v1.7.2 曾四次这样夹带，本条即为教训成文）。
-- 版本号三处同步，release commit 一并改齐：`.zcode-plugin/plugin.json`、`marketplace.json`、`lib/server.mjs` 的 `VERSION`。`desktop/package.json` 是浮层入口包，版本独立，不在三处之列。
+- 版本号单一来源：`.zcode-plugin/plugin.json`（`lib/paths.mjs` 的 `pluginVersion()` 供 server 的 health 与 MCP 动态读取——审查 P2-2 之前 server.mjs 硬编码第三份，已移除）。release commit 仍需同步改 `marketplace.json` 的版本；selftest 有「health = 清单 = marketplace」一致性断言兜底。`desktop/package.json` 是浮层入口包，版本独立，不在此列。
 
 ## 提交纪律
 
