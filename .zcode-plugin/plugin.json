@@ -7,7 +7,7 @@
     "zh-CN": "ZCode狐娘小挂件（zcode-fox-widget）：常驻网页挂件显示余额与今日已用，支持峰谷定价、每轮对话消耗统计、随机台词、音效与拖拽吸附。移植自 MeteorNOX 的 DSH 版 dsh-whale-widget。"
   },
   "author": {
-    "name": "Ported from MeteorNOX/DeepSeek-Balance-Whale-Widget"
+    "name": "zcode-fox-widget contributors"
   },
   "license": "MIT",
   "keywords": [
