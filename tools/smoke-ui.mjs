@@ -938,8 +938,8 @@ try {
     alertRow && alertRow.text.indexOf('余额¥') !== -1 && alertRow.inputs === 2 && alertRow.text.indexOf('DS¥') === -1 && alertRow.text.indexOf('BM¥') === -1,
     JSON.stringify(alertRow)
   )
-  // ⑨d 记账二级页（v1.8.0）：一级菜单只剩入口按钮，「用量记录及以下」的功能都在
-  // 二级页里；面板能开能关（关掉是必须的——面板锚在鲸鱼头顶，留着会挡住后面
+  // ⑨d 记账二级页（v1.8.0 引入；v1.8.7 起用量记录回到一级菜单，本页只剩预警
+  // 与校正）；面板能开能关（关掉是必须的——面板锚在鲸鱼头顶，留着会挡住后面
   // 用例的真实点击）
   const bookEntry = JSON.parse(
     await cdp.eval(
@@ -968,10 +968,11 @@ try {
         "inputs:p?p.querySelectorAll('input[type=number]').length:0})}}return null})()"
     )
   )
-  // 4 个数字输入框 = 额度% + 余额¥ + 到账¥ + 扣减¥（校正也收进了这一页）
+  // 4 个数字输入框 = 额度% + 余额¥ + 到账¥ + 扣减¥（校正收在这一页）；
+  // 用量记录不在本页（v1.8.7 移回一级菜单）
   check(
-    '记账二级页：入口可开，含用量记录 / 两个阈值 / 两个校正输入（4 行）',
-    !!bookOpened && bookOpened.open === true && bookOpened.rows === 4 && bookOpened.hasUsage === true && bookOpened.inputs === 4,
+    '记账二级页：入口可开，只含两个阈值 / 两个校正输入（3 行，无用量记录）',
+    !!bookOpened && bookOpened.open === true && bookOpened.rows === 3 && bookOpened.hasUsage === false && bookOpened.inputs === 4,
     JSON.stringify(bookOpened)
   )
   const bookClosed = JSON.parse(
@@ -982,6 +983,18 @@ try {
     )
   )
   check('记账二级页：返回按钮收起面板', !!bookClosed && bookClosed.open === false, JSON.stringify(bookClosed))
+  // 用量记录回到一级菜单（v1.8.7）：菜单里恰有一个「用量记录…」按钮
+  const usageInMenu = JSON.parse(
+    await cdp.eval(
+      "(function(){var bs=document.querySelectorAll('.zcwv-menu-row button');var n=0;" +
+        "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='用量记录…')n++}return JSON.stringify({n:n})})()"
+    )
+  )
+  check(
+    '用量记录回到一级菜单：菜单里恰有一个「用量记录…」按钮',
+    !!usageInMenu && usageInMenu.n === 1,
+    JSON.stringify(usageInMenu)
+  )
 
   // ⑨b UI 审查回归（v1.7.3）：U5 分隔线节点复用 / U3 下拉实色底 / U6 编辑器复选框类
   const menuStruct = JSON.parse(
