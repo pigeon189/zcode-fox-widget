@@ -460,13 +460,13 @@ try {
     12000
   )
   check(
-    '角色下拉：三行都有删除（内置两个也可删，v1.6.0）+ 触发器显示当前角色名',
+    '角色下拉：每行都有删除（内置形象也可删，v1.6.0）+ 触发器显示当前角色名',
     roleView &&
       roleView.names.indexOf('小狐娘') !== -1 &&
       roleView.names.indexOf('小鲸鱼') !== -1 &&
       roleView.names.indexOf('冒烟角色') !== -1 &&
-      roleView.del === 3 &&
-      roleView.builtin === 2 &&
+      roleView.del === 6 &&
+      roleView.builtin === 5 &&
       roleView.open === true &&
       roleView.trigger === '冒烟角色',
     JSON.stringify(roleView)
@@ -521,7 +521,7 @@ try {
   )
   check(
     '删除当前导入角色后回落默认小狐娘（roles 只剩内置、图片 608px）',
-    rolesAfterDelete.roles.length === 2 && rolesAfterDelete.selected === 'fox' && imgAfterDelete === 608,
+    rolesAfterDelete.roles.length === 5 && rolesAfterDelete.selected === 'fox' && imgAfterDelete === 608,
     JSON.stringify({ n: rolesAfterDelete.roles.length, selected: rolesAfterDelete.selected, nw: imgAfterDelete })
   )
   // ⑦d 内置形象也能删（v1.6.0）：删掉「小狐娘」→ 列表少一个、选中的不再是它、
@@ -545,7 +545,7 @@ try {
   )
   check(
     '删掉内置「小狐娘」：列表不再有它、选中项换人、图片仍可用',
-    rolesAfterBuiltinDel.roles.filter((r) => r.builtin).map((r) => r.id).join(',') === 'whale' &&
+    rolesAfterBuiltinDel.roles.filter((r) => r.builtin).map((r) => r.id).join(',') === 'whale,gpt,kimi,xiaoke' &&
       rolesAfterBuiltinDel.selected !== 'fox' &&
       imgAfterBuiltinDel > 1,
     JSON.stringify({ builtins: rolesAfterBuiltinDel.roles.filter((r) => r.builtin).map((r) => r.id), selected: rolesAfterBuiltinDel.selected, nw: imgAfterBuiltinDel })
@@ -558,7 +558,7 @@ try {
   const rolesRestored = await (await fetch('http://127.0.0.1:' + PORT + '/whale/roles.json')).json()
   check(
     '清掉 hiddenBuiltins 后内置形象回来（README 的找回路径）',
-    rolesRestored.roles.filter((r) => r.builtin).length === 2,
+    rolesRestored.roles.filter((r) => r.builtin).length === 5,
     JSON.stringify(rolesRestored.roles.filter((r) => r.builtin).map((r) => r.id))
   )
 
@@ -581,6 +581,51 @@ try {
       themeOpts.texts.indexOf('深色模式') !== -1 &&
       themeOpts.texts.indexOf('跟随 ZCode') !== -1,
     JSON.stringify(themeOpts)
+  )
+  // 气泡配色随角色（浅色 + 深色两套）：未登记角色（用户导入的）回落到小鲸鱼
+  const ROLE_INK = {
+    whale: { light: 'rgb(32, 49, 112)', dark: 'rgb(93, 141, 222)' },
+    fox: { light: 'rgb(61, 68, 96)', dark: 'rgb(93, 109, 126)' },
+    gpt: { light: 'rgb(123, 111, 196)', dark: 'rgb(211, 186, 231)' },
+    kimi: { light: 'rgb(173, 129, 255)', dark: 'rgb(180, 184, 227)' },
+    xiaoke: { light: 'rgb(217, 119, 87)', dark: 'rgb(217, 119, 87)' },
+  }
+  const curRole = (await (await fetch('http://127.0.0.1:' + PORT + '/whale/roles.json')).json()).selected
+  const wantInk = ROLE_INK[curRole] || ROLE_INK.whale
+  const readInk = async () =>
+    JSON.parse(
+      await cdp.eval(
+        "(function(){var s=document.querySelector('.zcwv-bubble .zcwv-bshape');var t=document.querySelector('.zcwv-text');" +
+          "return JSON.stringify({stroke:s?getComputedStyle(s).stroke:null,text:t?getComputedStyle(t).color:null," +
+          "dark:document.documentElement.classList.contains('zcwv-theme-dark')})})()"
+      )
+    )
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, theme: 'light' }),
+  })
+  // 主题要重载页面才落地（与其他主题用例同一套做法）
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+  const inkLight = await readInk()
+  check(
+    '浅色：气泡描边与文字都按角色着色（未登记角色回落小鲸鱼蓝）',
+    !!inkLight && inkLight.dark === false && inkLight.stroke === wantInk.light && inkLight.text !== 'rgb(212, 212, 212)',
+    JSON.stringify({ role: curRole, ink: inkLight })
+  )
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, theme: 'dark' }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+  const inkDark = await readInk()
+  check(
+    '深色：气泡描边与文字也按角色着色（同一套角色映射）',
+    !!inkDark && inkDark.dark === true && inkDark.stroke === wantInk.dark,
+    JSON.stringify({ role: curRole, ink: inkDark })
   )
   // 把系统偏好模拟成深色，而 fixture 里 ZCode 是 zai-light（浅色）：
   // 页面必须仍是浅色 = 跟的是 ZCode 而不是系统
@@ -969,10 +1014,11 @@ try {
     )
   )
   // 4 个数字输入框 = 额度% + 余额¥ + 到账¥ + 扣减¥（校正收在这一页）；
-  // 用量记录不在本页（v1.8.7 移回一级菜单）
+  // 4 行 = 预警阈值 + 预警内容模板（DSH 移植：Plan / CmdGo / 余额三入口）+
+  // 校正 + 其余行（结构见 buildBookPanel）；用量记录不在本页（v1.8.7 移回一级菜单）
   check(
-    '记账二级页：入口可开，只含两个阈值 / 两个校正输入（3 行，无用量记录）',
-    !!bookOpened && bookOpened.open === true && bookOpened.rows === 3 && bookOpened.hasUsage === false && bookOpened.inputs === 4,
+    '记账二级页：入口可开，阈值 / 预警内容模板 / 校正齐备（4 行，无用量记录）',
+    !!bookOpened && bookOpened.open === true && bookOpened.rows === 4 && bookOpened.hasUsage === false && bookOpened.inputs === 4,
     JSON.stringify(bookOpened)
   )
   const bookClosed = JSON.parse(
@@ -1009,6 +1055,77 @@ try {
     !!menuStruct && menuStruct.seps === 2 && menuStruct.rolesAlpha === 1,
     JSON.stringify(menuStruct)
   )
+  // 隐藏菜单按钮（移植 DSH）：开启后按钮不再出现、右键角色唤出菜单且落地持久化
+  const hideRow = JSON.parse(
+    await cdp.eval(
+      "(function(){var rows=document.querySelectorAll('.zcwv-menu-row');" +
+        "for(var i=0;i<rows.length;i++){if(rows[i].textContent.indexOf('隐藏菜单按钮')!==-1){" +
+        "var c=rows[i].querySelector('input[type=checkbox]');if(!c)return null;c.click();" +
+        "return JSON.stringify({found:true,checked:c.checked,cls:c.className})}}return null})()"
+    )
+  )
+  // 悬停在角色上（原本会让按钮显形）也不该再出现按钮
+  const whalePt = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.querySelector('.zcwv-root img');" +
+        "return JSON.stringify({x:Math.round(r.getBoundingClientRect().left+40),y:Math.round(r.getBoundingClientRect().top+40)})})()"
+    )
+  )
+  await cdp.eval(
+    "(function(){document.dispatchEvent(new PointerEvent('pointermove',{clientX:" +
+      whalePt.x + ",clientY:" + whalePt.y + ",bubbles:true,pointerType:'mouse'}));return 'ok'})()"
+  )
+  await new Promise((r) => setTimeout(r, 200))
+  const btnHidden = JSON.parse(
+    await cdp.eval(
+      "(function(){var b=document.querySelector('.zcwv-menu-btn');" +
+        "return JSON.stringify({visible:b.classList.contains('zcwv-menu-btn-visible')," +
+        "pe:getComputedStyle(b).pointerEvents})})()"
+    )
+  )
+  const hideSaved = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check(
+    '隐藏菜单按钮：开启后悬停也不显形（按钮已消失）且写入配置',
+    !!hideRow && hideRow.found === true && hideRow.checked === true && hideRow.cls.indexOf('zcwv-check') !== -1 &&
+      !!btnHidden && btnHidden.visible === false && btnHidden.pe === 'none' &&
+      hideSaved.menuBtnHide === true,
+    JSON.stringify({ row: hideRow, btn: btnHidden, saved: hideSaved.menuBtnHide })
+  )
+  // 关掉菜单（点界面之外）→ 右键角色重新唤出：位置与点按钮唤出一致（锚点仍是按钮矩形）
+  await cdp.eval("(function(){document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));return 'ok'})()")
+  await new Promise((r) => setTimeout(r, 200))
+  const menuClosed = JSON.parse(await cdp.eval("(function(){return JSON.stringify({open:document.querySelector('.zcwv-menu').classList.contains('zcwv-menu-open')})})()"))
+  const openedByRight = JSON.parse(
+    await cdp.eval(
+      // 角色本体在画布右下（气泡占左上），右键得落在角色身上；逐个候选点试，
+      // 落到气泡/面板（chrome）上的会被正确忽略，所以要多试几个
+      '(function(){var img=document.querySelector(".zcwv-root img");var r=img.getBoundingClientRect();' +
+        'var cands=[[0.72,0.62],[0.62,0.72],[0.82,0.55],[0.55,0.78],[0.68,0.5]];' +
+        'var m=document.querySelector(".zcwv-menu");' +
+        'for(var i=0;i<cands.length;i++){var x=Math.round(r.left+r.width*cands[i][0]),y=Math.round(r.top+r.height*cands[i][1]);' +
+        'var t=document.elementFromPoint(x,y);' +
+        'if(!t||t.closest(".zcwv-bubble")||t.closest(".zcwv-menu")||t.closest(".zcwv-panel"))continue;' +
+        't.dispatchEvent(new MouseEvent("contextmenu",{clientX:x,clientY:y,bubbles:true,cancelable:true}));' +
+        'if(m.classList.contains("zcwv-menu-open")){var mr=m.getBoundingClientRect();' +
+        'return JSON.stringify({open:true,anchored:mr.left>0&&mr.top>0,tried:i+1})}}' +
+        'return JSON.stringify({open:false,anchored:false,tried:cands.length})})()'
+    )
+  )
+  check(
+    '隐藏菜单按钮：右键角色可正常唤出菜单（菜单已收起后再唤出，位置锚点有效）',
+    !!menuClosed && menuClosed.open === false && !!openedByRight && openedByRight.open === true && openedByRight.anchored === true,
+    JSON.stringify({ closed: menuClosed, right: openedByRight })
+  )
+  // 复原：关掉菜单并把开关拨回（后续用例依赖按钮可点）
+  await cdp.eval(
+    "(function(){document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));" +
+      "var rows=document.querySelectorAll('.zcwv-menu-row');for(var i=0;i<rows.length;i++){" +
+      "if(rows[i].textContent.indexOf('隐藏菜单按钮')!==-1){var c=rows[i].querySelector('input[type=checkbox]');" +
+      "if(c&&c.checked)c.click()}}return 'ok'})()"
+  )
+  await new Promise((r) => setTimeout(r, 200))
+  const hideRestored = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check('隐藏菜单按钮：关闭后恢复原状（配置回 false）', hideRestored.menuBtnHide === false, JSON.stringify({ saved: hideRestored.menuBtnHide }))
   await cdp.eval(
     "(function(){var bs=document.querySelectorAll('button');for(var i=0;i<bs.length;i++){" +
       "if(bs[i].textContent==='按压泡泡设置'){bs[i].click();return true}}return false})()"
@@ -1025,6 +1142,81 @@ try {
     !!advChk && advChk.open === true && advChk.cls.indexOf('zcwv-check') !== -1,
     JSON.stringify(advChk)
   )
+  // 出厂默认队列（无自定义配置时）：第二次点击是一个加权三选一（峰谷文字 /
+  // 随机语句 / rua 动图），三张并排子卡各带权重角标——不再有"内置随机语句"
+  // 这类不可编辑的壳（对照 DSH：默认内容同样是普通可编辑配置）
+  const defQueue = JSON.parse(
+    await pollEval(
+      cdp,
+      "(function(){var c=document.querySelectorAll('.zcwv-bq-card');var b=document.querySelectorAll('.zcwv-bq-wbadge');" +
+        "if(!c.length)return null;return JSON.stringify({cards:c.length,badges:b.length})})()",
+      6000
+    )
+  )
+  check(
+    '出厂默认队列：再次点击是加权三选一（三张带权重角标的变体卡）',
+    !!defQueue && defQueue.badges === 3 && defQueue.cards >= 4,
+    JSON.stringify(defQueue)
+  )
+  // 调色板「直接拖进下方虚线框」（审查 P3-D 回归）：落点必须是面板里那个虚线框节点本身。
+  // 曾经这里重复 var 出一个游离节点当落点，wirePointerDrop 的
+  // elementFromPoint(...).closest('.zcwv-bq-chips') === zone 恒为 false ——
+  // 拖拽静默失效，而「点一下加入」照常可用，所以人工点测发现不了。
+  // 断定只能钉在「拖完模块真的进去了」上：游离节点不挂在文档里，站在外面查 DOM
+  // 查不出它（querySelector 本来就只返回挂在文档里的那个，拿它自测恒真）。
+  const stepOpen = await cdp.eval(
+    "(function(){var cs=document.querySelectorAll('.zcwv-bq-card');for(var i=0;i<cs.length;i++){" +
+      "if((cs[i].textContent||'').indexOf('首次点击')!==-1){cs[i].click();return 'ok'}}return 'no'})()"
+  )
+  const dropZone = JSON.parse(
+    (await pollEval(
+      cdp,
+      "(function(){var z=document.querySelector('.zcwv-bq-chips');if(!z)return null;" +
+        "var r=z.getBoundingClientRect();if(!r.width)return null;" +
+        "var cx=Math.round(r.left+r.width/2),cy=Math.round(r.top+r.height/2);" +
+        "var under=document.elementFromPoint(cx,cy);" +
+        "return JSON.stringify({cx:cx,cy:cy,hit:!!(under&&under.closest&&under.closest('.zcwv-bq-chips')===z)," +
+        "viewChips:document.querySelectorAll('.zcwv-bq-viewchip').length})})()",
+      6000
+    )) || 'null'
+  )
+  check(
+    '调色板拖拽前置：编辑页就位（虚线框可命中、首泡仍是内置视图）',
+    stepOpen === 'ok' && !!dropZone && dropZone.hit === true && dropZone.viewChips === 1,
+    JSON.stringify({ stepOpen: stepOpen, dropZone: dropZone })
+  )
+  const palChip = JSON.parse(
+    await cdp.eval(
+      "(function(){var bs=document.querySelectorAll('.zcwv-field button');" +
+        "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='余额数值'){var r=bs[i].getBoundingClientRect();" +
+        "return JSON.stringify({x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)})}}" +
+        "return JSON.stringify({x:0,y:0})})()"
+    )
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: palChip.x, y: palChip.y, button: 'none', pointerType: 'mouse' })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: palChip.x, y: palChip.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
+  // 先横向挪过 6px 门槛（wirePointerDrop 的触发条件），再进虚线框
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: palChip.x + 24, y: palChip.y + 4, button: 'left', buttons: 1, pointerType: 'mouse' })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: dropZone.cx, y: dropZone.cy, button: 'left', buttons: 1, pointerType: 'mouse' })
+  await new Promise((r) => setTimeout(r, 300))
+  const afterDrop = JSON.parse(
+    await cdp.eval(
+      "(function(){return JSON.stringify({viewChips:document.querySelectorAll('.zcwv-bq-viewchip').length," +
+        "chips:document.querySelectorAll('.zcwv-bq-chips .zcwv-bq-chip').length})})()"
+    )
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: dropZone.cx, y: dropZone.cy, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+  check(
+    '拖「余额数值」进虚线框：模块真的落进去了（内置视图被替换成文本模块）',
+    !!afterDrop && afterDrop.viewChips === 0 && afterDrop.chips >= 1,
+    JSON.stringify(afterDrop)
+  )
+  // 返回 = 取消这一泡的编辑，把面板还给后面的用例
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcwv-editor button');for(var i=0;i<bs.length;i++){" +
+      "if(bs[i].textContent==='返回'){bs[i].click();return true}}return false})()"
+  )
+  await new Promise((r) => setTimeout(r, 200))
   await cdp.eval(
     "(function(){var bs=document.querySelectorAll('.zcwv-editor button');for(var i=0;i<bs.length;i++){" +
       "if(bs[i].textContent==='关闭'){bs[i].click();return true}}return false})()"
@@ -1684,6 +1876,106 @@ try {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scale: 1.5, soundSet: 'duck' }),
   })
+  // ==== 设置按钮 + 设置窗口跟随角色配色（浅色档生效、深色档不跟）====
+  // 不硬编码色值：以气泡描边色（同一份 ROLE_INK_PAIR 浅色档）为基准比对，
+  // 以后用户改角色配色不会把这个用例改红，但「跟色链路断了」会红
+  const readRoleInk = async () =>
+    JSON.parse(
+      await cdp.eval(
+        "(function(){var q=function(s,p){var e=document.querySelector(s);return e?getComputedStyle(e)[p]:null};" +
+          "var rs=document.querySelectorAll('.zcwv-range');" +
+          "return JSON.stringify({btnBorder:q('.zcwv-menu-btn','borderTopColor'),rowColor:q('.zcwv-menu-row','color')," +
+          "barBg:q('.zcwv-menu-btn span','backgroundColor')," +
+          "panelBorder:q('.zcwv-panel','borderTopColor'),rolesBorder:q('.zcwv-roles','borderTopColor')," +
+          "bookRow:q('.zcwv-book-row','color'),numBorder:q('.zcwv-number','borderTopColor')," +
+          "numColor:q('.zcwv-number','color'),checkAccent:q('.zcwv-check','accentColor')," +
+          "dimColor:q('.zcwv-roles-head','color'),checkBorderW:q('.zcwv-check','borderTopWidth')," +
+          "checkCheckedBorderW:q('.zcwv-check:checked','borderTopWidth'),checkAppearance:q('.zcwv-check','appearance')," +
+          "rangeAppearance:rs.length?getComputedStyle(rs[0]).appearance:null," +
+          "rangeAccent:rs.length?getComputedStyle(rs[0]).accentColor:null," +
+          "stroke:q('.zcwv-bubble .zcwv-bshape','stroke')," +
+          "dark:document.documentElement.classList.contains('zcwv-theme-dark')})})()"
+      )
+    )
+  const pickRoleByName = async (name) => {
+    await cdp.eval(
+      "(function(){var ts=document.querySelectorAll('.zcwv-role-trigger');for(var i=0;i<ts.length;i++){" +
+        "if((ts[i].title||'').indexOf('选择形象')===0){ts[i].click();return 'open'}}return 'no'})()"
+    )
+    await new Promise((r) => setTimeout(r, 500))
+    const r = await cdp.eval(
+      "(function(){var n=" + JSON.stringify(name) + ";var ps=document.querySelectorAll('.zcwv-role-pick');" +
+        "for(var i=0;i<ps.length;i++){if(ps[i].textContent===n){ps[i].click();return 'ok'}}return 'no'})()"
+    )
+    await new Promise((r) => setTimeout(r, 800))
+    return r
+  }
+  const setThemeAndReload = async (theme) => {
+    await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scale: 1.5, theme: theme }),
+    })
+    await cdp.send('Page.reload')
+    await new Promise((r) => setTimeout(r, 3000))
+  }
+  await setThemeAndReload('light')
+  const inkDefault = await readRoleInk()
+  const pickedXiaoke = await pickRoleByName('小克')
+  const inkXiaoke = await readRoleInk()
+  check(
+    '角色配色跟到整套浅色界面（菜单 / 二级页面 / 文本框 / 下拉 / 拖动条；与气泡描边同源）',
+    pickedXiaoke === 'ok' &&
+      !!inkXiaoke &&
+      inkXiaoke.dark === false &&
+      inkXiaoke.btnBorder !== inkDefault.btnBorder &&
+      inkXiaoke.panelBorder !== inkDefault.panelBorder &&
+      inkXiaoke.rolesBorder !== inkDefault.rolesBorder &&
+      inkXiaoke.rowColor !== inkDefault.rowColor &&
+      inkXiaoke.bookRow !== inkDefault.bookRow &&
+      // 与气泡描边同源（同一份角色浅色档色值）
+      inkXiaoke.rowColor === inkXiaoke.stroke &&
+      inkXiaoke.barBg === inkXiaoke.stroke &&
+      inkXiaoke.bookRow === inkXiaoke.stroke &&
+      inkXiaoke.numColor === inkXiaoke.stroke &&
+      inkXiaoke.checkAccent === inkXiaoke.stroke &&
+      inkXiaoke.rangeAccent === inkXiaoke.stroke &&
+      // 次级文字（用量记录的对账/日志行、下拉表头…）也跟色
+      !!inkXiaoke.dimColor &&
+      inkXiaoke.dimColor !== inkDefault.dimColor &&
+      // 复选框浅色档自绘：勾选态与未勾选态同为 1px 描边（原生勾选态偏重）
+      inkXiaoke.checkAppearance === 'none' &&
+      inkXiaoke.checkBorderW === '1px' &&
+      inkXiaoke.checkCheckedBorderW === '1px' &&
+      // 拖动条浅色档必须自绘：原生空槽会按 accent 明度翻色（小克/kimi 变深灰"黑底"）
+      inkXiaoke.rangeAppearance === 'none',
+    JSON.stringify({ picked: pickedXiaoke, def: inkDefault, xiaoke: inkXiaoke })
+  )
+  await setThemeAndReload('dark')
+  const darkXiaoke = await readRoleInk()
+  const pickedWhale = await pickRoleByName('小鲸鱼')
+  const darkWhale = await readRoleInk()
+  check(
+    '深色档一律不跟角色（菜单 / 二级页面 / 文本框保持主题色，拖动条回到原生绘制）',
+    pickedWhale === 'ok' &&
+      !!darkXiaoke &&
+      darkXiaoke.dark === true &&
+      darkXiaoke.btnBorder === darkWhale.btnBorder &&
+      darkXiaoke.panelBorder === darkWhale.panelBorder &&
+      darkXiaoke.rolesBorder === darkWhale.rolesBorder &&
+      darkXiaoke.rowColor === darkWhale.rowColor &&
+      darkXiaoke.barBg === darkWhale.barBg &&
+      darkXiaoke.bookRow === darkWhale.bookRow &&
+      darkXiaoke.numColor === darkWhale.numColor &&
+      darkXiaoke.checkAccent === darkWhale.checkAccent &&
+      darkXiaoke.dimColor === darkWhale.dimColor &&
+      darkXiaoke.rangeAccent === darkWhale.rangeAccent &&
+      darkXiaoke.rangeAppearance === 'auto' &&
+      darkWhale.rangeAppearance === 'auto' &&
+      darkXiaoke.checkAppearance === 'auto',
+    JSON.stringify({ xiaoke: darkXiaoke, whale: darkWhale })
+  )
+  await setThemeAndReload('light')
 } catch (err) {
   check('冒烟过程未抛异常', false, String((err && err.message) || err))
 } finally {

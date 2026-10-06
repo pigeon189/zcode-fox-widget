@@ -23,12 +23,12 @@ description: 操作与排查 ZCode狐娘小挂件（zcode-fox-widget）。适用
 | 命令行 | `lib/cli.mjs` | `status` / `turn` / `start` / `stop` / `window` / `desktop install` / `key` / `mode` / `json` |
 | 会话自启 | `lib/autostart.mjs` | SessionStart hook 幂等拉起服务（以及已装运行时的浮层） |
 
-上游是「宿主插件 + 注入进 DSH 网页的脚本」。**ZCode 客户端不提供界面注入点**（插件清单里没有 view/panel/webview 之类字段），所以挂件有两种呈现方式，排查时先确认用户指的是哪一种：
+上游是「宿主插件 + 注入进 DSH 网页的脚本」。**ZCode 客户端不提供界面注入点**（插件清单里没有 view/panel/webview 之类字段），所以挂件自己开窗口呈现。主形态只有一种，排查时先确认用户问的是哪一层：
 
-1. **桌面浮层**：独立的 Electron 透明置顶窗口，覆盖整个工作区但默认鼠标穿透，指针压到鲸鱼/气泡/菜单时才接管鼠标。这是「浮在 ZCode 界面上」的实现方式。
-2. **网页版**：浏览器打开 `http://127.0.0.1:<port>/`，零依赖。
+1. **桌面浮层**（主形态，README 推荐）：独立的 Electron 透明置顶窗口，覆盖整个工作区但默认鼠标穿透，指针压到鲸鱼/气泡/菜单时才接管鼠标。这是「浮在 ZCode 界面上」的实现方式。**用户说「挂件」默认指它。**
+2. **本地页面**（备用 / 排障入口）：浏览器打开 `http://127.0.0.1:<port>/`，零依赖。它不是第二套实现——浮层加载的正是这个地址，同一份 `lib/widget.js`、同一份配置。只在两种情况下需要主动用它：排障（例如浮层里输入框打不了字，用它区分页面逻辑问题与浮层窗口层问题），或非 Windows（浮层依赖 Win32 窗口 API，macOS / Linux 只有这个形态）。
 
-两者共用同一个挂件服务与同一个 `lib/widget.js`；`widget.js` 通过 preload 暴露的 `window.whaleDesktop` 判断自己是否跑在浮层里，跑在普通浏览器里时这段逻辑自动失效。
+两者共用同一个挂件服务；`widget.js` 通过 preload 暴露的 `window.whaleDesktop` 判断自己是否跑在浮层里，跑在普通浏览器里时这段逻辑自动失效。
 
 ## 数据从哪来
 
@@ -97,7 +97,7 @@ node "${ZCODE_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron 运行
 | 鲸鱼位置错乱 / 跑到窗口外 | 透明窗口的合成层错位，通常是有人重新打开了定位过渡或改回 `setBounds` 贴窗口。见 README「已知限制」的踩坑记录 |
 | 挂件画面冻结（鲸鱼在但不动/点了没反应），进程却活着 | v1.3.3 已加自愈：透明置顶窗口被全屏应用覆盖后，Chromium 的原生遮挡计算可能卡死在「被遮挡」而停止出帧（页面逻辑照常跑，画面停在旧帧）。现在已禁用该计算（`disable-features=CalculateNativeWinOcclusion`）、页面加载完成才上屏、重显与每 60 秒强制重送一帧（`kickPresentation`）。等 60 秒自愈，或立刻 `node lib/cli.mjs window restart` 一键重建窗口。**注意**：GDI 截屏（CopyFromScreen/GetPixel）拍不到这个透明窗口的合成表面，诊断画面问题以 CDP 截图和肉眼为准 |
 | 浮层起来了但点不动鲸鱼 | 浮层默认鼠标穿透，指针必须先停在鲸鱼上（此时光标变 `grab`、右上角出现菜单按钮）才能点。若整块区域都点不动，检查是否被其它置顶窗口压住 |
-| 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框就能打字（浮层在文本类控件上临时接管键盘焦点，离开即交还；v1.3.2 起下拉也换成自定义组件，不再走系统弹窗、不再需要这条路）。还不行就确认浮层版本与插件一致（`window status` 或 `/whale/health` 的 `version`），或改用网页版直接键入 |
+| 浮层里菜单的数字框打不了字 | v1.3.0 起指针按到文本框就能打字（浮层在文本类控件上临时接管键盘焦点，离开即交还；v1.3.2 起下拉也换成自定义组件，不再走系统弹窗、不再需要这条路）。还不行就确认浮层版本与插件一致（`window status` 或 `/whale/health` 的 `version`），或改用本地页面（浏览器打开 `http://127.0.0.1:<port>/`）直接键入——这条路径与浮层共用同一份页面代码，能敲进去就说明是浮层窗口层的问题，不是页面本身 |
 | **和挂件互动后 ZCode 画面卡住（点一下 ZCode 才恢复）** | v1.3.0 已修：浮层窗口设为不可激活（Windows `focusable:false` → Electron 带 `WS_EX_NOACTIVATE`），普通交互不再把前台从 ZCode 抢走；ZCode 失去前台会停止刷新自身画面，这就是「卡住」的来源。复查手法：`GetForegroundWindow` 不该是浮层；浮层的 ex-style 应含 `WS_EX_NOACTIVATE`、`WM_MOUSEACTIVATE` 返回 4（MA_NOACTIVATEANDEAT）。改动 `desktop/main.cjs` 的窗口选项后必须 `window stop` + `window start` 才生效 |
 | **开着「用量记录」时 ZCode 点不动 / 下拉展开后鲸鱼全点不动** | v1.3.2 已修的两个整窗接管缺陷：用量记录面板打开时曾让浮层整窗吞掉 ZCode 的鼠标（画面像停住，关掉面板才恢复）；原生 `<select>` 的系统下拉弹出期间会模态捕获全屏鼠标、焦点滞留（`WS_EX_NOACTIVATE` 不恢复），表现为点击挂件和菜单完全没响应。现在面板只是普通区域（指针压上才接管，面板外 ZCode 随便用）、下拉全部换成角色下拉同款的自定义列表。若复发，带 `WHALE_DEBUG_PORT` 重启浮层，在面板外查 ex-style 的 `WS_EX_TRANSPARENT` 位是否被错误清掉 |
 | 菜单下拉的箭头会「从左边飞到右边」或消失 | v1.3.2 已修：hover 样式用了 `background:` 简写，把手绘箭头的 `background-image/position` 一并清掉，配合 `transition:background` 出现飞动。现在过渡只挂 `background-color`，且下拉整体换成自定义组件（没有原生箭头可飞）。以后给带自绘箭头的控件写 hover，只准用 `background-color` |

@@ -1734,8 +1734,21 @@ try {
   check('角色上传成功并自动启用', upRes.ok && upBody.ok && typeof upBody.id === 'string', JSON.stringify(upBody))
   const roles1 = await getJson(port, '/whale/roles.json')
   check(
-    '角色列表：内置小狐娘/小鲸鱼在前 + 上传件，selected 指向上传件',
-    roles1 && roles1.ok && roles1.roles.length === 3 && roles1.roles[0].id === 'fox' && roles1.roles[0].name === '小狐娘' && roles1.roles[1].id === 'whale' && roles1.roles[1].name === '小鲸鱼' && roles1.selected === upBody.id,
+    '角色列表：五个内置形象在前（小狐娘/小鲸鱼/GPT娘/kimi娘/小克）+ 上传件，selected 指向上传件',
+    roles1 &&
+      roles1.ok &&
+      roles1.roles.length === 6 &&
+      roles1.roles[0].id === 'fox' &&
+      roles1.roles[0].name === '小狐娘' &&
+      roles1.roles[1].id === 'whale' &&
+      roles1.roles[1].name === '小鲸鱼' &&
+      roles1.roles[2].id === 'gpt' &&
+      roles1.roles[2].name === 'GPT娘' &&
+      roles1.roles[3].id === 'kimi' &&
+      roles1.roles[3].name === 'kimi娘' &&
+      roles1.roles[4].id === 'xiaoke' &&
+      roles1.roles[4].name === '小克' &&
+      roles1.selected === upBody.id,
     JSON.stringify(roles1).slice(0, 200)
   )
   // 超过旧版全局 8KB body 上限的上传也应成功（真实头像截图普遍几十 KB 起）
@@ -1864,7 +1877,7 @@ try {
   const rolesRestored = await getJson(port, '/whale/roles.json')
   check(
     '清掉 hiddenBuiltins 后内置形象回来（README 的找回路径可用）',
-    rolesRestored.roles.filter((r) => r.builtin).length === 2,
+    rolesRestored.roles.filter((r) => r.builtin).length === 5,
     JSON.stringify(rolesRestored.roles.filter((r) => r.builtin).map((r) => r.id))
   )
 
@@ -1978,6 +1991,313 @@ try {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ v: 2, tapAdvance: true, steps: [] }),
   })
+  // —— v2.1 扩展（DSH 泡泡系统移植）：link / img / randimg / variants / lib ——
+  const extPost = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: 2,
+      tapAdvance: true,
+      steps: [
+        { modules: [{ type: 'link', text: '点这里', href: 'https://example.com/a', size: 'A' }] },
+        { modules: [{ type: 'link', text: '坏链接', href: 'javascript:alert(1)', size: 'A' }, { type: 'text', text: '兜底', size: 'A' }] },
+        {
+          variants: [
+            { w: 3, modules: [{ type: 'text', text: '甲', size: 'A' }] },
+            { w: 1, modules: [{ type: 'text', text: '乙', size: 'A' }] },
+          ],
+        },
+        { modules: [{ type: 'img', img: '../etc/passwd', size: 'A' }, { type: 'img', img: 'rua', size: 'A' }] },
+        { modules: [{ type: 'randimg', imgs: ['rua', 'rua', 'x1'], size: 'A' }] },
+      ],
+      lib: [{ label: '常用句', module: { type: 'text', text: '你好呀', size: 'A' } }],
+    }),
+  })
+  const extBody = await extPost.json()
+  check(
+    '气泡 v2.1：link 合法保存 / 危险 href 丢弃 / variants 加权保留 / 非法图片 id 丢弃且一步只留一个图片模块 / randimg 去重 / lib 随配置读写',
+    extPost.ok &&
+      extBody.ok === true &&
+      extBody.steps.length === 5 &&
+      extBody.steps[0].modules[0].type === 'link' &&
+      extBody.steps[0].modules[0].href === 'https://example.com/a' &&
+      extBody.steps[1].modules.length === 1 &&
+      extBody.steps[1].modules[0].text === '兜底' &&
+      Array.isArray(extBody.steps[2].variants) &&
+      extBody.steps[2].variants.length === 2 &&
+      extBody.steps[2].variants[0].w === 3 &&
+      extBody.steps[3].modules.length === 1 &&
+      extBody.steps[3].modules[0].img === 'rua' &&
+      extBody.steps[4].modules[0].imgs.length === 2 &&
+      Array.isArray(extBody.lib) &&
+      extBody.lib.length === 1 &&
+      extBody.lib[0].label === '常用句',
+    JSON.stringify({ n: extBody.steps.length, lib: extBody.lib && extBody.lib.length })
+  )
+  const extBack = await getJson(port, '/whale/bubble-content.json')
+  check(
+    '气泡 v2.1 持久化回读一致（variants/lib 落盘）',
+    extBack.steps.length === 5 && Array.isArray(extBack.lib) && extBack.lib.length === 1,
+    JSON.stringify({ steps: extBack.steps.length, lib: extBack.lib && extBack.lib.length })
+  )
+  await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: [] }),
+  })
+  // 泡泡模板路由：写 / 读 / 清 / 非法 kind
+  const tplPost = await fetch('http://127.0.0.1:' + port + '/whale/bubble-templates.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'turncost', config: { steps: [{ modules: [{ type: 'text', text: '本轮 {cost}', size: 'A' }] }] } }),
+  })
+  const tplPostBody = await tplPost.json()
+  const tplGet = await getJson(port, '/whale/bubble-templates.json')
+  check(
+    '泡泡模板：turncost 写入并读回（单步 {cost} 文案）',
+    tplPost.ok &&
+      tplPostBody.ok === true &&
+      tplGet.ok === true &&
+      tplGet.turnCost &&
+      tplGet.turnCost.steps.length === 1 &&
+      tplGet.turnCost.steps[0].modules[0].text === '本轮 {cost}',
+    JSON.stringify({ ok: tplPostBody.ok, has: !!tplGet.turnCost })
+  )
+  const tplClear = await fetch('http://127.0.0.1:' + port + '/whale/bubble-templates.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'turncost', config: null }),
+  })
+  const tplClearBody = await tplClear.json()
+  const tplGet2 = await getJson(port, '/whale/bubble-templates.json')
+  check(
+    '泡泡模板：config=null 恢复内置（清空）',
+    tplClear.ok && tplClearBody.ok === true && tplGet2.turnCost === null,
+    JSON.stringify({ cleared: tplGet2.turnCost === null })
+  )
+  const tplBad = await fetch('http://127.0.0.1:' + port + '/whale/bubble-templates.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'nope', config: null }),
+  })
+  check('泡泡模板：未知 kind 拒绝', tplBad.status === 400, 'status=' + tplBad.status)
+  // 契约钉死（审查 P2-A/P2-B/P3-C）：模板容量与按压泡泡同口径、kind 带不带 alert- 前缀都认、
+  // 清空内容 ≡ 恢复内置——三条都是「编辑器允许的操作必须存得下」这条教训的不同切面
+  const bigTplLines = []
+  for (let j = 0; j < 12; j++) bigTplLines.push('第' + (j + 1) + '行 ' + '模'.repeat(180))
+  const bigTplModules = [1, 2, 3].map((n) => ({ type: 'rand', lines: bigTplLines.map((t) => n + '·' + t) }))
+  const bigTplRaw = JSON.stringify({ kind: 'plan', config: { steps: [{ modules: bigTplModules }] } })
+  const bigTpl = await fetch('http://127.0.0.1:' + port + '/whale/bubble-templates.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: bigTplRaw,
+  })
+  const bigTplBody = await bigTpl.json()
+  const bigTplGet = await getJson(port, '/whale/bubble-templates.json')
+  check(
+    '泡泡模板：8KB 以上的合法模板可存（曾沿用 8KB 默认上限 → 合法内容必败，审查 P2-A）',
+    Buffer.byteLength(bigTplRaw) > 8192 &&
+      bigTpl.ok &&
+      bigTplBody.ok === true &&
+      !!(bigTplGet.alerts && bigTplGet.alerts.plan),
+    JSON.stringify({ bytes: Buffer.byteLength(bigTplRaw), status: bigTpl.status, ok: bigTplBody.ok })
+  )
+  const preRestore = await fetch('http://127.0.0.1:' + port + '/whale/bubble-templates.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'alert-plan', config: null }),
+  })
+  const preRestoreBody = await preRestore.json()
+  const preRestoreGet = await getJson(port, '/whale/bubble-templates.json')
+  check(
+    '泡泡模板：编辑器形态 alert-plan 的「恢复内置」被接受并清空（前缀契约，审查 P2-B）',
+    preRestore.ok && preRestoreBody.ok === true && preRestoreGet.alerts.plan === null,
+    JSON.stringify({ status: preRestore.status, error: preRestoreBody.error || null })
+  )
+  await fetch('http://127.0.0.1:' + port + '/whale/bubble-templates.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'plan', config: { steps: [{ modules: [{ type: 'text', text: '预警 {percent}', size: 'A' }] }] } }),
+  })
+  const tplEmpty = await fetch('http://127.0.0.1:' + port + '/whale/bubble-templates.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'plan', config: { steps: [{ modules: [] }] } }),
+  })
+  const tplEmptyBody = await tplEmpty.json()
+  const tplEmptyGet = await getJson(port, '/whale/bubble-templates.json')
+  check(
+    '泡泡模板：清空内容保存 ≡ 恢复内置（编辑器提示这么写的就得兑现，审查 P3-C）',
+    tplEmpty.ok && tplEmptyBody.ok === true && tplEmptyGet.alerts.plan === null,
+    JSON.stringify({ status: tplEmpty.status, error: tplEmptyBody.error || null })
+  )
+  // 组权重机制已废弃（2026-10-06）：内置第二次点击内容改为普通配置（出厂默认
+  // 队列在 widget.js），权重落在变体与逐条语句上。旧配置里的 groupW 被忽略。
+  const gwDrop = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: [], groupW: [10, 0, 0, 0, 0, 3] }),
+  })
+  const gwDropBack = await getJson(port, '/whale/bubble-content.json')
+  check('气泡配置：废弃的 groupW 字段被忽略（不再落盘）', gwDrop.ok && gwDropBack.groupW === undefined, JSON.stringify(gwDropBack.groupW))
+  // 逐条字号档：随机语句可混合 B/A/C 档（默认队列里「挑经句大字 + 文案中字」同池）
+  const szPost = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: 2,
+      tapAdvance: true,
+      steps: [
+        {
+          modules: [
+            {
+              type: 'rand',
+              size: 'A',
+              lines: [
+                { t: '大字', w: 4, size: 'B' },
+                { t: '中字带样式', w: 2, st: { bold: true } },
+                { t: '欠账', w: 1 },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+  })
+  const szBody = await szPost.json()
+  const szl = szBody.steps && szBody.steps[0] && szBody.steps[0].modules[0] && szBody.steps[0].modules[0].lines
+  check(
+    '随机语句逐条字号档：size=B 落对象 / 无样式无档位落字符串（|权重）',
+    szPost.ok &&
+      Array.isArray(szl) &&
+      szl.length === 3 &&
+      szl[0].t === '大字' &&
+      szl[0].size === 'B' &&
+      szl[0].w === 4 &&
+      szl[1].st.bold === true &&
+      szl[2] === '欠账',
+    JSON.stringify(szl)
+  )
+  // 时段档 / 不换行 / 跟随峰谷色 / 变体只在有峰谷差价的源参与（only:'time'）
+  const ext2 = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: 2,
+      tapAdvance: true,
+      steps: [
+        { modules: [{ type: 'rand', size: 'A', lines: [{ t: '单行台词', size: 'P', wrap: false }] }] },
+        { modules: [{ type: 'text', text: '{period}', size: 'P', wrap: false, st: { color: 'peak' } }] },
+        {
+          variants: [
+            { w: 50, only: 'time', modules: [{ type: 'text', text: '时段' }] },
+            { w: 45, modules: [{ type: 'text', text: '台词' }] },
+          ],
+        },
+      ],
+    }),
+  })
+  const ext2Body = await ext2.json()
+  const e2l = ext2Body.steps && ext2Body.steps[0] && ext2Body.steps[0].modules[0].lines
+  check(
+    '时段档 P / wrap:false（不换行）/ color:peak（跟随峰谷）/ 变体 only:time 往返保留',
+    ext2.ok &&
+      Array.isArray(e2l) &&
+      e2l[0].size === 'P' &&
+      e2l[0].wrap === false &&
+      ext2Body.steps[1].modules[0].st.color === 'peak' &&
+      ext2Body.steps[1].modules[0].wrap === false &&
+      ext2Body.steps[2].variants[0].only === 'time' &&
+      ext2Body.steps[2].variants[1].only === undefined,
+    JSON.stringify({ line: e2l && e2l[0], v0: ext2Body.steps[2].variants[0] })
+  )
+  // 行级样式（对照 DSH 单句编辑）：样式对象往返 / 「句子|权重」字符串兼容 /
+  // 非法样式值（超界字号、非 hex 颜色、未知字体）被丢弃
+  const styledPost = await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: 2,
+      tapAdvance: true,
+      steps: [
+        {
+          modules: [
+            {
+              type: 'rand',
+              size: 'A',
+              lines: [
+                { t: '好耶', w: 3, st: { px: 18, bold: true, color: '#E0433F', font: 'serif' } },
+                '普通一句|5',
+                { t: '样式全非法', st: { px: 999, color: 'javascript:alert(1)', font: 'comic' } },
+                { t: '只带下划线', st: { ul: true } },
+              ],
+            },
+          ],
+        },
+        { modules: [{ type: 'text', text: '带样式文本', size: 'A', st: { bold: true, ul: true, bg: '#2b2b2b' } }] },
+      ],
+    }),
+  })
+  const styledBody = await styledPost.json()
+  const sl = styledBody.steps && styledBody.steps[0] && styledBody.steps[0].modules[0] && styledBody.steps[0].modules[0].lines
+  check(
+    '气泡行级样式：样式对象往返（含权重）/ 字符串「|权重」保持字符串 / 非法样式值丢弃 / 文本模块样式保留',
+    styledPost.ok &&
+      Array.isArray(sl) &&
+      sl.length === 4 &&
+      typeof sl[0] === 'object' &&
+      sl[0].t === '好耶' &&
+      sl[0].w === 3 &&
+      sl[0].st.px === 18 &&
+      sl[0].st.bold === true &&
+      sl[0].st.color === '#e0433f' &&
+      sl[0].st.font === 'serif' &&
+      sl[1] === '普通一句|5' &&
+      sl[2] === '样式全非法' &&
+      sl[3].st.ul === true &&
+      sl[3].st.px === undefined &&
+      styledBody.steps[1].modules[0].st.bold === true &&
+      styledBody.steps[1].modules[0].st.bg === '#2b2b2b',
+    JSON.stringify({ n: sl && sl.length, first: sl && sl[0], third: sl && sl[2] })
+  )
+  await fetch('http://127.0.0.1:' + port + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: [] }),
+  })
+  // 泡泡图库路由：上传 → 列表（含内置 rua）→ 取图 → 删除后 404
+  const PNG1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const imgPost = await fetch('http://127.0.0.1:' + port + '/whale/bubble-img.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '测试图', dataUrl: PNG1x1 }),
+  })
+  const imgPostBody = await imgPost.json()
+  const imgList = await getJson(port, '/whale/bubble-imgs.json')
+  const imgId = imgPostBody.id
+  const imgBytes = await fetch('http://127.0.0.1:' + port + '/whale/bubble-img.png?id=' + imgId)
+  const imgRua = await fetch('http://127.0.0.1:' + port + '/whale/bubble-img.png?id=rua')
+  const imgDel = await fetch('http://127.0.0.1:' + port + '/whale/bubble-img-delete.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: imgId }),
+  })
+  const imgAfterDel = await fetch('http://127.0.0.1:' + port + '/whale/bubble-img.png?id=' + imgId)
+  check(
+    '泡泡图库：上传 png → 列表含内置 rua → 取图（png/gif 字节）→ 删除后 404',
+    imgPost.ok &&
+      imgPostBody.ok === true &&
+      imgList.ok === true &&
+      imgList.imgs.some((r) => r.id === imgId) &&
+      imgList.builtin.some((r) => r.id === 'rua') &&
+      imgBytes.ok &&
+      (imgBytes.headers.get('content-type') || '').indexOf('image/png') === 0 &&
+      imgRua.ok &&
+      (imgRua.headers.get('content-type') || '').indexOf('image/gif') === 0 &&
+      imgDel.ok &&
+      imgAfterDel.status === 404,
+    JSON.stringify({ up: imgPostBody.ok, list: imgList.imgs.length, png: imgBytes.status, rua: imgRua.status, del: imgAfterDel.status })
+  )
 
   // 余额校正接口：GET 汇总 + POST 落账（自检环境无 DeepSeek 账本，应为空本形态）
   const adjGet = await getJson(port, '/whale/balance-adjustments.json')
