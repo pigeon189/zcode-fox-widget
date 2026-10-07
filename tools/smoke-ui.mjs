@@ -585,7 +585,7 @@ try {
   // 气泡配色随角色（浅色 + 深色两套）：未登记角色（用户导入的）回落到小鲸鱼
   const ROLE_INK = {
     whale: { light: 'rgb(32, 49, 112)', dark: 'rgb(93, 141, 222)' },
-    fox: { light: 'rgb(61, 68, 96)', dark: 'rgb(93, 109, 126)' },
+    fox: { light: 'rgb(61, 68, 96)', dark: 'rgb(167, 167, 167)' },
     gpt: { light: 'rgb(123, 111, 196)', dark: 'rgb(211, 186, 231)' },
     kimi: { light: 'rgb(173, 129, 255)', dark: 'rgb(180, 184, 227)' },
     xiaoke: { light: 'rgb(217, 119, 87)', dark: 'rgb(217, 119, 87)' },
@@ -1976,6 +1976,44 @@ try {
     JSON.stringify({ xiaoke: darkXiaoke, whale: darkWhale })
   )
   await setThemeAndReload('light')
+  // ==== 切角色后「出厂台词池」重烤（2026-10-07 实测：小狐娘念小克的台词）====
+  // 台词池是烤进保存配置的，所以「以小克身份保存过一次」的配置里装的是小克台词。
+  // 这里模拟这份病态配置（3 条小克专属台词），切到小狐娘后重新加载：队列必须换成
+  // 小狐娘的池。识别口径 = 模块里每条台词的文本都落在某个角色的出厂池内（只看文本，
+  // 不看字号/权重/条数），用户自己写过的台词不匹配、原样保留。
+  const XIAOKE_ONLY = ['小鲸鱼...', '说中文≠不会封号', '你问这本书里面有什么？答案是思考链哦']
+  const pickedFox = await pickRoleByName('小狐娘')
+  await fetch('http://127.0.0.1:' + PORT + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      v: 2,
+      tapAdvance: true,
+      steps: [{ modules: [{ type: 'rand', lines: XIAOKE_ONLY.slice(), size: 'A' }] }],
+    }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  await clickWhale()
+  const rebakedLine = await pollEval(
+    cdp,
+    "(function(){var t=[document.querySelector('.zcwv-label'),document.querySelector('.zcwv-amount'),document.querySelector('.zcwv-hint')];" +
+      "for(var i=0;i<3;i++){if(t[i]&&t[i].style.display!=='none'&&t[i].textContent)return t[i].textContent}return null})()",
+    8000
+  )
+  check(
+    '切角色后出厂台词池重烤：小狐娘不念小克台词（配置里烤着的小克池被换成当前角色池）',
+    pickedFox === 'ok' &&
+      typeof rebakedLine === 'string' &&
+      rebakedLine.trim().length > 0 &&
+      XIAOKE_ONLY.indexOf(rebakedLine.trim()) === -1,
+    JSON.stringify({ picked: pickedFox, line: rebakedLine })
+  )
+  await fetch('http://127.0.0.1:' + PORT + '/whale/bubble-content.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ v: 2, tapAdvance: true, steps: [] }),
+  })
 } catch (err) {
   check('冒烟过程未抛异常', false, String((err && err.message) || err))
 } finally {
