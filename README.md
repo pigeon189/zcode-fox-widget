@@ -81,7 +81,7 @@
 - **UI/UX 专项**（v1.7.3 + v1.8.0）：15 项 + 22 项审查清零——失败态状态机、遮挡叠层、格式与圆角/动效 token 化、对比度达标、焦点环、`prefers-reduced-motion`。
 - **接口诚实化**（v1.3.1）：CLI/MCP 金额按真实币种输出；MCP 版本号单一来源；发现缓存 TTL。
 - **可观测性**：浮层黑匣子日志常开（v1.4.3，超 5MB 轮转）、`/whale/health` 带凭据探测明细。
-- **质量面**：`tools/selftest.mjs` 223 项断言（计价口径/账本/账号池/降级路径）、`tools/smoke-ui.mjs` 70 项 CDP 真机回归（headless 浏览器驱动真实页面）；Conventional Commits 与版本发布纪律成文（[CONTRIBUTING](./CONTRIBUTING.md)）。
+- **质量面**：`tools/selftest.mjs` 端到端自检（计价口径/账本/账号池/降级路径）、`tools/smoke-ui.mjs` CDP 真机回归（headless 浏览器驱动真实页面）；Conventional Commits 与版本发布纪律成文（[CONTRIBUTING](./CONTRIBUTING.md)）。
 - **安全**：出站主机白名单与地址校验、厂商模板显式 `host` 声明、本地服务 Host/Origin 校验与关闭令牌、本地威胁模型显式化（v1.7.1）、子进程 `shell:false` 加固。
 
 ---
