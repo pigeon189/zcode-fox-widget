@@ -561,7 +561,7 @@ function check(name, ok, detail) {
     check('启动就绪判定：二次启动后重新进入加载态', s5.state === 'loading', JSON.stringify(s5))
 
     // 场景取自 2026-10-01 实测：12:48 那次运行完整收尾（boot 12:48:14 →
-    // database-startup ready 12:48:16），13:20:49 用户重开 ZCode（pid 7876，
+    // database-startup ready 12:48:16），13:20:49 重新打开 ZCode（pid 7876，
     // 主界面 13:20:56 才就绪）。加载动画期间读到的日志尾窗里只有上一次的标记。
     const stampOf = (s) => new Date(s.replace(' ', 'T')).getTime()
     const oldRun =

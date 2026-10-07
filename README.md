@@ -20,7 +20,7 @@
 
 **沿用自上游**：`assets/` 下上游素材（鲸鱼形象、`rua.gif`、两套音效）、气泡 SVG 几何、字号档、动画参数、拖拽/四分吸附/左吸附镜像/alpha 命中检测、随机台词六组的文案与权重、峰谷定价表与时段规则、记账模式语义、余额接口取项规则。
 
-**新增素材（非上游）**：`GLM.png`（小狐娘）、`gpt.png`（GPT娘）、`kimi.png`（kimi娘）、README 头图 `fox.png` —— 均为用户供图；`xiaoke.png`（小克）取自 [aklnaaw/dsh-xiaoke-widget](https://github.com/aklnaaw/dsh-xiaoke-widget)（MIT），**已获原作者授权**，并按本仓库角色的画布规格等比归一化（内容高度约 98%、底/右对齐），与其余内置形象观感一致。
+**新增素材（非上游）**：`GLM.png`（小狐娘）、`gpt.png`（GPT娘）、`kimi.png`（kimi娘）、README 头图 `fox.png` —— 均为项目自有素材；`xiaoke.png`（小克）取自 [aklnaaw/dsh-xiaoke-widget](https://github.com/aklnaaw/dsh-xiaoke-widget)（MIT），**已获原作者授权**，并按本仓库角色的画布规格等比归一化（内容高度约 98%、底/右对齐），与其余内置形象观感一致。
 
 **移植期重写**：本地服务 + 独立页面 + 桌面浮层的呈现层；三级凭据发现链；每轮消耗改读 ZCode 落库的 `turn_usage`；MCP 服务、SessionStart 自启 hook、skill、`/fox` 命令与 CLI；出站白名单与本地服务加固。
 
@@ -493,6 +493,6 @@ zcode-fox-widget/
 
 - 原版挂件的视觉与交互设计、鲸鱼形象、rua 动图与音效来自 **[MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**（Copyright (c) 2026 MeteorNOX，MIT）。
 - ZCode 移植版（宿主适配层重写、凭据发现、每轮消耗数据源）由 **[nb10yyds/zcode-whale-widget](https://github.com/nb10yyds/zcode-whale-widget)** 完成，本仓库 fork 自其基线。
-- v1.1.0 起的功能与优化（详见 [CHANGELOG](./CHANGELOG.md)）为 fork 后的延续开发；`GLM.png`（小狐娘）、`gpt.png`、`kimi.png` 与 README 头图 `fox.png` 为用户供图。
+- v1.1.0 起的功能与优化（详见 [CHANGELOG](./CHANGELOG.md)）为 fork 后的延续开发；`GLM.png`（小狐娘）、`gpt.png`、`kimi.png` 与 README 头图 `fox.png` 为项目自有素材。
 - 内置形象 **小克**（`assets/xiaoke.png`）取自 **[aklnaaw/dsh-xiaoke-widget](https://github.com/aklnaaw/dsh-xiaoke-widget)**（MIT，Copyright (c) 2026 MeteorNOX；该仓库二创自本仓库的上游），**已获原作者授权**在本项目中使用，图片按本仓库角色画布规格做了等比归一化。
 - 沿用与新增的逐条清单见 [`NOTICE`](./NOTICE)。如果喜欢这只鲸鱼（或狐娘），请去给上游点个 star。
