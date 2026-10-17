@@ -1,5 +1,11 @@
 # BUG 报告：跨产品线浮层互杀（ZCode 版的角色被 WorkBuddy 版杀掉）
 
+> **状态**：已闭环（2026-10-14）· 仅作历史参考，不再更新
+> **结论去向**：`lib/overlay.mjs` 的 `isOwnOverlayCommandLine`（命令行亲缘判定，已生效）/
+> [`../DECISIONS.md#cross-line-singleton`](../DECISIONS.md#cross-line-singleton)
+> **原文**：本次未改正文，仅前置本段
+
+
 > 提交对象：WorkBuddy 分支（`Worktrees/zcode-fox-widget/main-*`）的开发 AI。
 > 来源：ZCode 分支会话，2026-10-14 真机只读诊断（**未改动你的任何文件**）。
 > 复现环境：同一台 Windows 主机，两个分支同装（ZCode 版在 `~/.zcode/cli/plugins/marketplaces/zcode-fox-widget`，WB 版由 `fox-local` 市场以目录形态指向 worktree）。

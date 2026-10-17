@@ -1,5 +1,11 @@
 # 代码审查报告：WorkBuddy 狐娘小挂件（fox-widget）移植版
 
+> **状态**：已闭环（2026-10-14）· 仅作历史参考，不再更新
+> **结论去向**：P0-1/P0-2、P1-1…P1-5 均已修，逐条对应 `wb-v1.0.0` 条目；后续代码审查
+> （I/S/X/P/C）与 UI 审查（P0–P2）又各修了一批，见 `CHANGELOG.md` 的「未发布」。
+> **原文**：本次未改正文，仅前置本段
+
+
 **审查对象**：`workbuddy/main-56fc9dd2` 分支工作区（含未提交改动：`desktop/main.cjs`、`lib/{cli,overlay,server,turn-cost,usage-records,watchdog-cli,widget}.js|mjs`、`lib/host-models.mjs`（未跟踪）等 12 个文件）
 **审查方式**：静态审查 + 隔离环境复现 + 真实宿主数据实测（宿主库一律复制后只读）
 **测试实况**：`tools/selftest.mjs` 311/311 ✅、`tools/selftest-update.mjs` 50/50 ✅、`tools/smoke-ui.mjs` 103/103 ✅（三套全绿，但下述缺陷均在这三套的覆盖盲区里）
