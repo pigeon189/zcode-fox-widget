@@ -72,7 +72,7 @@ WorkBuddy 客户端**同样不提供界面注入点**（在 `app.asar` 里没搜
 3. `~/.workbuddy/settings.json` 的 `env` 块或 `pluginConfigs.<插件>.options`
 4. `<插件数据目录>/config.json` 的 `vendorKeys`
 
-⚠️ **WorkBuddy 上第 3/4 条通常是空的**：本机实测 `settings.json` 的 `pluginConfigs` 为空对象、`models.json` 为 `[]`——用户不需要填 key（模型由宿主托管）。所以厂商卡在 WorkBuddy 上默认「无凭据 → 不可用」，**这是预期**；想用就让用户配环境变量或 `node lib/cli.mjs key sk-...`。密钥只在内存中使用、只发往白名单主机，不落盘日志、不打印明文。
+⚠️ **WorkBuddy 上第 3/4 条通常是空的**：本机实测 `settings.json` 的 `pluginConfigs` 为空对象、`models.json` 为 `[]`——用户不需要填 key（模型由宿主托管）。所以厂商卡在 WorkBuddy 上默认「无凭据 → 不可用」，**这是预期**；想用就让用户配环境变量或用 `echo 'sk-...' | node lib/cli.mjs key`（走 stdin，不留 shell 历史/进程列表痕迹）。密钥只在内存中使用、只发往白名单主机，不落盘日志、不打印明文。
 
 ## 常用操作
 
@@ -153,7 +153,7 @@ node "${CODEBUDDY_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron �
 | **积分/上下文一直读不到** | 看 `/whale/hook.json` 有没有 `sessionId`：没有说明 UserPromptSubmit 钩子没跑到（`hook-state.json` 没写）。有 `sessionId` 再看 `/whale/context.json` 的 `reason`；`db-unavailable` = `~/.workbuddy/workbuddy.db` 读不到或 `node:sqlite` 不可用（自带 node 需 ≥ 22.5，实测 22.22.2 可用） |
 | **今日积分比客户端显示的小** | 面板扫的是 `~/.workbuddy/projects/*/*.jsonl`，只取最近 60 个会话、每个只读尾部 2MB。老会话或超长会话的早期轮次可能没算进去（`usage-records.json` 的 `scannedTranscripts` / `totalTranscripts` 可以看出来）。这是刻意的性能取舍 |
 | **每轮消耗不弹窗** | 需要宿主至少完成过一轮对话（transcript 里有 `rawUsage`）；另外菜单里「每轮消耗提示」必须开着。`/whale/last-turn.json` 的 `partial:true` 表示该轮还没被宿主结算 |
-| 厂商余额读不到 / 显示「未配置凭据」 | **WorkBuddy 默认如此**（模型由宿主托管，用户没有自带 key）。要看到余额得自己配：环境变量或 `node lib/cli.mjs key sk-...`。逐条明细看 `/whale/health` 的 `keyProbe` |
+| 厂商余额读不到 / 显示「未配置凭据」 | **WorkBuddy 默认如此**（模型由宿主托管，用户没有自带 key）。要看到余额得自己配：环境变量或 `echo 'sk-...' | node lib/cli.mjs key`（stdin，不留命令行痕迹）。逐条明细看 `/whale/health` 的 `keyProbe` |
 | **鲸鱼不跟着 WorkBuddy 走** | 跟随由 `desktop/follow-window.ps1` 常驻探测（默认每 40ms 读宿主动窗口矩形与前台状态）。先确认该 PowerShell 子进程还活着（`window stop` 后 `window start` 重建）；目标进程名由 `lib/host.mjs` 的 `HOST_PROCESS_NAME`（`WorkBuddy`）决定，可用 `WHALE_TARGET_PROCESS` 覆盖 |
 | 探测脚本秒退 / 浮层跟着消失 | 多为 `follow-window.ps1` 里的 C# 编译失败或脚本被写成非 ASCII。**该文件必须保持纯 ASCII**（PS 5.1 按 ANSI 代码页读） |
 | 浮层里菜单的数字框打不了字 | 换成自定义下拉的路径已处理；还不行就确认浮层版本与插件一致（`/whale/health` 的 `version`），或改用本地页面（浏览器打开 `http://127.0.0.1:<port>/`）直接键入 |

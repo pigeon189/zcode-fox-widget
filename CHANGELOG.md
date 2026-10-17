@@ -7,6 +7,24 @@
 
 ---
 
+## 未发版：代码审查（REQUEST_CHANGES）修复批次
+
+> 对应 2026-10-17 的只读审查报告，编号沿用报告里的 I/S/X/P/C。只改代码与文档，未改版本号、未重签名清单。
+
+- **I1 spawn 失败不再掀桌**：`ensureServer` / `startOverlay` / 更新重启 / 浮层跟随脚本的 spawn 全部补 `error` 监听；`ensureServer` 在 spawn 前用 `spawnSync(node -v)` 探一次可用性，失败返回结构化错误（此前未监听 `error` = 未捕获异常，钩子/看门狗会崩溃）。
+- **I2 自启预算**：`startOverlay({svc})` 复用自启里那次 `ensureServer` 的结果，钩子设置 15s 内部预算，`hooks.json` 超时 15s → 20s；最坏耗时从 15.8s 降到 ~9.2s。
+- **I3 单例**：新增 `server.start.lock`（O_EXCL + pid/TTL 陈旧锁回收）、进程内 in-flight 合并；`EADDRINUSE` 时先探测占用者，若已有本插件实例则安静退出（不再顺延端口起第二个）；`server.json` 不覆盖另一个存活实例的记录；spawn 后按 pid 校验，多余的那个自收。
+- **I4/X2 跨站防护改为默认拒绝**：除页面/脚本/图片/音效/健康检查白名单外，所有 GET 都过 `Sec-Fetch-Site` 校验——`/whale/session.json`（会带用户 key 出站）不再漏网。
+- **I5 设置保存失败不再静默**：前端读 `res.ok` 与响应体，`500 + persistError` 走同一条失败提示；保存改为 300ms 去抖 + 串行化。
+- **I6 macOS 浮层**：Electron 二进制按平台给候选路径（`Electron.app/Contents/MacOS/Electron`），`isRuntimeInstalled` 取首个存在项并按平台选哨兵；`focusable` 全平台关闭，非 Windows 铺满指针所在显示器并用 `showInactive`。
+- **I7 完整性校验**：清单外文件在运行时降级为「忽略 + 不写盘 + 警告」，发布自检用 `strictExtraFiles` 严格模式。
+- **安全**：`/whale key` 默认从 stdin 读；`/whale/vendors.json` 的 `keyMasked` 改为带令牌才回；更新下载改 `redirect:'manual'` 并逐跳校验域名白名单；写操作补 `Content-Type: application/json` 校验（415）。
+- **性能**：每轮积分轮询 1s → 2.5s，读不到数据时 30s 退避；厂商余额附载加 60s 缓存。
+- **健壮性/兼容**：预警阈值按字段存在性取值；余额校正加上界并归一到两位小数；峰谷切换点由 `PEAK_HOURS` 展开；CLI 命令分派只认自有函数；浮层判活加「命令行亲缘 / 进程名」校验与 10s 缓存（pid 复用不再误杀）；`health` 增加 `nodeVersion`，Node < 22.5 启动时给出明确警告。
+- **测试**：自检新增「跨站 session.json 被拦」「静态素材白名单放行」「非 JSON 写请求 415」三条断言（400/400 通过）。
+
+---
+
 ## wb-v1.2.0 新增：常用中转站额度、7 天模型排名、GPT 娘原构图修复与角色台词收口
 
 - **常用中转站额度**：厂商模板新增 PackyCode、DuckCoding、云雾 API、H API、UU API、APINebula、LinkAI、88Code（New API 系）、SSSAICode（Sub2API）与 Cubence。按量站显示余额卡；只有一个月度/5 小时窗口时按 GLM Plan 的数字百分比显示剩余额度；Sub2API 的 5 小时/本日/本周三窗口走额度卡。凭据优先复用宿主里已配置的 API Key；New API 账户级查询需要系统访问令牌时可在配置里补 `relayAuth`。

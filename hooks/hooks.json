@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/lib/autostart.mjs\"",
-            "timeout": 15
+            "timeout": 20
           }
         ]
       }

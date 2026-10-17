@@ -109,7 +109,12 @@ if (check) {
   m.set(MANIFEST, onDisk[MANIFEST])
   m.set(SIG, onDisk[SIG])
   const pub = path.join(ROOT, PUBKEY)
-  const r = verifyReleaseFiles(m, version, { publicKey: fs.existsSync(pub) ? fs.readFileSync(pub, 'utf8') : null })
+  // 发布自检用**严格**模式：清单外的文件说明有人改了树却没重签名，发布前必须
+  // 拦下来（运行时是宽松模式：只忽略未签名文件，不会卡住存量用户）。审查 I7。
+  const r = verifyReleaseFiles(m, version, {
+    publicKey: fs.existsSync(pub) ? fs.readFileSync(pub, 'utf8') : null,
+    strictExtraFiles: true,
+  })
   if (!r.ok) {
     console.error('校验未通过：' + r.error)
     process.exit(1)

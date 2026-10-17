@@ -241,12 +241,13 @@ function createWindow() {
     // 旧帧）。带 WS_EX_TOOLWINDOW 的窗口被该判定直接排除。Electron 44 的
     // skipTaskbar 走 ITaskbarList、不再落这个样式位，所以必须显式给。
     ...(process.platform === 'win32' ? { type: 'toolbar' } : {}),
-    // Windows 上必须不可激活：可激活的浮层被点一下就会把前台从 ZCode 抢走，
-    // 而 ZCode 失去前台后画面会停止更新——实测点完挂件后 GetForegroundWindow
+    // **所有平台都必须不可激活**：可激活的浮层被点一下就会把前台从宿主抢走，
+    // Windows 上 ZCode 失去前台后画面停止更新（实测点完挂件后 GetForegroundWindow
     // 变成浮层、WM_MOUSEACTIVATE 返回 MA_ACTIVATE，症状是「和挂件互动后 ZCode
-    // 像卡住一样，再点一下 ZCode 才恢复」。菜单里的文本框需要键盘时，由页面
+    // 像卡住一样」）；macOS/Linux 上同样会把焦点从宿主切走。旧写法只在 win32 关，
+    // 非 Windows 点挂件会抢前台（审查 C1/I6）。菜单里的文本框需要键盘时，由页面
     // 通过 whale:keyboard-focus 临时打开（见下方 ipcMain 处理）。
-    focusable: process.platform !== 'win32',
+    focusable: false,
     show: false,
     alwaysOnTop: true,
     title: 'WorkBuddy狐娘小挂件',
@@ -335,16 +336,22 @@ function createWindow() {
     win = null
   })
 
-  if (process.platform === 'win32') {
-    win.on('blur', releaseKeyboardFocusOnBlur)
-  }
+  // blur 只是「通知页面」用的：非 Windows 上临时打开的可激活态同样需要在失焦
+  // 时让页面收起编辑器（旧写法只在 win32 挂，非 Windows 会卡在可激活态）。
+  win.on('blur', releaseKeyboardFocusOnBlur)
 
   if (process.platform === 'win32') {
     startFollower()
   } else {
-    // 其它平台没有窗口跟随，直接铺满工作区
+    // 其它平台没有窗口跟随，铺满**指针所在显示器**的工作区（按主显示器铺会被
+    // 多显示器用户看成「挂件跑到另一块屏去了」，审查 C1），并且用
+    // showInactive 避免把宿主的前台抢过来
     win.once('ready-to-show', () => {
-      win.show()
+      try {
+        const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+        win.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height })
+      } catch (err) {}
+      win.showInactive()
       overlayShown = true
       win.setIgnoreMouseEvents(true, { forward: true })
     })
@@ -460,6 +467,23 @@ function startFollower() {
     // follow-start 等诊断行也是活性证据（编译完成的标志）
     noteFollowerAlive()
     log('follower-stderr', chunk.toString('utf8').slice(0, 200))
+  })
+  // spawn 失败（PowerShell 被组策略禁用 / PATH 里没有）只会异步 emit 'error'：
+  // 不监听就是未捕获异常，浮层主进程当场崩掉（审查 I1/C3）。降级为「静态浮层」：
+  // 铺满主显示器工作区但不跟随，总比桌面上什么都没有好。
+  child.on('error', (err) => {
+    if (follower !== child) return
+    follower = null
+    log('follower-spawn-failed', String((err && err.message) || err))
+    try {
+      if (!win || win.isDestroyed()) return
+      const { workArea } = screen.getPrimaryDisplay()
+      win.setBounds({ x: workArea.x, y: workArea.y, width: workArea.width, height: workArea.height })
+      if (!win.isVisible()) {
+        win.showInactive()
+        overlayShown = true
+      }
+    } catch (e) {}
   })
   child.on('exit', (code, signal) => {
     // 被主动替换掉的旧实例：这里不再做什么，否则会误退出整个浮层

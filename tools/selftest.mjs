@@ -4130,6 +4130,26 @@ try {
   check('错误令牌关闭被 403', badToken.status === 403, 'HTTP ' + badToken.status)
   const noToken = await rawRequest('POST', '/whale/shutdown', { host: '127.0.0.1:' + port })
   check('无令牌关闭被 403', noToken.status === 403, 'HTTP ' + noToken.status)
+  // 跨站防护的判据是「默认拒绝」：除静态白名单外的 GET 一律拦（审查 I4/T4）。
+  // session.json 会带着用户 key 出站到中转站与厂商，旧的手工名单漏了它。
+  const crossSiteSession = await rawRequest('GET', '/whale/session.json', {
+    host: '127.0.0.1:' + port,
+    'sec-fetch-site': 'cross-site',
+  })
+  check('跨站触发出站型 session.json 被 403（默认拒绝）', crossSiteSession.status === 403, 'HTTP ' + crossSiteSession.status)
+  const crossSiteAsset = await rawRequest('GET', '/whale/image.png', {
+    host: '127.0.0.1:' + port,
+    'sec-fetch-site': 'cross-site',
+  })
+  check('跨站取静态素材不被拦（本地白名单）', crossSiteAsset.status === 200, 'HTTP ' + crossSiteAsset.status)
+  // 写操作只收 JSON（审查 S7）：text/plain 的跨站 simple request 不该进解析
+  const plainWrite = await rawRequest(
+    'PUT',
+    '/whale/size.json',
+    { host: '127.0.0.1:' + port, 'content-type': 'text/plain' },
+    JSON.stringify({ scale: 2 })
+  )
+  check('非 JSON 的写请求被 415', plainWrite.status === 415, 'HTTP ' + plainWrite.status)
 
   // 服务重启：seq 必须从持久化值续上——否则重启后已打开的页面对齐在旧计数上，
   // 新服务的每一轮都会被当成"旧轮次"，每轮消耗气泡静默失效

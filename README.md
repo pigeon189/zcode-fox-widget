@@ -268,7 +268,7 @@
 写入方式（任选其一）：
 
 ```bash
-node lib/cli.mjs key sk-xxxxxxxxxxxxxxxx     # 写进插件配置
+echo 'sk-xxxxxxxxxxxxxxxx' | node lib/cli.mjs key   # 从 stdin 读（密钥不进 shell 历史与进程列表）
 ```
 
 或让会话里的模型直接调 MCP 工具 `whale_config`（`action=set`, `apiKey=...`）。
@@ -331,14 +331,14 @@ node lib/cli.mjs window stop     # 关闭浮层
 node lib/cli.mjs window status   # 浮层与运行时状态
 node lib/cli.mjs desktop install # 安装 Electron 运行时（仅浮层需要，一次性）
 node lib/cli.mjs watchdog install # 装看门狗：WorkBuddy 一启动挂件就位（见上节）
-node lib/cli.mjs key sk-...      # 写入 API Key
+echo 'sk-...' | node lib/cli.mjs key   # 写入 API Key（走 stdin，不留命令行痕迹）
 node lib/cli.mjs mode ledger|token  # 切换对账口径（大肥鱼记账 / 实时·令牌）
 node lib/cli.mjs json            # 结构化输出，便于脚本消费
 ```
 
 ### 在对话里直接用
 
-- 输入 `/fox`（或 `/fox turn`、`/fox window start`、`/fox key sk-...`）
+- 输入 `/fox`（或 `/fox turn`、`/fox window start`；写 Key 建议用上面的 stdin 方式，避免密钥留在对话与命令行历史里）
 - 或者直接问「我还有多少余额」「上一轮花了多少」，WorkBuddy 会调用 MCP 工具：
 
 | MCP 工具 | 作用 |
@@ -481,7 +481,7 @@ node lib/cli.mjs json            # 结构化输出，便于脚本消费
 | 打开 WorkBuddy 没有自动出现 | 看 `${CODEBUDDY_PLUGIN_DATA}/autostart.log` 最后一行。**没有新行说明钩子没被触发**（插件未启用，或改完 `hooks/hooks.json` 后没重启客户端，或钩子里的 `node` 不在 PATH）；`skip: autoStartWidget=false` 说明配置里关掉了自启（菜单里的「关闭插件」不写配置，它只停当前这一份）；`overlay=skipped:no-runtime` 说明运行时没装；`overlay=failed:...` 看括号里的原因。想看钩子到底有没有跑：设 `FOX_WIDGET_HOOK_DEBUG=1`，每次事件会写进 `${CODEBUDDY_PLUGIN_DATA}/hook.log` |
 | 点过菜单里的「关闭插件」，想立刻让它回来 | 启动一次即可：`node lib/cli.mjs start`（要浮层再加 `window start`），或在会话里让助手调 `whale_widget` 的 `start`。它只是本次关闭，什么都不用恢复——下次启动 WorkBuddy 本来就会照常拉起 |
 | 积分 / 上下文一直读不到 | 先看 `/whale/hook.json` 有没有 `sessionId`（没有 = `UserPromptSubmit` 钩子没跑到，`hook-state.json` 没写）；再看 `/whale/context.json` 的 `reason`：`db-unavailable` = 宿主 `workbuddy.db` 读不到或自带 node 不支持 `node:sqlite`（需 ≥ 22.5，实测 22.22.2 可用） |
-| 余额显示「未找到 DeepSeek API Key」 | **这是预期**：WorkBuddy 是订阅积分制，默认没有用户自带的厂商 key（模型由宿主托管），所以厂商卡默认全都不可用。想用就自己配：环境变量 `DEEPSEEK_API_KEY`，或 `${CODEBUDDY_PLUGIN_DATA}/config.json` 的 `apiKey`，或 `node lib/cli.mjs key sk-...`。逐条明细看 `/whale/health` 的 `keyProbe` |
+| 余额显示「未找到 DeepSeek API Key」 | **这是预期**：WorkBuddy 是订阅积分制，默认没有用户自带的厂商 key（模型由宿主托管），所以厂商卡默认全都不可用。想用就自己配：环境变量 `DEEPSEEK_API_KEY`，或 `${CODEBUDDY_PLUGIN_DATA}/config.json` 的 `apiKey`，或 `echo 'sk-...' | node lib/cli.mjs key`（走 stdin，密钥不留命令行痕迹）。逐条明细看 `/whale/health` 的 `keyProbe` |
 | 今日积分比客户端显示的小 | 面板扫的是 `~/.workbuddy/projects/*/*.jsonl`，只取最近 60 个会话、每个只读尾部 2MB（性能取舍）。老会话或超长会话的早期轮次可能没算进去——`/whale/usage-records.json` 的 `scannedTranscripts` / `totalTranscripts` 能看出来 |
 | 点击挂件/气泡没声音 | 检查菜单音量是否为 0、音效组是否已选；音频在页面加载时预热，系统输出设备切换后若无声，重启浮层即可。按压音只对「按鲸鱼」和「点气泡」发声，菜单按钮刻意不出声 |
 | 点设置键却有音效 / 点挂件没音效 | v1.3.0 起菜单按钮不再出声；鲸鱼与气泡的按压音依旧。若点鲸鱼完全没声音，先确认菜单音量不为 0 |
