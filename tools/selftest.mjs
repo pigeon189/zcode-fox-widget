@@ -2792,6 +2792,20 @@ try {
     unskipRes.ok && unskipBody.skipActive === false && unskipState.updateSkip === null,
     JSON.stringify({ skipActive: unskipBody.skipActive, state: unskipState.updateSkip })
   )
+  // 陈旧状态不得回放出「更旧的远端版本」：WorkBuddy 线不自动检查、升级常走市场重装，
+  // 状态文件里可能留着升级前的结论（current 1.0.1 / latest 1.1.0 / available true）。
+  // 视图必须按**当前运行版本**重判，否则会出现「当前 v1.3.0、最新 v1.1.0、还能立即更新」。
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ current: '0.0.1', latest: '0.0.1', available: true, appliedVersion: '0.0.1', busy: false, phase: 'done', checkedAt: Date.now(), source: 'test' }),
+    'utf8'
+  )
+  const upStale = await getJson(port, '/whale/update.json')
+  check(
+    '更新状态路由：状态文件比当前版本旧时，available 归 false 且 latest 显示当前版本',
+    upStale && upStale.available === false && upStale.latest === upStale.version && upStale.appliedVersion === null,
+    JSON.stringify(upStale && { latest: upStale.latest, version: upStale.version, available: upStale.available, appliedVersion: upStale.appliedVersion })
+  )
   const badAction = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
