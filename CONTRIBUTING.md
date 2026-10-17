@@ -152,6 +152,10 @@ README / SKILL / commands 的标点与空格漂移是反复出现的问题，这
 
 > 注意：GitHub 的 `releases/latest` 对两条产品线是**歧义**的（会返回整体最新，可能是 ZCode 线的 tag），
 > 所以 WorkBuddy 线的更新探测会列出 releases 后只挑 `wb-v*` 前缀里的最高版本。
+>
+> 由此还有一条发版纪律：本线的 release 一律 `gh release create … --latest=false`，把 `Latest` 徽章
+> 留给 `v*` 那条线。2026-10-18 发 `wb-v1.3.1` 时漏了这个参数，徽章落到 wb 版本上，仓库首页的
+> 「Latest」与 `/releases/latest` 都指向了 WorkBuddy 线（已用 `gh release edit v1.15.1 --latest` 改回）。
 
 ### 宿主升级监控
 
