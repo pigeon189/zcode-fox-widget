@@ -39,7 +39,3 @@
 
 > `porting/` 是**历史证据**，只增不改（改写会破坏「当时怎么测出来的」）。当前结论以
 > `MAINTAINING.md` 与 `DECISIONS.md` 为准。
-
-## 不进仓库的文档
-
-- `DOCS-SIMPLIFY-PLAN.md`：本次文档重构的评估与方案（执行完即失效，不入库）。
