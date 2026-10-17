@@ -3496,6 +3496,20 @@ try {
       roles1.selected === upBody.id,
     JSON.stringify(roles1).slice(0, 200)
   )
+  // 立绘 ?role= 直取：切角色那一刻 roleId 还没落盘（保存有 300ms 去抖），只按
+  // widget-state 取会拿到上一张（2026-10-18 真机：逐张切换时每张都错一位）
+  {
+    const gptBytes = fs.readFileSync(path.join(PLUGIN_ROOT, 'assets', 'gpt.png'))
+    const res = await fetch('http://127.0.0.1:' + port + '/whale/image.png?role=gpt')
+    const got = Buffer.from(await res.arrayBuffer())
+    check(
+      '立绘 ?role= 直取对应角色（不受保存去抖影响）',
+      res.ok && got.equals(gptBytes),
+      'HTTP ' + res.status + '，' + got.length + ' 字节'
+    )
+    const unknown = await fetch('http://127.0.0.1:' + port + '/whale/image.png?role=__nope__')
+    check('立绘未知 role 参数回落当前角色（不 404）', unknown.ok, 'HTTP ' + unknown.status)
+  }
   // 超过旧版全局 8KB body 上限的上传也应成功（真实头像截图普遍几十 KB 起）
   const bigDataUrl = 'data:image/png;base64,' + Buffer.alloc(15000, 97).toString('base64')
   const upBigRes = await fetch('http://127.0.0.1:' + port + '/whale/role-upload.json', {
