@@ -47,6 +47,15 @@
 - 版本号单一来源：`.codebuddy-plugin/plugin.json`（`lib/paths.mjs` 的 `pluginVersion()` 供 server 的 health 与 MCP 动态读取）。release commit 仍需同步改 `.codebuddy-plugin/marketplace.json` 的版本；selftest 有「health = 清单 = marketplace」一致性断言兜底。`desktop/package.json` 是浮层入口包，版本独立，不在此列。
 - （ZCode 线 `main` 上的对应文件是 `.zcode-plugin/plugin.json` + 根 `marketplace.json`，两分支各自的清单互不混用。）
 
+### 版本说明的写法（2026-10-18 统一）
+
+- **版本标题**：`## vX.Y.Z <动词>：<一句话>`，动词只用 **新增 / 修复 / 变更**；并入多个小版本的写「（并入 …）」。
+- **条目**：平铺列表，每条**一句话、≤150 字**，只写「现象 → 影响」；实现细节、调查过程、字段名不进 CHANGELOG。
+- **数量**：每版聚焦重点（一般 ≤10 条）；批次大或并入多个小版本时可放宽，但不再逐条罗列实现。
+- **层级**：正文不出现 `###`；跨版本的回撤/补全说明用 `>` 引用块。
+- **Release 正文**：首行一句总述并指回 CHANGELOG 小节；分节标题用 `##`；**不逐字复制 CHANGELOG**，只挑 3–6 条用户最关心的；末尾固定「升级」（ZCode 线）/「安装 / 升级」（WorkBuddy 线）。
+- **两条线同批修复**用同一段文字，只替换宿主名词（ZCode↔WorkBuddy、余额↔积分）。
+
 ## 提交纪律
 
 - **不改写已推送历史**：不 force-push 已推送分支、不 rebase 已进入 PR 的提交；修错用新提交。

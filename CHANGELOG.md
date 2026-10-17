@@ -3,6 +3,8 @@
 本文件只记 **WorkBuddy 线**（`fox-widget`）的用户可见变更，供速查；每条一句话，细节不在
 这里展开（规则见 [CONTRIBUTING](./CONTRIBUTING.md) 的「文档归属」）。
 
+> **2026-10-18 整理**：条目统一为「一句话、≤150 字」，版本标题统一 `## wb-vX.Y.Z <动词>：…`。
+
 - 「为什么这么写 / 踩过的坑」→ [`docs/DECISIONS.md`](./docs/DECISIONS.md)（按主题）
 - ZCode 线（`main`）v1.1.0–v1.11.1 的完整历史 → [`docs/CHANGELOG-ARCHIVE.md`](./docs/CHANGELOG-ARCHIVE.md)
 - 移植期的实测档案 → [`docs/porting/`](./docs/porting/)
@@ -11,7 +13,7 @@
 
 ## wb-v1.3.1 修复：浮层冷启动上屏、角色图错位、更新面板显示陈旧版本
 
-- **浮层冷启动不上屏（#4，感谢 [@Edritc](https://github.com/Edritc)）**：跟随脚本的第一条消息常早于页面就绪（实测 0.3s vs 1–3s），被 `pageReady` 门控丢弃后没有补发的机会，宿主窗口静止时鲸鱼一直隐身。现在 `did-finish-load` 按最后一条跟随消息重走一次 `applyZCodeBounds`。
+- **浮层冷启动不上屏（#4，感谢 [@Edritc](https://github.com/Edritc)）**：跟随脚本的第一条消息常早于页面就绪（实测 0.3s vs 1–3s），被 `pageReady` 门控丢弃后没有补发的机会，宿主窗口静止时鲸鱼一直隐身。现在 `did-finish-l…
 - **切换角色时立绘错一位**：保存有 300ms 去抖，换图却立刻发起，服务端按 `widget-state.roleId` 取到的是上一个角色。`/whale/image.png` 新增 `?role=<id>`，前端换图时带上 id。
 - **更新面板显示「最新版本」比当前还旧**：状态文件可能是旧版本留下的，视图原样回放会出现「当前更新、最新更旧、还能立即更新」。现在按当前运行版本重判 `available` / `latest`。
 - **哈基米换新版立绘**：白底按颜色重建边缘 alpha（发丝镂空保留、白衣服不被抠穿），内容 607×587、画布 610×610、右下贴齐，右耳与发尾不再被削。
