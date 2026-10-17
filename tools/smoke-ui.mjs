@@ -309,7 +309,7 @@ try {
     (await pollEval(
       cdp,
       "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
-        "if(!l||!a||l.textContent!=='上一轮消耗:')return null;" +
+        "if(!l||!a||l.textContent!=='本轮消耗：')return null;" +
         "return JSON.stringify({amount:a.textContent,hint:h&&h.style.display!=='none'?h.textContent:''})})()",
       20000
     )) || 'null'
@@ -343,7 +343,7 @@ try {
     (await pollEval(
       cdp,
       "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
-        "if(!l||!a||l.textContent!=='上一轮消耗:'||a.textContent!=='40.00 积分')return null;" +
+        "if(!l||!a||l.textContent!=='本轮消耗：'||a.textContent!=='40.00 积分')return null;" +
         'var b=document.querySelector(\'.zcwv-bubble\').getBoundingClientRect();' +
         'var avail=560*(b.width/1026),r=document.createRange();r.selectNodeContents(h);' +
         'return JSON.stringify({amount:a.textContent,hint:h.style.display!==\'none\'?h.textContent:\'\',' +
@@ -370,7 +370,7 @@ try {
     (await pollEval(
       cdp,
       "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount');" +
-        "if(!l||!a||l.textContent!=='本轮 tokens:')return null;" +
+        "if(!l||!a||l.textContent!=='本轮 tokens：')return null;" +
         "return JSON.stringify({amount:a.textContent})})()",
       20000
     )) || 'null'
@@ -1163,7 +1163,8 @@ try {
     "(function(){document.dispatchEvent(new PointerEvent('pointermove',{clientX:" +
       whalePt.x + ",clientY:" + whalePt.y + ",bubbles:true,pointerType:'mouse'}));return 'ok'})()"
   )
-  await new Promise((r) => setTimeout(r, 200))
+  // saveConfig 现在 300ms 去抖（UI 审查 I5），读落盘状态前要等过这个窗口
+  await new Promise((r) => setTimeout(r, 700))
   const btnHidden = JSON.parse(
     await cdp.eval(
       "(function(){var b=document.querySelector('.zcwv-menu-btn');" +
@@ -1211,7 +1212,8 @@ try {
       "if(rows[i].textContent.indexOf('隐藏菜单按钮')!==-1){var c=rows[i].querySelector('input[type=checkbox]');" +
       "if(c&&c.checked)c.click()}}return 'ok'})()"
   )
-  await new Promise((r) => setTimeout(r, 200))
+  // 同上：saveConfig 300ms 去抖后再读落盘值
+  await new Promise((r) => setTimeout(r, 700))
   const hideRestored = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
   check('隐藏菜单按钮：关闭后恢复原状（配置回 false）', hideRestored.menuBtnHide === false, JSON.stringify({ saved: hideRestored.menuBtnHide }))
   await cdp.eval(
@@ -1625,9 +1627,9 @@ try {
     )
   )
   check(
-    'Kimi 余额主显示（v1.8.9 重构）：label「Kimi 余额」、amount ¥ 8.51、hint 今日已用 ¥ 0.28',
-    !!kimiView && kimiView.label === 'Kimi 余额' && kimiView.amount === '¥ 8.51' &&
-      typeof kimiView.hint === 'string' && kimiView.hint.indexOf('今日已用 ¥ 0.28') !== -1,
+    'Kimi 余额主显示（v1.8.9 重构）：label「Kimi 余额」、amount ¥ 8.51、hint 今日已用 ¥0.28',
+    !!kimiView && kimiView.label === 'Kimi 余额' && kimiView.amount === '¥8.51' &&
+      typeof kimiView.hint === 'string' && kimiView.hint.indexOf('今日已用 ¥0.28') !== -1,
     JSON.stringify(kimiView)
   )
   if (stubVendor && stubVendor.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubVendor.identifier })
@@ -1976,7 +1978,7 @@ try {
     !!relayBalanceObj &&
       relayBalanceObj.qcard === false &&
       relayBalanceObj.label === 'PackyCode 余额' &&
-      relayBalanceObj.amount === '12.34 USD' &&
+      relayBalanceObj.amount === '$12.34' &&
       relayBalanceObj.hint.indexOf('已用 $3.21') !== -1 &&
       relayBalanceObj.hint.indexOf('总额 $15.55') !== -1,
     JSON.stringify(relayBalanceObj)
@@ -2398,7 +2400,7 @@ try {
   const pickedWhale = await pickRoleByName('大肥鱼')
   const darkWhale = await readRoleInk()
   check(
-    '深色档一律不跟角色（菜单 / 二级页面 / 文本框保持主题色，拖动条回到原生绘制）',
+    '深色档一律不跟角色，且控件与浅色档同构（自绘滑块/复选框，白勾由深色 token 兜底）',
     pickedWhale === 'ok' &&
       !!darkXiaoke &&
       darkXiaoke.dark === true &&
@@ -2412,9 +2414,11 @@ try {
       darkXiaoke.checkAccent === darkWhale.checkAccent &&
       darkXiaoke.dimColor === darkWhale.dimColor &&
       darkXiaoke.rangeAccent === darkWhale.rangeAccent &&
-      darkXiaoke.rangeAppearance === 'auto' &&
-      darkWhale.rangeAppearance === 'auto' &&
-      darkXiaoke.checkAppearance === 'auto',
+      darkXiaoke.rangeAppearance === 'none' &&
+      darkWhale.rangeAppearance === 'none' &&
+      darkXiaoke.checkAppearance === 'none' &&
+      darkXiaoke.checkMark === '#fff' &&
+      darkWhale.checkMark === '#fff',
     JSON.stringify({ xiaoke: darkXiaoke, whale: darkWhale })
   )
   await setThemeAndReload('light')
