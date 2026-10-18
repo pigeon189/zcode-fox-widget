@@ -1,0 +1,5 @@
+{
+  "name": "fox-dock-overlay",
+  "private": true,
+  "main": "main.cjs"
+}

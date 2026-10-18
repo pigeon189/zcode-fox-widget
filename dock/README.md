@@ -2,7 +2,7 @@
 
 桌面常驻的多 agent 成本看板：把挂件拖到 agent 窗口上，自动识别、吸附、切到对应计费口径。
 
-**状态：R2 完成。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog 自动拉起、登录启动器安装。
+**状态：R3 完成。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog、登录启动器、透明浮层与「拖动狐狸 → 命中宿主 → 绑定 → 吸附」闭环（含 DPI 换算与 500ms 跟随）。
 
 ## 与现有挂件的关系
 
@@ -32,7 +32,7 @@ docs/dock/     决策记录与计划
 cd dock
 npm run check    # 语法检查
 npm test         # 单元测试
-npm run test:it  # 集成测试（真实窗口 + 真服务 + watchdog，需要桌面会话）
+npm run test:it  # 集成测试（真实窗口 + 真服务 + watchdog + 浮层拖拽，需要桌面会话与 Electron）
 npm run test:all # 全部
 
 npm run doctor   # 打印当前桌面窗口与光标命中（不启动服务）

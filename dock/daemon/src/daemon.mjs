@@ -15,7 +15,9 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { VERSION } from './main.mjs'
-import { acquireLock, readLock, releaseLock, updateLock } from './lock.mjs'
+import { acquireLock, releaseLock, updateLock } from './lock.mjs'
+import { readBindings, removeBinding, upsertBinding } from './bindings.mjs'
+import { buildBindKey } from '../../shared/identity.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
 import { Win32Bridge } from './win32.mjs'
 
@@ -52,6 +54,32 @@ function sendJson(res, code, obj) {
   const body = JSON.stringify(obj)
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end(body)
+}
+
+function readBody(req, limit = 8192) {
+  return new Promise((resolve, reject) => {
+    let size = 0
+    const chunks = []
+    req.on('data', (c) => {
+      size += c.length
+      if (size > limit) {
+        reject(new Error('body too large'))
+        req.destroy()
+        return
+      }
+      chunks.push(c)
+    })
+    req.on('end', () => {
+      const text = Buffer.concat(chunks).toString('utf8')
+      if (!text) return resolve({})
+      try {
+        resolve(JSON.parse(text))
+      } catch (err) {
+        reject(new Error('bad json'))
+      }
+    })
+    req.on('error', reject)
+  })
 }
 
 function timingSafeEqual(a, b) {
@@ -165,6 +193,60 @@ export async function runDaemon(argv = process.argv.slice(2)) {
           }
           sendJson(res, 200, { ok: true, hits: await bridge.hit(x, y, exclude) })
         }
+      } catch (err) {
+        sendJson(res, 500, { ok: false, error: String((err && err.message) || err) })
+      }
+      return
+    }
+
+    if (p === '/bindings' && req.method === 'GET') {
+      sendJson(res, 200, { ok: true, bindings: readBindings(paths.bindings) })
+      return
+    }
+
+    if (p === '/bind' && req.method === 'POST') {
+      try {
+        const body = await readBody(req)
+        const key = buildBindKey({
+          exe: body.exe,
+          pid: body.pid,
+          startMs: body.startMs,
+          hwnd: body.hwnd,
+        })
+        const saved = upsertBinding(paths.bindings, {
+          key,
+          adapterId: body.adapterId,
+          anchor: body.anchor,
+          window: {
+            title: String(body.title || '').slice(0, 200),
+            exe: String(body.exe || '').slice(0, 400),
+            pid: Number(body.pid),
+            hwnd: String(body.hwnd || ''),
+            rect: body.rect || null,
+          },
+        })
+        sendJson(res, 200, { ok: true, binding: saved })
+      } catch (err) {
+        sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+      }
+      return
+    }
+
+    if (p === '/bind' && req.method === 'DELETE') {
+      const key = url.searchParams.get('key') || ''
+      const r = removeBinding(paths.bindings, key)
+      sendJson(res, 200, { ok: true, removed: r.removed, bindings: r.bindings })
+      return
+    }
+
+    if (p === '/rect' && req.method === 'GET') {
+      if (!bridge || !bridgeReady) {
+        sendJson(res, 503, { ok: false, error: 'bridge-unavailable' })
+        return
+      }
+      try {
+        const hwnd = url.searchParams.get('hwnd') || ''
+        sendJson(res, 200, { ok: true, rect: await bridge.rect(hwnd) })
       } catch (err) {
         sendJson(res, 500, { ok: false, error: String((err && err.message) || err) })
       }
