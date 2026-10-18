@@ -10,5 +10,7 @@ if not defined NODE (
   echo [fox-dock] node.exe not found. Install Node 22+ or add it to PATH.> "%LOG%" 2>&1
   exit /b 9009
 )
+rem 双击「启动」= 重启：先收掉正在跑的实例
+%NODE% tools\fox-dock.mjs stop >nul 2>&1
 %NODE% tools\fox-dock.mjs start %* > "%LOG%" 2>&1
 exit /b %ERRORLEVEL%
