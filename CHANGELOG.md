@@ -11,6 +11,12 @@
 
 ---
 
+## wb-v1.3.2 修复：浮层主进程每次加载都弹 ReferenceError
+
+- **浮层主进程弹「A JavaScript error occurred in the main process」**：上一版把 ZCode 线的浮层补丁 cherry-pick 过来时，函数名没跟着换（本线叫 `applyHostBounds`，补丁里写的是 `applyZCodeBounds`），`did-finish-load` 每次触发都抛 `ReferenceError`。改用本线的函数名，并加一条静态自检：`desktop/main.cjs` 里调用的 `apply*Bounds` 必须在本文件有定义。
+
+---
+
 ## wb-v1.3.1 修复：浮层冷启动上屏、角色图错位、更新面板显示陈旧版本
 
 - **浮层冷启动不上屏（#4，感谢 [@Edritc](https://github.com/Edritc)）**：跟随脚本的第一条消息常早于页面就绪（实测 0.3s vs 1–3s），被 `pageReady` 门控丢弃后没有补发的机会，宿主窗口静止时鲸鱼一直隐身。现在 `did-finish-l…
