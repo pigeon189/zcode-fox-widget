@@ -1506,6 +1506,11 @@ try {
   // 而那条名单没点名 .zcwv-flow，等于开着系统设置也照跑 2.6s 循环横扫）。
   // 用 CDP 真开一次媒体模拟，按计算样式断言，而不是只看选择器写没写。
   {
+    // 先显式把「减少动态效果」关掉再取基线：CI runner 与部分 Windows 机器在系统级
+    // 关了动画，Chromium 默认就报 reduce，基线会直接是 animation:none（2026-10-18
+    // 首次跑 CI 时正是这么挂的）。显式 no-preference 后，本用例在任何机器上同义。
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] })
+    await new Promise((r) => setTimeout(r, 300))
     const flowAnimBefore = await cdp.eval(
       "(function(){var n=document.querySelector('.zcwv-text .zcwv-flow');if(!n)return null;" +
         "var cs=getComputedStyle(n);return JSON.stringify({name:cs.animationName,dur:cs.animationDuration})})()"
