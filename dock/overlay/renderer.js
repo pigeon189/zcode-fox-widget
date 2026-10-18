@@ -42,6 +42,7 @@ const foxImg = document.getElementById('fox-img')
 const sayEl = document.getElementById('say')
 const sayText = document.getElementById('say-text')
 const chipDot = document.getElementById('chip-dot')
+const petMenu = document.getElementById('pet-menu')
 const panelAccent = document.getElementById('panel-accent')
 const panelFresh = document.getElementById('panel-fresh')
 const foxBadge = document.getElementById('fox-badge')
@@ -65,6 +66,9 @@ let settings = {
   autoRole: true,
   rolesByAdapter: {},
   showWeek: true,
+  petMode: false,
+  updateManifestUrl: '',
+  autoUpdate: false,
 }
 let followTimer = null
 let lastBoundRect = null
@@ -121,10 +125,13 @@ function place(x, y) {
   positionPanel()
 }
 
-// 2.0 的基准尺寸：挂件线的最小档是 122px，80px 会让 610×610 立绘里的
-// 人物只剩 ~77px 高，用户一眼就能看出「角色变小了」。128 与立绘内容
-// （587/610）配合后约为 123px，和挂件线默认观感一致。
-const FOX_BASE = 128
+// 与挂件线同款响应式基准：
+//   clamp(122px, min(250px, min(100vw,100vh) * 0.28) * scale, 625px)
+// 2560×1600 / 150% 下视口约 1020px 高 → 250px 基准；小屏回落到 122px。
+// 之前固定 128px，只有原挂件的一半大，属于明确的观感回归。
+const FOX_MIN = 122
+const FOX_MAX = 250
+const FOX_CAP = 625
 
 // 每个宿主的默认角色：绑定后自动换人，但用户可以在「角色」页按宿主覆盖。
 const ADAPTER_DEFAULT_ROLE = {
@@ -136,7 +143,10 @@ const ADAPTER_DEFAULT_ROLE = {
 }
 
 function foxSize() {
-  return Math.round(FOX_BASE * (Number(settings.scale) || 1))
+  const viewport = Math.min(window.innerWidth, window.innerHeight)
+  const base = Math.max(FOX_MIN, Math.min(FOX_MAX, viewport * 0.28))
+  const scaled = base * (Number(settings.scale) || 1)
+  return Math.round(Math.max(FOX_MIN, Math.min(FOX_CAP, scaled)))
 }
 
 // 缩放只改两个 CSS 变量，几何全部由它们算（狐狸、卡片、面板定位都读 foxSize）
@@ -343,6 +353,8 @@ async function loadSettings() {
     if (r && r.ok && r.settings) {
       settings = { ...settings, ...r.settings }
       applySettings()
+      if (settings.petMode && boundKey) unbind()
+      if (settings.autoUpdate && settings.updateManifestUrl) checkUpdate(false)
     }
   } catch (err) {}
 }
@@ -679,8 +691,8 @@ function groupLabel(g) {
   return fmtNum(g.amount) + ' ' + g.unit
 }
 
-const PANEL_TABS = ['detail', 'quota', 'usage', 'roles', 'settings', 'about']
-const TAB_TITLES = { detail: '', quota: '额度', usage: '用量', roles: '角色', settings: '设置', about: '关于' }
+const PANEL_TABS = ['detail', 'quota', 'vendors', 'usage', 'roles', 'settings', 'about']
+const TAB_TITLES = { detail: '', quota: '额度', vendors: '厂商', usage: '用量', roles: '角色', settings: '设置', about: '关于' }
 
 let aboutDiag = null
 let aboutLoading = false
@@ -688,6 +700,19 @@ let aboutError = ''
 let detectedAgents = []
 let detectedAt = 0
 let detectionHinted = false
+// 全厂商面板：复用同机挂件线的 /whale/vendors.json。
+let vendorState = {
+  adapter: '',
+  loading: false,
+  error: '',
+  source: null,
+  services: [],
+  vendors: [],
+  showAll: false,
+}
+let vendorSeq = 0
+let updateState = null
+let updateLoading = false
 
 function setActiveTab(tab) {
   activeTab = PANEL_TABS.includes(tab) ? tab : 'detail'
@@ -709,6 +734,7 @@ function renderPanel(summary, bindings) {
   if (activeTab === 'settings') renderSettings()
   else if (activeTab === 'about') renderAbout()
   else if (activeTab === 'quota') renderQuota()
+  else if (activeTab === 'vendors') renderVendors()
   else if (activeTab === 'usage') renderUsage()
   else if (activeTab === 'roles') renderRoles()
   else renderDetail()
@@ -1209,6 +1235,268 @@ function renderQuota() {
   panelBody.appendChild(row('更新时间', freshLabel(snap)))
 }
 
+// ---------- 全厂商（复用挂件线服务） ----------
+
+function pct01(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  return Math.max(0, Math.min(100, Math.round(n * 1000) / 10))
+}
+
+function vendorKindLabel(v) {
+  if (v.kind === 'balance') return '余额'
+  if (v.kind === 'cmdgo') return '套餐 · 三重额度'
+  if (v.kind === 'local-log' || v.kind === 'quota') return '套餐'
+  if (v.kind === 'tokens') return '按量计价'
+  return v.kind || '额度'
+}
+
+function vendorCard(v) {
+  if (!v.available) {
+    const rowEl = document.createElement('div')
+    rowEl.className = 'vendor-unavailable'
+    rowEl.dataset.vendor = v.id
+    const name = document.createElement('span')
+    name.className = 'vname'
+    name.textContent = v.name
+    const reason = document.createElement('span')
+    reason.className = 'vreason'
+    reason.textContent = v.reason || '未配置'
+    reason.title = v.reason || ''
+    rowEl.appendChild(name)
+    rowEl.appendChild(reason)
+    return rowEl
+  }
+
+  let card = null
+  if (v.kind === 'balance' && typeof v.balance === 'number') {
+    const sub = typeof v.todayUsage === 'number' ? '今日 ' + fmtMoney({ amount: v.todayUsage, currency: v.currency }) : ''
+    card = quotaCardEl(
+      {
+        kind: 'balance',
+        title: v.name,
+        subtitle: vendorKindLabel(v),
+        balance: { amount: v.balance, currency: v.currency || 'CNY' },
+        note: [sub, v.note].filter(Boolean).join(' · '),
+      },
+      false
+    )
+  } else if (v.kind === 'cmdgo') {
+    const windows = []
+    for (const [label, w] of [['本月', v.monthly], ['5 小时', v.fiveHour], ['本周', v.weekly]]) {
+      if (!w) continue
+      let used = pct01(w.percent)
+      if (used === null && typeof w.cap === 'number' && w.cap > 0 && typeof w.used === 'number') used = pct01(w.used / w.cap)
+      if (used === null) continue
+      windows.push({
+        label,
+        usedPct: used,
+        remainingPct: Math.round((100 - used) * 10) / 10,
+        resetAt: w.resetAt,
+      })
+    }
+    card = quotaCardEl(
+      {
+        kind: windows.length ? 'windows' : 'plan',
+        title: v.name,
+        subtitle: v.planName ? v.planName + ' 套餐' : '套餐额度',
+        plan: v.planName,
+        account: v.account,
+        windows,
+        note: v.pool && v.pool.total ? '账号池 ' + (v.pool.available || 0) + '/' + v.pool.total + ' 可用 · ' + (v.note || '') : v.note,
+      },
+      false
+    )
+  } else if (v.kind === 'local-log' || v.kind === 'quota') {
+    const rem = pct01(v.percentRemaining)
+    const windows =
+      rem === null
+        ? []
+        : [
+            {
+              label: '套餐',
+              usedPct: Math.round((100 - rem) * 10) / 10,
+              remainingPct: rem,
+              resetAt: v.nextResetAt,
+              detail:
+                typeof v.remaining === 'number' && typeof v.total === 'number'
+                  ? fmtNum(v.remaining) + ' / ' + fmtNum(v.total) + ' tokens'
+                  : '',
+            },
+          ]
+    card = quotaCardEl(
+      {
+        kind: windows.length ? 'windows' : 'plan',
+        title: v.name,
+        subtitle: vendorKindLabel(v),
+        windows,
+        note: v.note,
+      },
+      false
+    )
+  } else {
+    card = quotaCardEl(
+      {
+        kind: 'plan',
+        title: v.name,
+        subtitle: vendorKindLabel(v),
+        plan: v.kind === 'tokens' ? '按量计价' : v.kind,
+        note: v.note,
+      },
+      false
+    )
+  }
+  if (card) card.dataset.vendor = v.id
+  return card
+}
+
+async function loadVendors(adapter, force) {
+  if (!base) return
+  const seq = ++vendorSeq
+  vendorState.adapter = adapter
+  vendorState.loading = true
+  vendorState.error = ''
+  if (panelOpen && activeTab === 'vendors') renderPanel(lastSummary, lastBindings)
+  try {
+    const q = '/vendors?adapter=' + encodeURIComponent(adapter) + (force ? '&force=1' : '')
+    const r = await (await fetch(base + q, { cache: 'no-store' })).json()
+    if (seq !== vendorSeq) return
+    vendorState.loading = false
+    vendorState.services = Array.isArray(r.services) ? r.services : []
+    vendorState.source = r.source || null
+    vendorState.vendors = Array.isArray(r.vendors) ? r.vendors : []
+    vendorState.error = r.ok ? '' : r.error || r.reason || '读取失败'
+  } catch (err) {
+    if (seq !== vendorSeq) return
+    vendorState.loading = false
+    vendorState.error = String((err && err.message) || err)
+  }
+  if (panelOpen && activeTab === 'vendors') renderPanel(lastSummary, lastBindings)
+}
+
+function preferredVendorAdapter() {
+  if (boundAdapter && (boundAdapter.id === 'zcode' || boundAdapter.id === 'workbuddy')) return boundAdapter.id
+  return 'zcode'
+}
+
+function renderVendors() {
+  const preferred = preferredVendorAdapter()
+  if (!vendorState.adapter) vendorState.adapter = preferred
+  if (!vendorState.loading && !vendorState.error && !vendorState.source && !vendorState.vendors.length) {
+    loadVendors(vendorState.adapter, false)
+  }
+
+  const sourceRow = document.createElement('div')
+  sourceRow.className = 'vendor-source'
+  const label = document.createElement('span')
+  label.className = 'vendor-source-label'
+  label.textContent = '数据源'
+  const sel = selectControl(
+    [
+      { value: 'zcode', label: 'ZCode 挂件' },
+      { value: 'workbuddy', label: 'WorkBuddy 挂件' },
+    ],
+    vendorState.adapter,
+    (v) => loadVendors(v, false)
+  )
+  sel.className = 'vendor-select'
+  const refresh = document.createElement('button')
+  refresh.type = 'button'
+  refresh.className = 'btn'
+  refresh.textContent = '刷新'
+  refresh.addEventListener('click', (e) => {
+    e.stopPropagation()
+    loadVendors(vendorState.adapter, true)
+  })
+  sourceRow.appendChild(label)
+  sourceRow.appendChild(sel)
+  sourceRow.appendChild(refresh)
+  panelBody.appendChild(sourceRow)
+
+  if (vendorState.loading) {
+    panelBody.appendChild(row('状态', '读取中…'))
+    return
+  }
+  if (vendorState.error) {
+    const sec = document.createElement('div')
+    sec.className = 'panel-sec'
+    sec.appendChild(row('状态', '读取失败'))
+    sec.appendChild(row('原因', vendorState.error))
+    panelBody.appendChild(sec)
+    const retry = document.createElement('button')
+    retry.type = 'button'
+    retry.className = 'btn'
+    retry.textContent = '重试'
+    retry.style.marginTop = '8px'
+    retry.addEventListener('click', (e) => {
+      e.stopPropagation()
+      loadVendors(vendorState.adapter, true)
+    })
+    panelBody.appendChild(retry)
+    return
+  }
+
+  const vendors = vendorState.vendors || []
+  const available = vendors.filter((v) => v.available)
+  const unavailable = vendors.filter((v) => !v.available)
+  if (!available.length && !unavailable.length) {
+    const empty = document.createElement('div')
+    empty.className = 'empty'
+    empty.textContent = '挂件线服务没有返回厂商模板。'
+    panelBody.appendChild(empty)
+    return
+  }
+
+  const list = document.createElement('div')
+  list.className = 'vendor-list'
+  for (const v of available) {
+    const card = vendorCard(v)
+    if (card) list.appendChild(card)
+  }
+  if (!available.length) {
+    const empty = document.createElement('div')
+    empty.className = 'empty'
+    empty.textContent = '还没有可读的厂商余额/套餐；下面是未配置的模板。'
+    list.appendChild(empty)
+  }
+  panelBody.appendChild(list)
+
+  if (unavailable.length) {
+    const toggle = document.createElement('div')
+    toggle.className = 'setting'
+    const lab = document.createElement('label')
+    lab.textContent = '显示未配置（' + unavailable.length + '）'
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    box.checked = !!vendorState.showAll
+    box.addEventListener('change', () => {
+      vendorState.showAll = box.checked
+      renderPanel(lastSummary, lastBindings)
+    })
+    toggle.appendChild(lab)
+    toggle.appendChild(box)
+    panelBody.appendChild(toggle)
+    if (vendorState.showAll) {
+      const more = document.createElement('div')
+      more.className = 'vendor-list'
+      for (const v of unavailable) {
+        const r = vendorCard(v)
+        if (r) more.appendChild(r)
+      }
+      panelBody.appendChild(more)
+    }
+  }
+
+  if (vendorState.source) {
+    const note = document.createElement('p')
+    note.className = 'setting-hint'
+    note.textContent =
+      '来自 ' + (vendorState.source.app || vendorState.source.adapter) + ' v' + (vendorState.source.version || '?') +
+      ' · 端口 ' + vendorState.source.port + '；只读本机接口，凭据不进入 dock。'
+    panelBody.appendChild(note)
+  }
+}
+
 // ---------- 用量 ----------
 
 function renderUsage() {
@@ -1468,6 +1756,16 @@ function numberControl(value, { min, max, step }, onChange) {
   return input
 }
 
+function textControl(value, placeholder, onChange) {
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'url-input'
+  input.placeholder = placeholder || ''
+  input.value = String(value == null ? '' : value)
+  input.addEventListener('change', () => onChange(input.value.trim()))
+  return input
+}
+
 function renderSettings() {
   const note = document.createElement('p')
   note.className = 'setting-hint'
@@ -1595,6 +1893,17 @@ function renderSettings() {
   )
   panelBody.appendChild(
     settingRow(
+      '桌宠模式',
+      checkboxControl(settings.petMode, (v) => {
+        settings.petMode = v
+        if (v) unbind().then(() => saveSettings({ petMode: true }))
+        else saveSettings({ petMode: false })
+      }),
+      '开启后不吸附、不跟随窗口，角色可以随意摆在屏幕上；想重新吸附时关掉再拖。'
+    )
+  )
+  panelBody.appendChild(
+    settingRow(
       '显示数字卡片',
       checkboxControl(settings.showChip, (v) => saveSettings({ showChip: v })),
       '关掉后只留狐狸，单击仍可看面板。'
@@ -1654,6 +1963,22 @@ function renderSettings() {
     )
   )
 
+  panelBody.appendChild(sectionTitle('更新'))
+  panelBody.appendChild(
+    settingRow(
+      '清单地址',
+      textControl(settings.updateManifestUrl, 'https://…/update.json', (v) => saveSettings({ updateManifestUrl: v })),
+      '签名清单地址；发布 dock-v* 后填入。留空 = 未配置更新源。'
+    )
+  )
+  panelBody.appendChild(
+    settingRow(
+      '启动时检查',
+      checkboxControl(settings.autoUpdate, (v) => saveSettings({ autoUpdate: v })),
+      '启动后自动检查一次；不会自动落盘更新，安装仍走 CLI 的 update --apply。'
+    )
+  )
+
   const foot = document.createElement('p')
   foot.className = 'setting-hint'
   foot.textContent = '设置只存在本机；不读取密钥内容，不上传任何数据。'
@@ -1683,6 +2008,20 @@ function electronVersion() {
   return m ? m[1] : '—'
 }
 
+async function checkUpdate(force) {
+  if (!base || updateLoading) return
+  updateLoading = true
+  if (panelOpen && activeTab === 'about') renderPanel(lastSummary, lastBindings)
+  try {
+    const r = await (await fetch(base + '/update/check' + (force ? '?force=1' : ''), { cache: 'no-store' })).json()
+    updateState = r
+  } catch (err) {
+    updateState = { ok: false, reason: 'network', error: String((err && err.message) || err) }
+  }
+  updateLoading = false
+  if (panelOpen && activeTab === 'about') renderPanel(lastSummary, lastBindings)
+}
+
 function renderAbout() {
   if (!aboutDiag) {
     panelBody.appendChild(row('状态', aboutError ? '读取失败：' + aboutError : '读取中…'))
@@ -1696,10 +2035,31 @@ function renderAbout() {
   panelBody.appendChild(row('数据目录', d.paths.dataDir, d.paths.dataDir))
   panelBody.appendChild(row('适配器', (d.adapters || []).map((a) => a.name).join('、') || '—'))
   panelBody.appendChild(row('绑定', String(d.bindingCount || 0) + ' 个窗口'))
-  const up = d.update || {}
-  if (up.appliedVersion || up.latest) {
-    panelBody.appendChild(row('更新', (up.appliedVersion || d.version) + ' → ' + (up.latest || '—')))
+
+  panelBody.appendChild(sectionTitle('更新'))
+  if (updateLoading) {
+    panelBody.appendChild(row('状态', '检查中…'))
+  } else if (!updateState) {
+    panelBody.appendChild(row('状态', settings.updateManifestUrl ? '未检查' : '未配置更新源'))
+  } else if (!updateState.ok) {
+    panelBody.appendChild(row('状态', '检查失败'))
+    panelBody.appendChild(row('原因', updateState.error || updateState.reason || '未知'))
+  } else {
+    panelBody.appendChild(row('当前', 'v' + updateState.current))
+    panelBody.appendChild(row('最新', 'v' + updateState.latest))
+    panelBody.appendChild(row('结果', updateState.hasUpdate ? '有更新' : '已是最新'))
+    if (updateState.notes) panelBody.appendChild(row('说明', updateState.notes))
   }
+  const check = document.createElement('button')
+  check.type = 'button'
+  check.className = 'btn'
+  check.textContent = '检查更新'
+  check.style.marginTop = '8px'
+  check.addEventListener('click', (e) => {
+    e.stopPropagation()
+    checkUpdate(true)
+  })
+  panelBody.appendChild(check)
 
   const h = document.createElement('h4')
   h.textContent = '最近日志'
@@ -2003,7 +2363,7 @@ function placeByAnchor(rect) {
 }
 
 async function bind(win) {
-  if (!base) return
+  if (!base || settings.petMode) return false
   // 四分吸附：靠边就贴边，中间就留在原地
   const anchor = anchorForDrop(win)
   turnFingerprint = null
@@ -2027,6 +2387,12 @@ async function bind(win) {
       boundKey = data.binding.key
       boundHwnd = win.hwnd
       boundAdapter = data.adapter || { id: data.binding.adapterId, name: data.binding.adapterId }
+      if (boundAdapter.id === 'zcode' || boundAdapter.id === 'workbuddy') {
+        vendorState.adapter = boundAdapter.id
+        vendorState.source = null
+        vendorState.vendors = []
+        vendorState.error = ''
+      }
       boundAnchor = data.binding.anchor && (data.binding.anchor.h || data.binding.anchor.v || Number.isFinite(data.binding.anchor.hOff)) ? data.binding.anchor : anchor
       document.body.dataset.boundKey = boundKey
       document.body.dataset.boundTitle = win.title || ''
@@ -2122,11 +2488,16 @@ window.addEventListener('pointermove', (e) => {
     fox.classList.add('dragging')
   }
   place(e.clientX - foxSize() / 2, e.clientY - foxSize() / 2)
+  if (settings.petMode) {
+    setArmed(false)
+    currentTarget = null
+    return
+  }
   const now = performance.now()
   if (now - lastHitAt < 30) return
   lastHitAt = now
   hitAt(e.screenX, e.screenY).then((win) => {
-    if (!dragging) return
+    if (!dragging || settings.petMode) return
     window.__foxDebug.hits++
     window.__foxDebug.targets.push(win ? win.title + '#' + win.pid : null)
     currentTarget = win
@@ -2162,6 +2533,11 @@ window.addEventListener('pointerup', async (e) => {
   const target = currentTarget
   currentTarget = null
   setArmed(false)
+  if (settings.petMode) {
+    // 桌宠模式：拖到哪就待在哪，不吸附、不跟随、不绑定。
+    setInteractive(isOverUI(e.clientX, e.clientY))
+    return
+  }
   if (target) {
     await bind(target)
   } else if (boundKey) {
@@ -2177,8 +2553,18 @@ chip.addEventListener('click', (e) => {
   e.stopPropagation()
   togglePanel()
 })
-for (const el of [fox, chip]) {
+for (const el of [fox, chip, petMenu]) {
   el.addEventListener('contextmenu', (e) => e.preventDefault())
+}
+
+// 角色右上角的小菜单按钮：只负责把面板叫出来，不触发拖拽/台词。
+if (petMenu) {
+  petMenu.addEventListener('pointerdown', (e) => e.stopPropagation())
+  petMenu.addEventListener('pointerup', (e) => e.stopPropagation())
+  petMenu.addEventListener('click', (e) => {
+    e.stopPropagation()
+    togglePanel()
+  })
 }
 
 // 面板打开时点面板外面 → 收起（这一下会被浮层吃掉，和常见菜单一致）
@@ -2200,6 +2586,9 @@ for (const btn of document.querySelectorAll('#panel .panel-tabs button')) {
     renderPanel(lastSummary, lastBindings)
     if (activeTab === 'about') loadDiag()
     if (activeTab === 'quota' && boundKey) refreshBilling()
+    if (activeTab === 'vendors' && !vendorState.loading && !vendorState.source && !vendorState.error) {
+      loadVendors(vendorState.adapter || preferredVendorAdapter(), false)
+    }
     if (activeTab === 'detail' && !boundKey) refreshAgents()
   })
 }
@@ -2230,7 +2619,7 @@ function restartFollowTimer() {
 // 重建上次的绑定：重启浮层（或更新后）不用再拖一次。
 // 只认「窗口还在」的那条——进程重启后 hwnd 失效，就不要恢复，免得狐狸挂在空处。
 async function restoreBinding() {
-  if (!base) return
+  if (!base || settings.petMode) return false
   try {
     const r = await (await fetch(base + '/bindings', { cache: 'no-store' })).json()
     const list = (r.bindings || []).filter((b) => b.window && b.window.hwnd)
@@ -2276,9 +2665,10 @@ applyTheme()
 applyAccent(roleId)
 place(window.innerWidth - foxSize() - 28, window.innerHeight - foxSize() - 96)
 applyScale()
-loadSettings()
-restoreBinding()
-refreshAgents()
+loadSettings().then(() => {
+  restoreBinding()
+  refreshAgents()
+})
 setInterval(() => {
   if (!boundKey) refreshAgents()
 }, 20000)

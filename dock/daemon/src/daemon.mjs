@@ -19,6 +19,8 @@ import { VERSION } from './main.mjs'
 import { acquireLock, releaseLock, updateLock } from './lock.mjs'
 import { readBindings, removeBinding, upsertBinding } from './bindings.mjs'
 import { createBillingService } from './billing.mjs'
+import { readHostVendors } from './host-vendors.mjs'
+import { compareVersions, fetchManifest } from './update.mjs'
 import { recordSnapshot, summarize } from './ledger.mjs'
 import { readSettings, writeSettings } from './settings.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
@@ -27,6 +29,9 @@ import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
 import { Win32Bridge } from './win32.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
+const UPDATE_PUBKEY = path.join(HERE, '..', '..', 'keys', 'update-pub.pem')
+let updateCheckCache = null
+
 function isEntry() {
   try {
     const entry = process.argv[1]
@@ -234,6 +239,65 @@ export async function runDaemon(argv = process.argv.slice(2)) {
 
     if (p === '/adapters' && req.method === 'GET') {
       sendJson(res, 200, { ok: true, adapters: describeAdapters(adapters) })
+      return
+    }
+
+    // 全厂商余额/套餐：复用同机挂件线的 /whale/vendors.json。
+    // adapter=zcode|workbuddy；不带时返回可用服务列表与默认数据源。
+    if (p === '/vendors' && req.method === 'GET') {
+      try {
+        const adapter = url.searchParams.get('adapter') || ''
+        const force = url.searchParams.get('force') === '1'
+        const data = await readHostVendors(adapter, { force })
+        sendJson(res, 200, data)
+      } catch (err) {
+        sendJson(res, 500, { ok: false, reason: 'exception', error: String((err && err.message) || err) })
+      }
+      return
+    }
+
+    // 检查更新：只做「读签名清单 + 比较版本」，落盘仍走 CLI 的 update --apply。
+    if (p === '/update/check' && req.method === 'GET') {
+      const settings = readSettings(paths.settings)
+      const manifestUrl = String(process.env.FOX_DOCK_MANIFEST || settings.updateManifestUrl || '').trim()
+      if (!manifestUrl) {
+        sendJson(res, 200, {
+          ok: false,
+          reason: 'manifest-not-configured',
+          current: VERSION,
+          error: '未配置更新清单地址。发布 dock-v* 后，在设置里填入签名清单 URL。',
+        })
+        return
+      }
+      const force = url.searchParams.get('force') === '1'
+      const cacheKey = manifestUrl + '|' + VERSION
+      if (!force && updateCheckCache && updateCheckCache.key === cacheKey && Date.now() - updateCheckCache.at < 5 * 60_000) {
+        sendJson(res, 200, { ...updateCheckCache.value, cached: true })
+        return
+      }
+      try {
+        const publicKeyPem = fs.existsSync(UPDATE_PUBKEY) ? fs.readFileSync(UPDATE_PUBKEY, 'utf8') : ''
+        const manifest = await fetchManifest(manifestUrl, { publicKeyPem, requireSignature: true, timeoutMs: 8000 })
+        const value = {
+          ok: true,
+          current: VERSION,
+          latest: manifest.version,
+          hasUpdate: compareVersions(manifest.version, VERSION) > 0,
+          notes: manifest.notes || '',
+          checkedAt: Date.now(),
+        }
+        updateCheckCache = { key: cacheKey, at: Date.now(), value }
+        sendJson(res, 200, value)
+      } catch (err) {
+        const value = {
+          ok: false,
+          reason: 'check-failed',
+          current: VERSION,
+          error: String((err && err.message) || err).slice(0, 300),
+        }
+        updateCheckCache = { key: cacheKey, at: Date.now(), value }
+        sendJson(res, 200, value)
+      }
       return
     }
 

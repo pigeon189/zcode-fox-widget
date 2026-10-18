@@ -105,6 +105,7 @@ export function startOfLocalDay(nowMs) {
 
 function priceRows(rows) {
   const byCurrency = {}
+  const byVendor = {}
   let tokens = 0
   let calls = 0
   let lastTs = 0
@@ -126,11 +127,17 @@ function priceRows(rows) {
     const amount = isPrepaidRow(r.provider_id) ? 0 : c.amount
     const cur = c.currency || 'CNY'
     byCurrency[cur] = (byCurrency[cur] || 0) + amount
+    // 按厂商拆分：面板里的「厂商分布」直接用这个，不再只给一个总金额。
+    const vendor = String(c.vendor || 'unknown')
+    const v = byVendor[vendor] || (byVendor[vendor] = { label: c.vendorLabel || vendor, byCurrency: {}, tokens: 0, calls: 0 })
+    v.byCurrency[cur] = (v.byCurrency[cur] || 0) + amount
+    v.tokens += c.tokens
+    v.calls += 1
     tokens += c.tokens
     calls += 1
     lastTs = Math.max(lastTs, Number(r.started_at) || 0)
   }
-  return { byCurrency, tokens, calls, lastTs }
+  return { byCurrency, byVendor, tokens, calls, lastTs }
 }
 
 export function dominantCurrency(byCurrency) {

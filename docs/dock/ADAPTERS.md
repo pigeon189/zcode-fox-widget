@@ -125,6 +125,21 @@ export const myAdapter = {
 4. 真实数据对账工具（强烈建议）：`tools/verify-<id>.mjs`，用宿主自己的实现或接口当基准，
    逐日比较金额与 tokens，容差写死在脚本里。
 
+## 全厂商页与适配器的边界
+
+「厂商」页**不是**一个新的适配器：它复用同机挂件线已经跑着的服务。
+
+- dock 在 39321–39330（可用 `FOX_DOCK_VENDOR_PORTS` 覆盖）里探测 `/whale/health`；
+  `app=zcode-fox-widget` 映射到 zcode，`app=fox-widget` 映射到 workbuddy。
+- 读对应服务的 `/whale/vendors.json`，只保留 id/name/kind/currency/available/balance/
+  percentRemaining/monthly/fiveHour/weekly 等展示字段，**丢掉 keySource/keyMasked**。
+- 只连 127.0.0.1，端口来自白名单；30 秒缓存，健康探测 10 秒缓存。
+- 这样不需要把 35 家厂商的密钥发现、接口差异、签名校验在 dock 里重写一遍；
+  挂件线更新厂商模板，dock 自动跟上。挂件线没运行时，厂商页明确降级为「未找到服务」。
+
+适配器仍然负责「这个窗口是谁、它自己的今日/余额是多少」；厂商页负责「这台机器上
+已经配置的所有厂商余额/套餐」。两者在 UI 上分开，不混算。
+
 ## 已知的两个坑（都踩过）
 
 - **跨午夜**：一轮 agent 循环可能从前一天跑过 0 点。按事件归日会把一轮劈成两半，

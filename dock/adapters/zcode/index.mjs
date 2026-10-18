@@ -21,6 +21,13 @@ function fmtTokens(n) {
   return String(Math.round(v))
 }
 
+function fmtMoney(amount, currency) {
+  const n = Number(amount) || 0
+  const sym = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : (currency || '') + ' '
+  const digits = n > 0 && n < 0.01 ? 4 : 2
+  return sym + n.toFixed(digits)
+}
+
 export const zcodeAdapter = {
   id: 'zcode',
   name: 'ZCode',
@@ -44,6 +51,20 @@ export const zcodeAdapter = {
           { label: '今日 tokens', value: fmtTokens(r.today.tokens), hint: '按 ZCode 用量库逐次调用统计' },
           { label: '今日调用', value: String(r.today.calls) + ' 次' },
         ]
+        // 厂商分布：ZCode 的用量库里本来就有 provider/model，按厂商拆开显示，
+        // 不再只给一个「今日合计」。按 tokens 排序（不同币种金额不可直接相加）。
+        const vendors = Object.entries(r.today.byVendor || {})
+          .sort((a, b) => (b[1].tokens || 0) - (a[1].tokens || 0))
+          .slice(0, 8)
+        for (const [id, v] of vendors) {
+          const cur = dominantCurrency(v.byCurrency)
+          const label = v.label || id
+          details.push({
+            label: '厂商 · ' + label,
+            value: fmtMoney(v.byCurrency[cur], cur) + ' · ' + fmtTokens(v.tokens),
+            hint: String(v.calls) + ' 次调用',
+          })
+        }
         if (r.lastTurn) {
           details.push({ label: '上一轮 tokens', value: fmtTokens(r.lastTurn.tokens) })
           details.push({ label: '上一轮调用', value: String(r.lastTurn.calls) + ' 次' })

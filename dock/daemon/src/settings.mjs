@@ -37,6 +37,12 @@ export const DEFAULTS = {
   rolesByAdapter: {},
   // 面板打开时显示 7 天用量块
   showWeek: true,
+  // 桌宠模式：不吸附/不跟随，角色可自由摆在屏幕上
+  petMode: false,
+  // 更新清单地址（留空 = 未配置；发布 dock-v* 后填 signed manifest 地址）
+  updateManifestUrl: '',
+  // 启动时检查更新
+  autoUpdate: false,
 }
 
 export const SCALES = [0.75, 1, 1.25, 1.5]
@@ -91,6 +97,21 @@ export function normalizeSettings(raw) {
     autoRole: bool(r.autoRole, DEFAULTS.autoRole),
     rolesByAdapter: normalizeRolesByAdapter(r.rolesByAdapter),
     showWeek: bool(r.showWeek, DEFAULTS.showWeek),
+    petMode: bool(r.petMode, DEFAULTS.petMode),
+    updateManifestUrl: normalizeManifestUrl(r.updateManifestUrl),
+    autoUpdate: bool(r.autoUpdate, DEFAULTS.autoUpdate),
+  }
+}
+
+function normalizeManifestUrl(v) {
+  const s = String(v == null ? '' : v).trim()
+  if (!s) return ''
+  try {
+    const u = new URL(s)
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return ''
+    return s.slice(0, 300)
+  } catch (err) {
+    return ''
   }
 }
 

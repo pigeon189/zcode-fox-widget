@@ -245,6 +245,15 @@ test('2.0 /bind：返回 roleDefault/accent，客户端仍不能伪造适配器'
   assert.ok(body.adapter.accent)
 })
 
+test('2.0 /update/check：未配置清单时明确返回 manifest-not-configured', async () => {
+  const { status, body } = await get('/update/check')
+  assert.equal(status, 200)
+  assert.equal(body.ok, false)
+  assert.equal(body.reason, 'manifest-not-configured')
+  assert.match(body.current, /^\d+\.\d+\.\d+/)
+  assert.match(body.error, /更新清单/)
+})
+
 test('2.0 /agents：有桥时返回数组，无桥时明确 bridge-unavailable', async () => {
   const { status, body } = await get('/agents')
   if (status === 503) {

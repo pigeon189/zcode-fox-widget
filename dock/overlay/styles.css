@@ -19,7 +19,7 @@ body {
 }
 
 :root {
-  --fox-size: 128px;
+  --fox-size: 250px;
   --fox-font: 84px;
   --accent: #f0a04b;
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -168,6 +168,37 @@ html[data-theme="dark"] {
 
 #fox-badge[hidden] {
   display: none;
+}
+
+#pet-menu {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--chip-bg);
+  color: var(--ink);
+  font: 700 18px/1 var(--font-num);
+  cursor: pointer;
+  opacity: 0.5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  transition: opacity 140ms ease, transform 140ms ease;
+  pointer-events: auto;
+  z-index: 12;
+}
+
+#pet-menu:hover {
+  opacity: 1;
+  transform: scale(1.04);
+}
+
+#fox.dragging #pet-menu,
+#fox.armed #pet-menu {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ---------- 绑定后的数字卡片 ---------- */
@@ -865,6 +896,12 @@ html[data-theme="dark"] {
   min-width: 0;
 }
 
+#panel .setting input.url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
 #panel .setting select,
 #panel .setting input[type="number"],
 #panel .setting input[type="text"] {
@@ -1071,6 +1108,75 @@ html[data-theme="dark"] {
   font-size: 11px;
   line-height: 1.55;
   background: var(--card);
+}
+
+/* 全厂商 */
+
+.vendor-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 0 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+
+.vendor-source-label {
+  color: var(--ink-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+#panel select.vendor-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+  outline: none;
+}
+
+#panel select.vendor-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.vendor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vendor-list .quota-card {
+  margin-top: 0;
+}
+
+.vendor-unavailable {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.vendor-unavailable .vname {
+  color: var(--ink-dim);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vendor-unavailable .vreason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 关于 */

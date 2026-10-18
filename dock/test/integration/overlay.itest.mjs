@@ -222,7 +222,7 @@ before(async (t) => {
   geo = JSON.parse(
     await cdp.eval(
       "(function(){var r=document.getElementById('fox').getBoundingClientRect();" +
-        'return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2,sx:window.screenX,sy:window.screenY})})()'
+        'return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2,sx:window.screenX,sy:window.screenY,size:foxSize()})})()'
     )
   )
 })
@@ -253,7 +253,7 @@ test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口', async (t) =>
   const targetX = (fakeWin.rect.x + Math.floor(fakeWin.rect.w / 2)) / dpr0 - curSx
   const targetY = (fakeWin.rect.y + Math.floor(fakeWin.rect.h / 2)) / dpr0 - curSy
   // 松手时狐狸的左上角（拖动时是按指针居中放置的）
-  const foxHalf = (geo.width || 128) / 2
+  const foxHalf = (geo.size || 80) / 2
   dropPos = { x: targetX - foxHalf, y: targetY - foxHalf }
 
   // 先确认这个点确实命中的是假窗口：桌面上别的窗口盖住它时，后面会绑错对象，
@@ -364,8 +364,9 @@ test('snap: 放到窗口右侧 → 贴右边缘（四分吸附）', async (t) =>
   const hCss = fakeWin.rect.h / dpr
   const winLeft = toX - wCss * 0.9
   const winTop = toY - hCss * 0.2
-  // 默认设置 scrollGap=17：贴右边要给滚动条留出 17px；2.0 角色基准 128px
-  const wantX = winLeft + wCss - 128 - 17
+  // 默认设置 scrollGap=17：贴右边要给滚动条留出 17px；角色尺寸走挂件线同款响应式公式
+  const size = Number(await cdp.eval('foxSize()'))
+  const wantX = winLeft + wCss - size - 17
   const wantY = winTop
   const fox = await waitFor(async () => {
     const r = JSON.parse(
@@ -477,6 +478,26 @@ test('click: 右键不打开面板/不说话；左键数字卡片打开面板', 
     assert.ok(opened)
     await cdp.eval('togglePanel(false)')
   }
+
+  // 角色右上角菜单按钮：只开面板，不换台词
+  const menu = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('pet-menu').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+    )
+  )
+  await mouse(menu.x, menu.y, 'left')
+  const viaMenu = await waitFor(async () => (await cdp.eval('panelOpen')) === true, 4000, 'panel via menu')
+  assert.ok(viaMenu)
+  await cdp.eval('togglePanel(false)')
+})
+
+test('pet mode: 开启后 bind 被拒绝，关闭后恢复', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const r = await cdp.eval(
+    "(async function(){settings.petMode=true;var ok=await bind({exe:'C:\\\\x\\\\Fake.exe',pid:1,startMs:1,hwnd:'abc',title:'x'});settings.petMode=false;return ok})()"
+  )
+  assert.equal(r, false)
 })
 
 test('reanchor: 宿主窗口移动后狐狸跟随（500ms 轮询）', async (t) => {
@@ -584,9 +605,10 @@ test('settings: 面板里的「大小」改完立刻生效，并写回服务端'
       "if(l&&l.textContent==='大小'){var s=rows[i].querySelector('select');s.value='1.5';" +
       "s.dispatchEvent(new Event('change',{bubbles:true}));return true}}return false})()"
   )
+  const expected = Number(await cdp.eval('foxSize()'))
   const size = await waitFor(async () => {
     const w = Number(await cdp.eval("document.getElementById('fox').getBoundingClientRect().width"))
-    return w >= 191 && w <= 193 ? w : null
+    return Math.abs(w - expected) <= 1 ? w : null
   }, 5000, 'fox resized to 1.5x')
   assert.ok(size)
 
@@ -777,14 +799,15 @@ test('role: 默认显示嘎啦嘛立绘，尺寸跟着设置走', async (t) => {
     await cdp.eval(
       "(function(){var i=document.getElementById('fox-img');var r=i.getBoundingClientRect();" +
         "return JSON.stringify({src:i.getAttribute('src'),w:r.width,h:r.height," +
-        "natural:i.naturalWidth,role:roleId})})()"
+        "natural:i.naturalWidth,role:roleId,size:foxSize()})})()"
     )
   )
   assert.match(info.src, /assets\/roles\/fox\.png$/)
   assert.equal(info.role, 'fox')
   // 呼吸动画会让 getBoundingClientRect 出现极小的亚像素误差
-  assert.ok(Math.abs(info.w - 128) < 0.5, String(info.w))
-  assert.ok(Math.abs(info.h - 128) < 0.5, String(info.h))
+  assert.ok(Math.abs(info.w - info.size) < 0.5, JSON.stringify(info))
+  assert.ok(Math.abs(info.h - info.size) < 0.5, JSON.stringify(info))
+  assert.ok(info.size >= 122, '角色基准不能小于挂件线最小档: ' + info.size)
   assert.ok(info.natural > 0, '立绘必须真的加载出来')
 })
 
@@ -958,6 +981,39 @@ test('quota: Free 套餐 → plan 卡，不显示假进度', async (t) => {
   )
   assert.match(text, /Free/)
   assert.match(text, /没有可读的套餐额度窗口/)
+})
+
+test('vendors: 全厂商页渲染余额/套餐/未配置', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "vendorState={adapter:'zcode',loading:false,error:'',showAll:false," +
+        "source:{app:'zcode-fox-widget',version:'1.15.1',port:39322},services:[]," +
+        "vendors:[" +
+        "{id:'deepseek',name:'DeepSeek',kind:'balance',currency:'CNY',available:true,balance:0.63,todayUsage:0.000563,note:'内置余额接口'}," +
+        "{id:'commandcode',name:'CommandCode',kind:'cmdgo',currency:'USD',available:true,planName:'GOAT',account:'paper189'," +
+        "monthly:{remaining:39.8,total:70,percent:0.431},fiveHour:{used:0.77,cap:14,percent:0.055},weekly:{used:5.95,cap:35,percent:0.17},note:'套餐三重额度'}," +
+        "{id:'zcode-plan',name:'GLM Plan',kind:'local-log',available:true,percentRemaining:0.0675,remaining:135,total:2000,note:'尾随日志'}," +
+        "{id:'openai',name:'OpenAI',kind:'tokens',available:false,reason:'未配置凭据'}]};" +
+        "activeTab='vendors';renderPanel(null,[]);" +
+        "var b=document.getElementById('panel-body');var t1=b.textContent;" +
+        "vendorState.showAll=true;renderPanel(null,[]);var t2=document.getElementById('panel-body').textContent;" +
+        "return JSON.stringify({t1:t1,t2:t2,cards:b.querySelectorAll('.quota-card').length," +
+        "unavailable:t1.indexOf('未配置凭据')===-1})})()"
+    )
+  )
+  assert.match(out.t1, /DeepSeek/)
+  assert.match(out.t1, /¥0\.63/)
+  assert.match(out.t1, /CommandCode/)
+  assert.match(out.t1, /GOAT/)
+  assert.match(out.t1, /GLM Plan/)
+  assert.match(out.t1, /6\.8%/)
+  assert.match(out.t1, /39322/)
+  assert.equal(out.unavailable, true, '默认不展开未配置项')
+  assert.match(out.t2, /未配置凭据/)
+  await cdp.eval("vendorState={adapter:'',loading:false,error:'',source:null,services:[],vendors:[],showAll:false};activeTab='detail';renderPanel(null,[])")
 })
 
 test('roles: 六张角色卡 + 点击换角色 + 按宿主落盘', async (t) => {

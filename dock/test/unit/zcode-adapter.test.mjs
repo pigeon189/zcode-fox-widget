@@ -130,6 +130,26 @@ test('zcode: 多币种分开累计（USD 与 CNY 不相加）', () => {
   }
 })
 
+test('zcode: 按厂商拆分今日金额与 tokens', () => {
+  const { file, dir } = makeDb([
+    bigRow(),
+    bigRow({ provider: 'openai', model: 'gpt-5.5', turn: 't2' }),
+    bigRow({ provider: 'cmdgo-bridge', turn: 't3' }),
+  ])
+  try {
+    const r = readUsage({ dbFile: file, now: NOON })
+    assert.equal(r.ok, true)
+    assert.ok(r.today.byVendor.deepseek, JSON.stringify(r.today.byVendor))
+    assert.ok(r.today.byVendor.openai, JSON.stringify(r.today.byVendor))
+    assert.equal(r.today.byVendor.openai.byCurrency.USD > 0, true)
+    assert.equal(r.today.byVendor.deepseek.calls, 2)
+    // cmdgo 预付池金额记 0，但仍算 tokens/调用
+    assert.equal(r.today.byVendor.deepseek.byCurrency.CNY, 5)
+  } finally {
+    cleanup(dir)
+  }
+})
+
 test('zcode: 上一轮取最近 completed 的 turn', () => {
   const { file, dir } = makeDb(
     [bigRow({ turn: 'old', startedAt: OFFPEAK - 3600_000 }), bigRow({ turn: 'new' }), bigRow({ turn: 'new' })],

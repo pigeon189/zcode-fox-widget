@@ -117,6 +117,17 @@ test('settings: rolesByAdapter 只接受已知宿主与已知角色', () => {
   assert.deepEqual(normalizeSettings({ rolesByAdapter: [1, 2] }).rolesByAdapter, {})
 })
 
+test('settings: 桌宠模式 / 更新清单 / 自动检查', () => {
+  assert.equal(normalizeSettings({ petMode: true }).petMode, true)
+  assert.equal(normalizeSettings({ petMode: 'false' }).petMode, false)
+  assert.equal(normalizeSettings({ autoUpdate: true }).autoUpdate, true)
+  assert.equal(normalizeSettings({ updateManifestUrl: 'https://example.com/update.json' }).updateManifestUrl, 'https://example.com/update.json')
+  assert.equal(normalizeSettings({ updateManifestUrl: 'http://127.0.0.1:8080/u.json' }).updateManifestUrl, 'http://127.0.0.1:8080/u.json')
+  assert.equal(normalizeSettings({ updateManifestUrl: 'javascript:alert(1)' }).updateManifestUrl, '')
+  assert.equal(normalizeSettings({ updateManifestUrl: 'not a url' }).updateManifestUrl, '')
+  assert.equal(normalizeSettings({ updateManifestUrl: 'https://x/' + 'a'.repeat(400) }).updateManifestUrl.length, 300)
+})
+
 test('settings: 2.0 字段写回后仍然合并保留', () => {
   const dir = tempDir()
   try {
