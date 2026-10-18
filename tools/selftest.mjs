@@ -4796,7 +4796,13 @@ try {
     )
     check(
       '浮层 spawn env：不是空环境（PATH 等基础变量仍继承）',
-      !!ovEnv && typeof ovEnv.PATH === 'string' && ovEnv.PATH.length > 0 && Object.keys(ovEnv).length > 5,
+      // Windows 的环境变量名大小写不固定：本机 bash 给的是 PATH，GitHub runner 上
+      // 可能是 Path，所以按键名不区分大小写找（2026-10-18 CI 实测）
+      !!ovEnv &&
+        (() => {
+          const k = Object.keys(ovEnv).find((n) => n.toLowerCase() === 'path')
+          return typeof ovEnv[k] === 'string' && ovEnv[k].length > 0 && Object.keys(ovEnv).length > 5
+        })(),
       ovEnv && Object.keys(ovEnv).length + ' 个变量'
     )
     check(
