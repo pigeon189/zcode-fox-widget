@@ -2071,7 +2071,7 @@ try {
     check(
       '关于 / 自检：带更新状态与浮层日志尾部（无任务时 phase 归 null）',
       !!diag.update &&
-        typeof diag.update.current !== 'undefined' &&
+        diag.update.current === diag.plugin.version &&
         diag.update.busy === false &&
         diag.update.phase === null &&
         Array.isArray(diag.logs.overlayTail) &&
