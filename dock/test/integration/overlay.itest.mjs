@@ -410,6 +410,16 @@ test('panel: 单击狐狸打开明细面板（不是拖拽），再点收起', a
   const rows = Number(await cdp.eval("document.querySelectorAll('#panel-body .panel-row').length"))
   assert.ok(rows >= 1, 'panel should have at least one row, got ' + rows)
 
+  // 面板不能盖住角色：否则打开面板后角色直接消失
+  const boxes = JSON.parse(
+    await cdp.eval(
+      "(function(){var f=document.getElementById('fox').getBoundingClientRect(),p=document.getElementById('panel').getBoundingClientRect();" +
+        "return JSON.stringify({f:{l:f.left,t:f.top,r:f.right,b:f.bottom},p:{l:p.left,t:p.top,r:p.right,b:p.bottom}})})()"
+    )
+  )
+  const overlap = !(boxes.p.r <= boxes.f.l || boxes.p.l >= boxes.f.r || boxes.p.b <= boxes.f.t || boxes.p.t >= boxes.f.b)
+  assert.equal(overlap, false, JSON.stringify(boxes))
+
   // 再点一次收起
   await click()
   const closed = await waitFor(
@@ -418,6 +428,55 @@ test('panel: 单击狐狸打开明细面板（不是拖拽），再点收起', a
     'panel closed'
   )
   assert.ok(closed)
+})
+
+test('click: 右键不打开面板/不说话；左键数字卡片打开面板', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const mouse = async (x, y, button) => {
+    const buttons = button === 'left' ? 1 : 2
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons, clickCount: 1 })
+    await sleep(80)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount: 1 })
+  }
+
+  await cdp.eval("togglePanel(false); hideSay(); pressing=null; dragging=false; 'ok'")
+  await sleep(250)
+  const fox = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+    )
+  )
+  // 用 lastLine / 计数器判断右键有没有触发台词与点击逻辑；
+  // 不要求气泡已隐藏（上一句可能还在展示，隐藏是定时器的事）。
+  const before = JSON.parse(
+    await cdp.eval("JSON.stringify({clicks:window.__foxDebug.clicks,downs:window.__foxDebug.downs,lastLine:lastLine})")
+  )
+  await mouse(fox.x, fox.y, 'right')
+  await sleep(500)
+  const afterRight = JSON.parse(
+    await cdp.eval(
+      "JSON.stringify({panel:panelOpen,lastLine:lastLine," +
+        "pressing:!!pressing,dragging:!!dragging,clicks:window.__foxDebug.clicks,downs:window.__foxDebug.downs})"
+    )
+  )
+  assert.equal(afterRight.panel, false, '右键不应打开面板')
+  assert.equal(afterRight.lastLine, before.lastLine, '右键不应换台词')
+  assert.equal(afterRight.clicks, before.clicks, '右键不应计为点击')
+  assert.equal(afterRight.downs, before.downs, '右键不应进入拖拽/按压状态')
+
+  const chip = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('chip').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2,hidden:document.getElementById('chip').hidden})})()"
+    )
+  )
+  // 单独跑这个用例时还没有绑定，数字卡片不存在；全量顺序跑时绑定已建立。
+  if (!chip.hidden) {
+    await mouse(chip.x, chip.y, 'left')
+    const opened = await waitFor(async () => (await cdp.eval('panelOpen')) === true, 4000, 'panel via chip')
+    assert.ok(opened)
+    await cdp.eval('togglePanel(false)')
+  }
 })
 
 test('reanchor: 宿主窗口移动后狐狸跟随（500ms 轮询）', async (t) => {

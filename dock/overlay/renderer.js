@@ -1762,12 +1762,26 @@ function positionPanel() {
   const fw = foxSize()
   const left = parseFloat(fox.style.left || '0') || 0
   const top = parseFloat(fox.style.top || '0') || 0
+  const margin = 8
+  const gap = 10
+  const maxPanel = Math.floor(window.innerHeight * 0.76)
+  // 面板必须避开角色：优先放在空间更大的一侧，并把高度限制在该侧可用空间内，
+  // 内容超出就滚动。否则面板一开就把角色盖住（真机实测）。
+  const below = window.innerHeight - (top + fw + gap) - margin
+  const above = top - gap - margin
+  const useBelow = below >= above
+  const avail = Math.max(140, Math.min(Math.max(below, above), maxPanel))
+  panel.style.maxHeight = avail + 'px'
   const pw = panel.offsetWidth || 240
-  const ph = panel.offsetHeight || 160
-  let x = left + fw - pw
-  let y = top + fw + 10
-  x = Math.max(8, Math.min(x, window.innerWidth - pw - 8))
-  if (y + ph > window.innerHeight - 8) y = Math.max(8, top - ph - 10)
+  const ph = Math.min(panel.offsetHeight || 160, avail)
+  const x = Math.max(margin, Math.min(left + fw - pw, window.innerWidth - pw - margin))
+  let y
+  if (useBelow) {
+    y = top + fw + gap
+    if (y + ph > window.innerHeight - margin) y = Math.max(margin, window.innerHeight - margin - ph)
+  } else {
+    y = Math.max(margin, top - gap - ph)
+  }
   panel.style.left = Math.round(x) + 'px'
   panel.style.top = Math.round(y) + 'px'
 }
@@ -1855,6 +1869,21 @@ function togglePanel(open) {
 function isOverFox(x, y) {
   const r = fox.getBoundingClientRect()
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+}
+
+function isInside(el, x, y) {
+  if (!el || el.hidden) return false
+  const r = el.getBoundingClientRect()
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+}
+
+// 可交互区域：角色 + 数字卡片 +（打开时的）面板。
+// 数字卡片是看得见的按钮，必须接住点击，不能穿透到下面的宿主窗口。
+function isOverUI(x, y) {
+  if (isOverFox(x, y)) return true
+  if (isInside(chip, x, y)) return true
+  if (panelOpen && isInside(panel, x, y)) return true
+  return false
 }
 
 // 窗口在屏幕上的位置：**用指针事件自己算**（screenX - clientX）。
@@ -2046,7 +2075,7 @@ window.addEventListener('mousemove', (e) => {
     setInteractive(true)
     return
   }
-  setInteractive(isOverFox(e.clientX, e.clientY))
+  setInteractive(isOverUI(e.clientX, e.clientY))
 })
 
 // 光标轮询（权威来源）：穿透状态下 mousemove 转发在部分场景收不到——
@@ -2060,12 +2089,14 @@ setInterval(async () => {
     const p = await api.getCursor()
     if (!p) return
     const o = screenOrigin()
-    const over = isOverFox(p.x - o.x, p.y - o.y)
+    const over = isOverUI(p.x - o.x, p.y - o.y)
     setInteractive(panelOpen || over)
   } catch (err) {}
 }, 50)
 
 fox.addEventListener('pointerdown', (e) => {
+  // 只响应左键：右键/中键不拖拽、不换台词、不开关面板。
+  if (e.button !== 0) return
   e.preventDefault()
   updateScreenOffset(e)
   // 不设 pointer capture：窗口本身就是全屏的，指针跑不出去；
@@ -2105,6 +2136,14 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('pointerup', async (e) => {
   if (!pressing) return
+  if (e.button !== 0) {
+    // 左键按住时又点了别的键：取消这次点击，不触发面板/台词。
+    pressing = null
+    dragging = false
+    fox.classList.remove('dragging')
+    setInteractive(isOverUI(e.clientX, e.clientY))
+    return
+  }
   updateScreenOffset(e)
   const wasDragging = dragging
   pressing = null
@@ -2116,7 +2155,7 @@ window.addEventListener('pointerup', async (e) => {
     window.__foxDebug.clicks++
     sayRandom()
     togglePanel()
-    if (!panelOpen) setInteractive(isOverFox(e.clientX, e.clientY))
+    if (!panelOpen) setInteractive(isOverUI(e.clientX, e.clientY))
     return
   }
 
@@ -2129,13 +2168,23 @@ window.addEventListener('pointerup', async (e) => {
     // 拖到空白处松手 = 解绑：狐狸停在这儿，不再跟着原来的窗口跑
     await unbind()
   }
-  setInteractive(isOverFox(e.clientX, e.clientY))
+  setInteractive(isOverUI(e.clientX, e.clientY))
 })
+
+// 数字卡片：左键打开/收起面板；右键不做事，也不弹系统菜单。
+chip.addEventListener('click', (e) => {
+  if (e.button !== 0) return
+  e.stopPropagation()
+  togglePanel()
+})
+for (const el of [fox, chip]) {
+  el.addEventListener('contextmenu', (e) => e.preventDefault())
+}
 
 // 面板打开时点面板外面 → 收起（这一下会被浮层吃掉，和常见菜单一致）
 document.addEventListener('mousedown', (e) => {
   if (!panelOpen) return
-  if (panel.contains(e.target) || fox.contains(e.target)) return
+  if (panel.contains(e.target) || fox.contains(e.target) || chip.contains(e.target)) return
   togglePanel(false)
 })
 

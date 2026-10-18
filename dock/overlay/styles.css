@@ -185,7 +185,9 @@ html[data-theme="dark"] {
   color: var(--ink);
   font: 12px/1.25 var(--font-ui);
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
-  pointer-events: none;
+  /* 数字卡片是可见的按钮：让它接住点击，别让点击穿透到下面的 agent 窗口 */
+  pointer-events: auto;
+  cursor: pointer;
   white-space: nowrap;
   z-index: 9;
   backdrop-filter: blur(14px);
