@@ -3,12 +3,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   basenameOf,
+  normalizeQuotaCard,
   normalizeSnapshot,
   normalizeWindow,
   scoreMatch,
   validateAdapter,
 } from '../../adapters/contracts.mjs'
-import { describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
+import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { genericAdapter } from '../../adapters/generic.mjs'
 
 const fake = (over = {}) => ({
@@ -159,4 +160,95 @@ test('registry: describeAdapters 不泄漏函数（可直接 JSON 序列化）',
   assert.equal(list[0].id, 'generic')
   assert.equal(list[0].billing, false)
   assert.doesNotThrow(() => JSON.stringify(list))
+})
+
+test('registry: 内置适配器覆盖四个宿主，并带默认角色/强调色', () => {
+  const ids = builtinAdapters.map((a) => a.id)
+  for (const id of ['zcode', 'workbuddy', 'kimi', 'dsh']) assert.ok(ids.includes(id), id)
+  const described = describeAdapters(builtinAdapters)
+  const kimi = described.find((a) => a.id === 'kimi')
+  const dsh = described.find((a) => a.id === 'dsh')
+  assert.equal(kimi.roleDefault, 'kimi')
+  assert.equal(dsh.roleDefault, 'whale')
+  assert.ok(kimi.accent && dsh.accent)
+})
+
+test('contracts: quotaCard 窗口从 used 推 remaining，越界夹紧', () => {
+  const card = normalizeQuotaCard(
+    {
+      kind: 'windows',
+      title: 'Kimi Code',
+      plan: 'Pro',
+      windows: [
+        { key: 'limit_5h', label: '5 小时', usedPct: 42 },
+        { key: 'limit_7d', label: '7 天', usedPct: 130, resetAt: '2026-10-19T05:00:00Z' },
+        { label: '' },
+      ],
+    },
+    { adapterName: 'Kimi Code' }
+  )
+  assert.equal(card.kind, 'windows')
+  assert.equal(card.windows.length, 2)
+  assert.equal(card.windows[0].remainingPct, 58)
+  assert.equal(card.windows[1].usedPct, 100)
+  assert.equal(card.windows[1].remainingPct, 0)
+  assert.equal(card.windows[1].resetAt, '2026-10-19T05:00:00Z')
+})
+
+test('contracts: 空窗口的 windows 卡降级为 plan / 明确说明', () => {
+  const plan = normalizeQuotaCard({ kind: 'windows', plan: 'Free', windows: [] })
+  assert.equal(plan.kind, 'plan')
+  const empty = normalizeQuotaCard({ kind: 'windows', windows: [] })
+  assert.equal(empty.kind, 'windows')
+  assert.match(empty.message, /没有返回/)
+})
+
+test('contracts: quotaCard 余额与 details 都要净化和限长', () => {
+  const card = normalizeQuotaCard({
+    kind: 'balance',
+    title: 'x'.repeat(100),
+    balance: { amount: 12.34567, currency: 'CNY', byCurrency: { CNY: 12.34567, bad: 'x' } },
+    note: 'n'.repeat(500),
+  })
+  assert.equal(card.title.length, 48)
+  assert.equal(card.note.length, 160)
+  assert.equal(card.balance.amount, 12.3457)
+  assert.deepEqual(card.balance.byCurrency, { CNY: 12.3457 })
+
+  const snap = normalizeSnapshot(
+    {
+      supported: true,
+      unit: 'money',
+      today: { amount: 1, currency: 'CNY' },
+      details: [
+        { label: ' 今日 ', value: ' 5 ', hint: 'h'.repeat(300) },
+        { label: '', value: 'x' },
+        { label: 'bad', value: '' },
+        ...Array.from({ length: 20 }, (_, i) => ({ label: 'l' + i, value: 'v' })),
+      ],
+      usage: { todayTokens: 1234.6, turnTokens: -3 },
+    },
+    { adapterId: 'x' }
+  )
+  assert.equal(snap.details.length, 12)
+  assert.deepEqual(snap.details[0], { label: '今日', value: '5', hint: 'h'.repeat(120) })
+  assert.equal(snap.usage.todayTokens, 1235)
+  assert.equal(snap.usage.turnTokens, 0)
+})
+
+test('contracts: 不支持计费时新字段一律清空', () => {
+  const s = normalizeSnapshot(
+    {
+      supported: false,
+      quotaCard: { kind: 'plan', plan: 'Free' },
+      details: [{ label: 'a', value: 'b' }],
+      usage: { todayTokens: 99 },
+    },
+    { adapterId: 'generic', adapterName: '通用' }
+  )
+  assert.equal(s.quotaCard, null)
+  assert.deepEqual(s.details, [])
+  assert.equal(s.usage, null)
+  assert.equal(s.plan, '')
+  assert.equal(s.account, '')
 })

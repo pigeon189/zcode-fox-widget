@@ -155,6 +155,12 @@ dock/
 | R9 | 完成 | 更新：sha256 + Ed25519 签名 + 备份回滚 + 打包工具 |
 | R10 | 完成 | 短时 soak 通过（10 分钟 / 599 轮 0 失败）；8 小时 soak 与发版待定 |
 | R11 | 完成 | 移植挂件线的设置 / 每轮气泡 / 预算提醒 / 搜索 / 关于（见 MIGRATION.md） |
+| 2.0-A | 完成 | 契约扩展：quotaCard（windows/balance/plan/error）、details、usage、plan/account |
+| 2.0-B | 完成 | Kimi Code 适配器：OAuth 刷新写回、套餐窗口、Free 降级、加油包余额 |
+| 2.0-C | 完成 | dsh 适配器：DeepSeek 余额、多帧 zstd 会话、今日/上一轮、主会话优先 |
+| 2.0-D | 完成 | 浮层 2.0：六页签、六角色 × 128px、主题、按宿主换角色、额度卡、自动识别提示 |
+| 2.0-E | 完成 | 窗口实例归一（按端口认领）、DPI 钳位、CLI stop/start 清理残留浮层 |
+| 2.0-F | 完成 | 厚测试：契约 / 适配器 / 设置 / daemon / 真 Electron 拖拽与面板 / 故障注入 |
 
 ## 5. 分轮计划
 

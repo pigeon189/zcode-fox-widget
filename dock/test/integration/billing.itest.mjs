@@ -22,7 +22,12 @@ const dataDir = path.join(root, 'data')
 const zcodeDb = path.join(root, 'zcode', 'db.sqlite')
 const wbProjects = path.join(root, 'wb', 'projects')
 
-const ROW_TS = Date.now() - 60 * 60_000 // 一小时前（同一天；价格按该时刻的峰谷）
+// 固定落在「本地今天」内：凌晨 0–1 点跑测试时，now-1h 已经是昨天，
+// 会让「今日合计」断言读成 0（假失败）。取一小时前，但不早于今天零点后 1 秒。
+const NOW0 = Date.now()
+const DAY0 = new Date(NOW0)
+DAY0.setHours(0, 0, 0, 0)
+const ROW_TS = Math.min(NOW0 - 1000, Math.max(DAY0.getTime() + 1000, NOW0 - 60 * 60_000))
 const ZC_IN = 1_000_000
 const ZC_OUT = 1_000_000
 

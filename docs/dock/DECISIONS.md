@@ -104,3 +104,40 @@
   对账口径由计价内核处理，余额校正需要厂商 key（属于挂件线的宿主能力）。
 - 代价：dock 比挂件线「安静」——没有声音、没有换装。这是有意的。
   完整对照与理由见 `docs/dock/MIGRATION.md`。
+
+## D015 2.0：四个宿主、一套通用额度卡
+
+- 背景：2.0 要把 ZCode / WorkBuddy / Kimi Code / DeepSeek Harness 统一到一只桌宠上。
+  四家的口径完全不同：元、积分、百分比窗口、现金余额。
+- 选择：契约增加 `quotaCard`（`windows | balance | plan | error`）、`details`、`usage`、
+  `plan`、`account`；适配器只给结构化数据，UI 只消费这一套。角色默认值也放进适配器
+  （`roleDefault` / `accent`），绑定后由服务端判定，前端不能伪造。
+- 代价：适配器作者要多写一点声明；换来的是面板/卡片/告警不需要为每家写分支。
+
+## D016 Kimi Code 的 OAuth 刷新要写回宿主凭据
+
+- 背景：Kimi Code managed OAuth 的 access token 只有 15 分钟，refresh token 会轮换。
+  只读不写会让宿主下次启动掉登录。
+- 选择：**唯一允许写宿主文件的地方**。过期时用宿主同款 client_id 与
+  `POST /api/oauth/token` 刷新，临时文件 + rename 原子写回原文件，保留其它字段；
+  同一凭据的并发刷新合并成一次。错误信息只带 HTTP 状态与错误码，不带 token。
+- 代价：如果宿主正在运行且同时刷新，仍可能有一方读到旧 token；下一次 401 会自愈。
+
+## D017 dsh 会话是多帧 zstd，必须逐帧解
+
+- 背景：`~/.dsh/sessions/**/session.v*.jsonl.zstd` 一个文件里每个事件批次一帧；
+  Node 的 `zstdDecompressSync` 只解第一帧（3.7MB 文件只出 251 字节）。
+- 选择：按 zstd 帧头/块头切帧，逐帧解压；坏帧跳过后继续找下一个 magic。
+  今日总额包含主会话与 subagent；「上一轮」优先主会话（`delegationDepth=0` 且无 `origin`），
+  避免更晚的 subagent 冒充用户眼前这一轮。
+- 代价：解析器要自己维护帧格式；zstd 帧格式升级或换压缩器时要同步。
+
+## D018 浮层窗口：toolbar + 端口标题 + 单实例
+
+- 背景：透明全屏置顶窗在 Windows 上容易被宿主遮挡判定影响；多个实例叠加会
+  出现「角色时有时无」。另外同一台机器可能同时跑测试实例与正式实例。
+- 选择：Windows 用 `type:'toolbar'`、`focusable:false`、`resizable:true`、
+  构造时 `alwaysOnTop`；默认硬件合成（`FOX_DOCK_SOFTWARE_RENDER=1` 才回退）。
+  标题带 daemon 端口（`fox-dock overlay <port>`），stop/start 只接管同端口实例；
+  不按「小挂件」匹配，避免误杀 ZCode/WorkBuddy 的浮层。
+- 代价：端口变化后旧的 pid 文件/窗口需要一次 stop 清理；标题会出现在任务栏/诊断里。

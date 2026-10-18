@@ -1,13 +1,23 @@
 #!/usr/bin/env node
-// R0 骨架：真正的常驻服务（窗口发现 / 绑定 / 适配器 / 账本）在 R1–R2 落地。
-// 现在只保证进程能起来、版本号可读，给 CI 与 install 脚本一个稳定入口。
+// 常驻服务入口（窗口发现 / 绑定 / 适配器 / 账本）。
+// 版本号只从 dock/package.json 读，避免 daemon/CLI/浮层各写一份。
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const VERSION = '0.1.0-pre.0'
+function readVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+    return String(pkg.version || '0.0.0')
+  } catch (err) {
+    return '0.0.0'
+  }
+}
+
+export const VERSION = readVersion()
 
 export function banner() {
-  return 'fox-dock daemon ' + VERSION + ' (skeleton)'
+  return 'fox-dock daemon ' + VERSION
 }
 
 function isEntry() {

@@ -1,19 +1,29 @@
-# fox-dock（工作名）· `feat/dock`
+# fox-dock 2.0 · 通用桌宠
 
-桌面常驻的多 agent 成本看板：把挂件拖到 agent 窗口上，自动识别、吸附、切到对应计费口径。
+一只常驻桌面的角色，认识 ZCode、WorkBuddy、Kimi Code 与 DeepSeek Harness（dsh）四个 agent。
+把它拖到某个 agent 窗口上松手：自动识别宿主、吸附到窗口边缘、换成该宿主的角色，并把数字切成
+该宿主的余额 / 额度 / 今日消耗口径。
 
-**状态：R10（第一版可人工测试）。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog、登录启动器、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、适配器框架（声明式匹配，不跑第三方 JS）、ZCode（元）与 WorkBuddy（积分）两个真实计费适配器、统一账本与跨 agent 汇总、点狐狸打开明细面板。
+**状态：2.0.0。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、
+watchdog、登录启动器、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、声明式适配器框架
+（不跑第三方 JS）、四宿主真实计费、统一账本与跨 agent 汇总、六页签面板、六个内置角色。
 
 ## 适配器
 
-| id | 识别 | 计费 | 数据源 |
+| id | 识别 | 主数字 | 数据源 |
 |---|---|---|---|
 | `zcode` | `ZCode.exe` | 今日金额（多币种不混加）、上一轮 | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` |
 | `workbuddy` | `WorkBuddy.exe` | 今日积分、上一轮 | `~/.workbuddy/projects/**/*.jsonl` 的 `rawUsage.credit` |
+| `kimi` | `Kimi Code.exe` | 套餐窗口剩余百分比；Free 账号显示套餐卡；有加油包时显示余额 | `~/.kimi-code/credentials/kimi-code.json` + `/coding/v1/usages`、`/me` |
+| `dsh` | `DeepSeek Harness.exe` | DeepSeek 余额 + 今日/上一轮 token 用量 | `~/.dsh/.credentials.yaml` + `~/.dsh/sessions/**/*.jsonl.zstd` |
 | `generic` | 兜底 | 不支持（只吸附与跟随，不猜数字） | — |
 
 口径与两条挂件线**逐日对齐**，用 `npm run verify:zcode` / `npm run verify:workbuddy` 现场对账
 （ZCode 用挂件线源码算基准；WorkBuddy 用新进程重算，避开运行中服务的 30s 缓存）。
+
+Kimi Code 的 OAuth access token 只有 15 分钟；挂件会在过期时按宿主同款流程刷新并原子写回
+凭据文件，不额外保存密钥。dsh 的会话日志是多帧 zstd，挂件逐帧解压；上一轮优先主会话，
+今日总额包含 subagent 调用。
 
 已知差异：GLM 订阅修正（要读账号套餐事实）没有移植，GLM 订阅用量会按按量价显示金额，
 见 `docs/dock/DECISIONS.md` 的 D008。
@@ -23,7 +33,7 @@
 
 - 同一个 git 仓库，独立分支 `feat/dock` 与独立 worktree（`E:\WorkSpace\fox-dock`）。
 - 现有 `lib/`、`desktop/`、`hooks/` 在本分支上**不改动**；新代码全部在 `dock/`。
-- 发布通道独立：tag `dock-v*`，1.0 之前全部是 pre-release。
+- 2.0 是通用桌宠线，发布 tag `dock-v*`，与 ZCode/WB 两条挂件线互不影响。
 
 ## 直接试（不用命令行）
 
@@ -39,16 +49,19 @@
 
 刚开始的 10 秒可以这么试：
 
-1. 桌面上出现角色（默认嘎啦嘛，右下角）
-2. 把它拖到 WorkBuddy 窗口上松手 → 它吸到窗口边缘，下面出现「今日 xxx 积分」
-3. 拖到 ZCode 窗口上 → 变成「今日 ¥x.xx」
-4. 单击角色 → 它会说一句话，同时打开明细面板（当前窗口 / 全部 agent 今日 /
-   最近几天 / 搜索 / 解绑）
-5. 面板上切「设置」：换角色（六个内置）、随机台词间隔、大小、跟随间隔、
-   今日预算、每轮消耗气泡等，改完立即生效
-6. 面板上切「关于」：版本、数据目录、最近日志，出问题点「复制诊断信息」
-7. 关掉再启动 → 角色自己回到上次绑定的窗口（窗口还在的话）
-8. 双击「停止」→ 角色消失，任务管理器里没有残留
+1. 桌面上出现角色（默认嘎啦嘛，右下角）；右上角会提示「检测到 N 个 agent」
+2. 把角色拖到 WorkBuddy 窗口上松手 → 吸到窗口边缘，角色换成小克，显示「今日 xxx 积分」
+3. 拖到 ZCode → 换成嘎啦嘛，显示「今日 ¥x.xx」；拖到 Kimi Code → kimi 娘 + 套餐卡；
+   拖到 DeepSeek Harness → 大肥鱼 + DeepSeek 余额
+4. 单击角色 → 说一句话并打开面板。六个页签：
+   - **总览**：宿主、今日 / 上一轮 / 余额、额度卡、账户、明细、7 天汇总、搜索、解绑
+   - **额度**：单窗口数字百分比 / 多窗口进度条 / 余额卡 / Free 套餐说明
+   - **用量**：跨 agent 的今日与 7 天记录、绑定管理
+   - **角色**：六个立绘、点一下换角色、按宿主单独指定、让角色说一句
+   - **设置**：主题、主数字口径、大小、跟随间隔、台词、气泡、预算/额度预警
+   - **关于**：版本、数据目录、最近日志、复制诊断信息
+5. 关掉再启动 → 角色自己回到上次绑定的窗口（窗口还在的话）
+6. 双击「停止」→ 角色消失，任务管理器里没有残留
 
 > 只支持一块屏（默认光标所在那块）。跨屏拖动还没做，见 D011。
 
@@ -57,15 +70,15 @@
 ```
 dock/
   shared/      身份键等纯函数（无 Windows 依赖，可在任意平台跑）
-  daemon/      常驻服务（R1 起：Win32 桥 / 绑定 / 适配器 / 账本）
-  adapters/    zcode / workbuddy / generic
-  overlay/     Electron 浮层
+  daemon/      常驻服务（Win32 桥 / 绑定 / 适配器 / 账本 / 窗口生命周期）
+  adapters/    zcode / workbuddy / kimi / dsh / generic
+  overlay/     Electron 浮层（六页签面板 + 角色 + 气泡）
   test/
-    unit/      纯函数测试（CI 必跑）
-    integration/ 真 HTTP + 假 agent
+    unit/      纯函数、适配器、设置、契约
+    integration/ 真 HTTP + 假 agent + 真 Electron 拖拽
     e2e/       Playwright（Electron）
     visual/    截图基线 + 像素对比
-docs/dock/     决策记录与计划
+docs/dock/     决策记录与计划（仓库根）
 ```
 
 ## 本地命令

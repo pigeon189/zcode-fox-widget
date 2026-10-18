@@ -90,3 +90,46 @@ test('settings: 写入是合并，不会清掉没改的字段', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('settings: 主题 / 主数字 / 自动换角色 / 7 天开关只认枚举', () => {
+  assert.equal(normalizeSettings({ theme: 'dark' }).theme, 'dark')
+  assert.equal(normalizeSettings({ theme: 'purple' }).theme, 'auto')
+  assert.equal(normalizeSettings({ displayMode: 'balance' }).displayMode, 'balance')
+  assert.equal(normalizeSettings({ displayMode: 'nope' }).displayMode, 'auto')
+  assert.equal(normalizeSettings({ autoRole: false }).autoRole, false)
+  assert.equal(normalizeSettings({ autoRole: 'false' }).autoRole, false)
+  assert.equal(normalizeSettings({ showWeek: false }).showWeek, false)
+})
+
+test('settings: rolesByAdapter 只接受已知宿主与已知角色', () => {
+  const s = normalizeSettings({
+    rolesByAdapter: {
+      zcode: 'whale',
+      kimi: 'kimi',
+      workbuddy: 'evil',
+      dsh: 'fox',
+      unknown: 'fox',
+      __proto__: 'x',
+    },
+  })
+  assert.deepEqual(s.rolesByAdapter, { zcode: 'whale', kimi: 'kimi', dsh: 'fox' })
+  assert.deepEqual(normalizeSettings({ rolesByAdapter: 'bad' }).rolesByAdapter, {})
+  assert.deepEqual(normalizeSettings({ rolesByAdapter: [1, 2] }).rolesByAdapter, {})
+})
+
+test('settings: 2.0 字段写回后仍然合并保留', () => {
+  const dir = tempDir()
+  try {
+    const file = path.join(dir, 'settings.json')
+    let s = writeSettings(file, { theme: 'dark', rolesByAdapter: { kimi: 'whale' }, displayMode: 'quota' })
+    assert.equal(s.theme, 'dark')
+    assert.equal(s.displayMode, 'quota')
+    assert.deepEqual(s.rolesByAdapter, { kimi: 'whale' })
+    s = writeSettings(file, { scale: 1.25 })
+    assert.equal(s.theme, 'dark')
+    assert.deepEqual(s.rolesByAdapter, { kimi: 'whale' })
+    assert.equal(readSettings(file).displayMode, 'quota')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

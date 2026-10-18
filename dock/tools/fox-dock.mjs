@@ -12,7 +12,7 @@ import { isProcessAlive, readLock } from '../daemon/src/lock.mjs'
 import { pathsFor } from '../daemon/src/paths.mjs'
 import { installLauncher, uninstallLauncher } from '../daemon/src/install.mjs'
 import { describeAdapters, resolveAdapter } from '../adapters/registry.mjs'
-import { overlayPidsOf, resolveElectron } from '../daemon/src/electron.mjs'
+import { foxDockOverlayPidsOf, overlayPidsOf, resolveElectron } from '../daemon/src/electron.mjs'
 import { DEFAULT_CHANNEL, compareVersions, fetchManifest, readUpdateState, updateFromManifest } from '../daemon/src/update.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -257,10 +257,13 @@ function clearOverlayInfo(paths) {
 }
 
 function buildOverlayArgs(port, ignore, args) {
-  // 透明窗 + 2D 界面用不到 GPU；关掉能避开一批驱动的合成问题。
+  // 默认保留 GPU 合成：透明窗在软件合成下会出现「只重绘部分区域」，
+  // 角色/卡片在桌面上不可见（2.0 真机定位到的问题）。
+  // FOX_DOCK_SOFTWARE_RENDER=1 可显式回退到软件渲染。
   // --no-sandbox 只给受限环境（agent 会话/容器）用：那里 GPU 子进程起不来会直接
   // 崩在 "GPU process isn't usable"，而正常桌面双击启动不需要也不应该关沙箱。
-  const argv = [OVERLAY_DIR, '--disable-gpu', '--daemon-port=' + port, '--ignore-pids=' + ignore.join(',')]
+  const software = process.env.FOX_DOCK_SOFTWARE_RENDER === '1'
+  const argv = [OVERLAY_DIR, ...(software ? ['--disable-gpu'] : []), '--daemon-port=' + port, '--ignore-pids=' + ignore.join(',')]
   if (process.env.FOX_DOCK_NO_SANDBOX === '1') argv.push('--no-sandbox')
   const display = argValue(args, '--display')
   if (display) argv.push('--display=' + display)
@@ -286,6 +289,16 @@ async function collectIgnorePids(port) {
   }
 }
 
+async function collectOwnOverlayPids(port) {
+  try {
+    const res = await fetch('http://127.0.0.1:' + port + '/windows', { signal: AbortSignal.timeout(2000) })
+    const w = await res.json()
+    return foxDockOverlayPidsOf(w.windows, port)
+  } catch (err) {
+    return []
+  }
+}
+
 async function startOverlay(paths, port, args) {
   const electron = resolveElectron()
   if (!electron) {
@@ -296,6 +309,15 @@ async function startOverlay(paths, port, args) {
   if (running && isProcessAlive(running.pid)) {
     console.log('overlay 已在运行 pid=' + running.pid)
     return { ok: true, pid: running.pid, already: true }
+  }
+  // pid 文件丢了但窗口还在（旧版本/手动启动/上次异常退出）：接管现有实例，
+  // 不再起第二个。两个全屏置顶透明窗叠在一起会出现「角色时有时无」。
+  const extras = await collectOwnOverlayPids(port)
+  if (extras.length) {
+    const pid = extras[0]
+    writeOverlayInfo(paths, { pid, at: Date.now(), port })
+    console.log('overlay pid=' + pid + '（接管现有实例）')
+    return { ok: true, pid, already: true }
   }
   const ignore = await collectIgnorePids(port)
   const child = spawn(electron, buildOverlayArgs(port, ignore, args), {
@@ -315,29 +337,38 @@ async function startOverlay(paths, port, args) {
   return { ok: true, pid: child.pid }
 }
 
-async function stopOverlay(paths) {
+async function stopOverlay(paths, extraPids = []) {
   const info = readOverlayInfo(paths)
-  if (!info) return false
-  if (!isProcessAlive(info.pid)) {
+  const pids = Array.from(
+    new Set([...(info && Number.isInteger(info.pid) ? [info.pid] : []), ...extraPids].filter((p) => Number.isInteger(p) && p > 0))
+  )
+  if (!pids.length) {
     clearOverlayInfo(paths)
     return false
   }
-  try {
-    process.kill(info.pid)
-  } catch (err) {}
+  let killed = false
+  for (const pid of pids) {
+    if (!isProcessAlive(pid)) continue
+    killed = true
+    try {
+      process.kill(pid)
+    } catch (err) {}
+  }
   const deadline = Date.now() + 5000
   while (Date.now() < deadline) {
-    if (!isProcessAlive(info.pid)) {
+    if (pids.every((pid) => !isProcessAlive(pid))) {
       clearOverlayInfo(paths)
-      return true
+      return killed
     }
     await new Promise((r) => setTimeout(r, 100))
   }
-  try {
-    process.kill(info.pid, 'SIGKILL')
-  } catch (err) {}
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch (err) {}
+  }
   clearOverlayInfo(paths)
-  return true
+  return killed
 }
 
 async function overlayForeground(args) {
@@ -394,8 +425,10 @@ async function start(args) {
 async function stop(args) {
   const dataDir = dataDirFrom(args)
   const paths = pathsFor(dataDir)
-  const hadOverlay = await stopOverlay(paths)
   const lock = readLock(paths.lock)
+  // 先枚举所有自己的浮层（包括 pid 文件丢失的残留实例），再停 daemon。
+  const ownOverlays = lock && lock.port ? await collectOwnOverlayPids(lock.port) : []
+  const hadOverlay = await stopOverlay(paths, ownOverlays)
   if (!lock) {
     console.log(hadOverlay ? 'overlay stopped（daemon 本来就没跑）' : 'not running')
     return

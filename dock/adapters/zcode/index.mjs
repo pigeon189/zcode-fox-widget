@@ -14,10 +14,19 @@ const REASON_TEXT = {
   'db-read-failed': 'ZCode 用量库读取失败',
 }
 
+function fmtTokens(n) {
+  const v = Number(n) || 0
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M'
+  if (v >= 1_000) return (v / 1_000).toFixed(1) + 'K'
+  return String(Math.round(v))
+}
+
 export const zcodeAdapter = {
   id: 'zcode',
   name: 'ZCode',
   priority: 20,
+  roleDefault: 'fox',
+  accent: '#f0a04b',
   match: { exeBasenames: ['zcode.exe'] },
   capabilities: { billing: true, follow: true },
 
@@ -31,6 +40,15 @@ export const zcodeAdapter = {
         }
         const byCur = r.today.byCurrency
         const cur = dominantCurrency(byCur)
+        const details = [
+          { label: '今日 tokens', value: fmtTokens(r.today.tokens), hint: '按 ZCode 用量库逐次调用统计' },
+          { label: '今日调用', value: String(r.today.calls) + ' 次' },
+        ]
+        if (r.lastTurn) {
+          details.push({ label: '上一轮 tokens', value: fmtTokens(r.lastTurn.tokens) })
+          details.push({ label: '上一轮调用', value: String(r.lastTurn.calls) + ' 次' })
+        }
+        details.push({ label: '数据源', value: 'db.sqlite', hint: 'ZCode 本机用量库（只读）' })
         return {
           supported: true,
           unit: 'money',
@@ -44,6 +62,19 @@ export const zcodeAdapter = {
             : null,
           quota: null,
           balance: null,
+          quotaCard: {
+            kind: 'plan',
+            title: 'ZCode',
+            subtitle: '按厂商口径计费',
+            plan: 'ZCode',
+            note: '今日消耗按 ZCode 用量库逐轮计价；余额/套餐取决于当前 provider，由 ZCode 侧的价目与额度源决定。',
+          },
+          details,
+          plan: 'ZCode',
+          usage: {
+            todayTokens: r.today.tokens,
+            turnTokens: r.lastTurn ? r.lastTurn.tokens : 0,
+          },
           source: 'zcode:db.sqlite',
         }
       },

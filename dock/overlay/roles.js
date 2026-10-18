@@ -11,6 +11,8 @@ var FOX_ROLES = {
     id: 'fox',
     name: '嘎啦嘛',
     image: 'assets/roles/fox.png',
+    accent: '#f0a04b',
+    tag: 'ZCode 默认',
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
       '大模型的事情，怎么能叫偷...',
@@ -30,6 +32,8 @@ var FOX_ROLES = {
     id: 'whale',
     name: '大肥鱼',
     image: 'assets/roles/whale.png',
+    accent: '#4d6bfe',
+    tag: 'dsh 默认',
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
       '不知道用户有什么用，先赶走吧~',
@@ -54,6 +58,8 @@ var FOX_ROLES = {
     id: 'gpt',
     name: 'GPT娘',
     image: 'assets/roles/gpt.png',
+    accent: '#10a37f',
+    tag: '账号池',
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
       '刚刚掉进账号池的是这个luna呢，还是sol呢，还是astra呢',
@@ -71,6 +77,8 @@ var FOX_ROLES = {
     id: 'kimi',
     name: 'kimi娘',
     image: 'assets/roles/kimi.png',
+    accent: '#b07cff',
+    tag: 'Kimi Code 默认',
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
       '科研K3.1中...',
@@ -88,6 +96,8 @@ var FOX_ROLES = {
     id: 'xiaoke',
     name: '小克',
     image: 'assets/roles/xiaoke.png',
+    accent: '#d97757',
+    tag: 'WorkBuddy 默认',
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
       '你的时区是UTC+08:00，对吧...',
@@ -108,6 +118,8 @@ var FOX_ROLES = {
     id: 'gemini',
     name: '哈基米',
     image: 'assets/roles/gemini.png',
+    accent: '#4285f4',
+    tag: 'Gemini',
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
       'Gemini 4，堂堂登场！',
@@ -119,6 +131,16 @@ var FOX_ROLES = {
       '网文写手0001号哈基米为你服务～',
     ],
   },
+}
+
+// 角色页的一句话说明（独立对象：不能让 for..in FOX_ROLES 多数出一个「角色」）
+var FOX_ROLE_DESC = {
+  fox: 'ZCode 的默认看板娘，嘴硬但会替你盯着 token',
+  whale: 'DeepSeek Harness 的蓝色大肥鱼，关心白饭与余额',
+  gpt: '账号池里的 GPT 娘，熟悉 luna / sol / astra',
+  kimi: 'Kimi Code 的国一模，科研与 K3 是本体',
+  xiaoke: 'WorkBuddy 的小克，积分与中文都很敏感',
+  gemini: '哈基米，Gemini 4 与氩元素的自来熟',
 }
 
 // 设置页与切换顺序：和挂件线一致（嘎啦嘛默认）

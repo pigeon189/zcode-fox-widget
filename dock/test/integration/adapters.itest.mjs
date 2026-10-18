@@ -195,3 +195,99 @@ test('/settings：默认值可读，PUT 合并且丢弃未知字段', async () =
   // 复位，避免影响后续用例
   await put({ scale: 1, showChip: true, followMs: 500, scrollGap: 17, quotaWarnPct: 0, budgetMoney: 0 })
 })
+
+test('2.0 /adapters：内置四个宿主，带默认角色与强调色', async () => {
+  const { status, body } = await get('/adapters')
+  assert.equal(status, 200)
+  const ids = body.adapters.map((a) => a.id)
+  for (const id of ['zcode', 'workbuddy', 'kimi', 'dsh']) assert.ok(ids.includes(id), id)
+  const kimi = body.adapters.find((a) => a.id === 'kimi')
+  const dsh = body.adapters.find((a) => a.id === 'dsh')
+  assert.equal(kimi.roleDefault, 'kimi')
+  assert.equal(dsh.roleDefault, 'whale')
+  assert.ok(kimi.accent && dsh.accent)
+  assert.doesNotThrow(() => JSON.stringify(body.adapters))
+})
+
+test('2.0 /resolve：Kimi Code 与 dsh 的 exe 能命中各自适配器', async () => {
+  const kimi = await get(
+    '/resolve?exe=' + encodeURIComponent('E:\\KimiCode\\Kimi Code\\Kimi Code.exe') + '&title=' + encodeURIComponent('Kimi Code')
+  )
+  assert.equal(kimi.body.adapter.id, 'kimi')
+  assert.equal(kimi.body.adapter.roleDefault, 'kimi')
+  const dsh = await get(
+    '/resolve?exe=' + encodeURIComponent('E:\\DSH-Windows\\DeepSeek Harness.exe') + '&title=' + encodeURIComponent('DeepSeek Harness')
+  )
+  assert.equal(dsh.body.adapter.id, 'dsh')
+  assert.equal(dsh.body.adapter.roleDefault, 'whale')
+})
+
+test('2.0 /bind：返回 roleDefault/accent，客户端仍不能伪造适配器', async () => {
+  const res = await fetch('http://127.0.0.1:' + port + '/bind', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      exe: 'E:\\KimiCode\\Kimi Code\\Kimi Code.exe',
+      pid: 9876,
+      startMs: Date.now() - 1000,
+      hwnd: 'abc123',
+      title: 'Kimi Code',
+      cls: 'Chrome_WidgetWin_1',
+      rect: { x: 0, y: 0, w: 800, h: 600 },
+      adapterId: 'dsh',
+    }),
+  })
+  const body = await res.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.binding.adapterId, 'kimi')
+  assert.equal(body.binding.adapterHint, 'dsh')
+  assert.equal(body.adapter.roleDefault, 'kimi')
+  assert.ok(body.adapter.accent)
+})
+
+test('2.0 /agents：有桥时返回数组，无桥时明确 bridge-unavailable', async () => {
+  const { status, body } = await get('/agents')
+  if (status === 503) {
+    assert.equal(body.ok, false)
+    assert.equal(body.error, 'bridge-unavailable')
+    return
+  }
+  assert.equal(status, 200)
+  assert.equal(body.ok, true)
+  assert.ok(Array.isArray(body.agents))
+  for (const a of body.agents) {
+    assert.ok(a.adapter && a.adapter.id && a.adapter.name)
+    assert.ok(!('createBilling' in a.adapter), '不能把函数泄漏给前端')
+  }
+})
+
+test('2.0 /settings：主题/主数字/自动换角色/按宿主角色都能写回并被净化', async () => {
+  const put = async (patch) => {
+    const res = await fetch('http://127.0.0.1:' + port + '/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    return { status: res.status, body: await res.json() }
+  }
+  const r = await put({
+    theme: 'dark',
+    displayMode: 'quota',
+    autoRole: false,
+    showWeek: false,
+    rolesByAdapter: { kimi: 'whale', zcode: 'fox', evil: 'fox', dsh: 'nope' },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.body.settings.theme, 'dark')
+  assert.equal(r.body.settings.displayMode, 'quota')
+  assert.equal(r.body.settings.autoRole, false)
+  assert.equal(r.body.settings.showWeek, false)
+  assert.deepEqual(r.body.settings.rolesByAdapter, { kimi: 'whale', zcode: 'fox' })
+
+  const bad = await put({ theme: 'purple', displayMode: 'nope' })
+  assert.equal(bad.body.settings.theme, 'auto')
+  assert.equal(bad.body.settings.displayMode, 'auto')
+
+  // 复位
+  await put({ theme: 'auto', displayMode: 'auto', autoRole: true, showWeek: true, rolesByAdapter: {} })
+})

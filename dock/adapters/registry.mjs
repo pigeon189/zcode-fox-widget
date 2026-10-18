@@ -7,9 +7,11 @@ import { normalizeWindow, scoreMatch, validateAdapter } from './contracts.mjs'
 import { genericAdapter } from './generic.mjs'
 import { zcodeAdapter } from './zcode/index.mjs'
 import { workbuddyAdapter } from './workbuddy/index.mjs'
+import { kimiAdapter } from './kimi/index.mjs'
+import { dshAdapter } from './dsh/index.mjs'
 
 // 顺序不重要（见上面的排序规则）
-export const builtinAdapters = [genericAdapter, zcodeAdapter, workbuddyAdapter]
+export const builtinAdapters = [genericAdapter, zcodeAdapter, workbuddyAdapter, kimiAdapter, dshAdapter]
 
 export function adaptersWithBilling(list = builtinAdapters) {
   return list.filter((a) => a && a.capabilities && a.capabilities.billing === true)
@@ -75,6 +77,8 @@ export function describeAdapters(list = builtinAdapters) {
     fallback: !!a.fallback,
     billing: !!(a.capabilities && a.capabilities.billing),
     follow: !!(a.capabilities && a.capabilities.follow),
+    roleDefault: a.roleDefault || '',
+    accent: a.accent || '',
     match: {
       exeBasenames: (a.match && a.match.exeBasenames) || [],
       exeIncludes: (a.match && a.match.exeIncludes) || [],

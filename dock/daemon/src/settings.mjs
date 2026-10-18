@@ -28,12 +28,24 @@ export const DEFAULTS = {
   // 额度剩余低于该百分比时提醒（0 = 不提醒）
   quotaWarnPct: 0,
   alertBubble: true,
+  // 2.0：主题与主数字口径
+  theme: 'auto', // light | dark | auto
+  displayMode: 'auto', // auto | today | balance | quota
+  // 绑定后按宿主默认角色换人（zcode→fox、wb→小克、kimi→kimi 娘、dsh→大肥鱼）
+  autoRole: true,
+  // 每个宿主单独指定的角色；空 = 用适配器默认
+  rolesByAdapter: {},
+  // 面板打开时显示 7 天用量块
+  showWeek: true,
 }
 
 export const SCALES = [0.75, 1, 1.25, 1.5]
 const FOLLOW_MS = [250, 500, 1000]
 export const ROLES = ['fox', 'whale', 'gpt', 'kimi', 'xiaoke', 'gemini']
 export const CHATTER_MS = [0, 180000, 300000, 600000]
+export const THEMES = ['light', 'dark', 'auto']
+export const DISPLAY_MODES = ['auto', 'today', 'balance', 'quota']
+export const ADAPTER_IDS = ['generic', 'zcode', 'workbuddy', 'kimi', 'dsh']
 
 function clampNum(v, min, max, fallback) {
   const n = typeof v === 'number' ? v : Number(v)
@@ -60,6 +72,8 @@ export function normalizeSettings(raw) {
   const roleId = ROLES.includes(roleRaw) ? roleRaw : DEFAULTS.roleId
   const chatterRaw = clampNum(r.chatterMs, 0, 600000, DEFAULTS.chatterMs)
   const chatterMs = CHATTER_MS.reduce((best, s) => (Math.abs(s - chatterRaw) < Math.abs(best - chatterRaw) ? s : best), CHATTER_MS[0])
+  const theme = THEMES.includes(String(r.theme || '')) ? String(r.theme) : DEFAULTS.theme
+  const displayMode = DISPLAY_MODES.includes(String(r.displayMode || '')) ? String(r.displayMode) : DEFAULTS.displayMode
   return {
     roleId,
     chatterMs,
@@ -72,7 +86,24 @@ export function normalizeSettings(raw) {
     budgetMoney: Math.round(clampNum(r.budgetMoney, 0, 1000000, DEFAULTS.budgetMoney) * 100) / 100,
     quotaWarnPct: Math.round(clampNum(r.quotaWarnPct, 0, 100, DEFAULTS.quotaWarnPct)),
     alertBubble: bool(r.alertBubble, DEFAULTS.alertBubble),
+    theme,
+    displayMode,
+    autoRole: bool(r.autoRole, DEFAULTS.autoRole),
+    rolesByAdapter: normalizeRolesByAdapter(r.rolesByAdapter),
+    showWeek: bool(r.showWeek, DEFAULTS.showWeek),
   }
+}
+
+// 每个宿主一个角色；只接受已知 adapter + 已知 role，防止设置文件变成任意数据通道。
+export function normalizeRolesByAdapter(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out = {}
+  for (const [adapter, role] of Object.entries(raw)) {
+    if (!ADAPTER_IDS.includes(adapter)) continue
+    if (!ROLES.includes(String(role || ''))) continue
+    out[adapter] = String(role)
+  }
+  return out
 }
 
 export function readSettings(file) {

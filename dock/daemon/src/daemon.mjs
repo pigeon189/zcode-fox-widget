@@ -237,6 +237,42 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       return
     }
 
+    // 2.0：列出当前桌面上「认得出」的 agent 窗口，供浮层做首次提示/一键吸附。
+    // 只返回命中内置适配器的窗口；未知窗口仍可拖拽绑定（generic）。
+    if (p === '/agents' && req.method === 'GET') {
+      if (!bridge || !bridgeReady) {
+        sendJson(res, 503, { ok: false, error: 'bridge-unavailable' })
+        return
+      }
+      try {
+        const windows = await bridge.snapshot()
+        const agents = []
+        for (const w of windows || []) {
+          const det = resolveAdapter(w, adapters)
+          if (det.fallback) continue
+          agents.push({
+            hwnd: w.hwnd,
+            pid: w.pid,
+            startMs: w.startMs,
+            exe: w.exe,
+            title: w.title,
+            cls: w.cls,
+            rect: w.rect,
+            adapter: {
+              id: det.id,
+              name: det.name,
+              roleDefault: det.adapter.roleDefault || '',
+              accent: det.adapter.accent || '',
+            },
+          })
+        }
+        sendJson(res, 200, { ok: true, agents })
+      } catch (err) {
+        sendJson(res, 500, { ok: false, error: String((err && err.message) || err) })
+      }
+      return
+    }
+
     if (p === '/resolve' && req.method === 'GET') {
       const det = resolveAdapter(
         {
@@ -249,7 +285,15 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       )
       sendJson(res, 200, {
         ok: true,
-        adapter: { id: det.id, name: det.name, fallback: det.fallback, score: det.score, capabilities: det.capabilities },
+        adapter: {
+          id: det.id,
+          name: det.name,
+          fallback: det.fallback,
+          score: det.score,
+          capabilities: det.capabilities,
+          roleDefault: det.adapter.roleDefault || '',
+          accent: det.adapter.accent || '',
+        },
       })
       return
     }
@@ -370,7 +414,14 @@ export async function runDaemon(argv = process.argv.slice(2)) {
         sendJson(res, 200, {
           ok: true,
           binding: saved,
-          adapter: { id: det.id, name: det.name, fallback: det.fallback, capabilities: det.capabilities },
+          adapter: {
+            id: det.id,
+            name: det.name,
+            fallback: det.fallback,
+            capabilities: det.capabilities,
+            roleDefault: det.adapter.roleDefault || '',
+            accent: det.adapter.accent || '',
+          },
         })
       } catch (err) {
         sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })

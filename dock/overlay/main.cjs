@@ -17,7 +17,11 @@ const displayMode = arg('--display', process.env.FOX_DOCK_DISPLAY || 'cursor')
 
 // 透明 + 置顶 + 不抢焦点。透明窗口在部分驱动上会把整窗当成可命中，所以默认
 // 全窗穿透，只有指针压在狐狸上时由 renderer 通过 IPC 打开交互。
-app.disableHardwareAcceleration()
+//
+// 2.0：默认硬件合成。Windows 上「透明 + 软件合成」会只重绘部分脏区——
+// DOM 截图里有角色，桌面上却看不见（实测）。排障/低配机器可设
+// FOX_DOCK_SOFTWARE_RENDER=1 回退。
+if (process.env.FOX_DOCK_SOFTWARE_RENDER === '1') app.disableHardwareAcceleration()
 // 全屏透明窗会被 Chromium 的遮挡判定认为「被别的窗口盖住」，进而把渲染进程
 // 降优先级/节流：实测拖拽期间所有请求都卡到松手后才返回，拖拽直接失效。
 // 这条开关必须加在浮层自己进程上（宿主进程的开关管不到这里）。
@@ -39,13 +43,22 @@ app.whenReady().then(() => {
     height: work.height,
     transparent: true,
     frame: false,
-    resizable: false,
+    // 与挂件线同款：resizable:false 会让 Electron 把 min/max 锁在创建尺寸，
+    // 之后任何 setBounds 都会被拒绝；保持 true，尺寸只由创建参数决定。
+    resizable: true,
     movable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
+    // Windows 上 toolbar 型窗口常驻 WS_EX_TOOLWINDOW：宿主 Chromium 的遮挡判定
+    // 会直接排除它，避免「点一下浮层后宿主停止出帧」（挂件线 issue #2 的结论）。
+    ...(process.platform === 'win32' ? { type: 'toolbar' } : {}),
+    // 浮层永远不抢前台：点它不能把宿主从 active 状态顶掉。
+    focusable: false,
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -54,12 +67,39 @@ app.whenReady().then(() => {
       backgroundThrottling: false,
     },
   })
+  // 标题带 daemon 端口：同一台机器上可能有多个测试实例/两条产品线，
+  // stop/start 只能接管「服务于本 daemon 端口」的浮层。
+  const overlayTitle = 'fox-dock overlay ' + (daemonPort || '?')
+  win.setTitle(overlayTitle)
+  win.webContents.on('page-title-updated', (event) => {
+    event.preventDefault()
+    try {
+      win.setTitle(overlayTitle)
+    } catch (err) {}
+  })
   win.setAlwaysOnTop(true, 'screen-saver')
+  try {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  } catch (err) {}
   if (!noClickThrough) win.setIgnoreMouseEvents(true, { forward: true })
   win.loadFile(path.join(__dirname, 'index.html'), {
     query: { port: String(daemonPort), pid: String(process.pid), ignore: ignorePids, ct: noClickThrough ? '0' : '1' },
   })
-  win.once('ready-to-show', () => win.showInactive())
+  // 透明窗口首帧：等页面完成加载再显示，并在显示后补一次整窗失效，
+  // 避免 Windows 只合成部分脏区（真机：DOM 有、桌面上只有背景）。
+  win.webContents.once('did-finish-load', () => {
+    win.showInactive()
+    try {
+      win.setOpacity(0.999)
+      win.setOpacity(1)
+    } catch (err) {}
+  })
+  // 页面加载失败/极慢时也别让浮层永远藏着；3 秒后无条件显示。
+  setTimeout(() => {
+    try {
+      if (!win.isVisible()) win.showInactive()
+    } catch (err) {}
+  }, 3000).unref?.()
 
   // daemon 没了就退出：否则桌面上会留一只「点不动的狐狸」，而用户根本不知道
   // 后台已经挂了。8 次 × 1.5s ≈ 12s，足够跨过 watchdog 的重启窗口。

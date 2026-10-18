@@ -22,6 +22,8 @@ export const myAdapter = {
   id: 'myagent',              // /^[a-z][a-z0-9-]{1,30}$/
   name: 'MyAgent',
   priority: 20,               // 同分时大的优先
+  roleDefault: 'fox',         // 绑定后默认换成的角色（fox/whale/gpt/kimi/xiaoke/gemini）
+  accent: '#f0a04b',          // 卡片强调色
   match: { exeBasenames: ['myagent.exe'] },
   capabilities: { billing: true, follow: true },
 
@@ -36,6 +38,21 @@ export const myAdapter = {
           turn: { amount: 0.28, currency: 'CNY' },
           quota: null,                   // 或 { usedPct, remainingPct }
           balance: null,                 // 或 { amount, currency }
+          // 2.0：给面板的通用额度卡（可选）
+          quotaCard: {
+            kind: 'balance',             // windows | balance | plan | error
+            title: 'MyAgent',
+            subtitle: '按量付费',
+            plan: '',
+            account: '',
+            windows: [],                 // windows 卡：{ key,label,usedPct,remainingPct,resetAt }
+            balance: { amount: 1.23, currency: 'CNY' },
+            note: '余额来自官方接口',
+          },
+          details: [{ label: '今日 tokens', value: '1.2K' }],
+          usage: { todayTokens: 1200, turnTokens: 300 },
+          plan: '按量',
+          account: 'MyAgent',
           source: 'myagent:https',       // 给人看的来源说明
         }
       },
@@ -78,26 +95,34 @@ export const myAdapter = {
 
 - 适配器会被每 3 秒调一次（浮层与面板同时问也只读一次盘）
 - 失败**不缓存**，下一次立刻重试
-- 不要自己再做长缓存；读大文件（如 transcript）可以在适配器内部按 mtime 记忆化
+- 网络接口应做**短 TTL 的内部缓存**，否则每 3 秒打一次官方接口：
+  Kimi 额度 60s、DeepSeek 余额 30s、dsh 会话扫描 15s。
+- 读大文件（如 transcript / 多帧 zstd）在适配器内部按 mtime 或当天记忆化。
 
-## 禁止事项
+## 凭据与写入边界
 
-- **不要写宿主的文件/库**：一律只读打开（ZCode 的 sqlite 用 `readOnly: true`）。
-- **不要猜金额**：识别不出厂商/模型就 `unit:'credit'` 或 `supported:false`，
-  绝不套一个「差不多」的价目。ZCode 线的价目表是逐字节副本（D007）。
-- **不要存密钥**：dock 不保存任何凭据；需要授权的能力（如 GLM 套餐查询）宁可不做（D008）。
+- **默认只读宿主**：ZCode sqlite 用 `readOnly: true`，WorkBuddy/dsh 的会话日志只读。
+- **Kimi Code 是唯一例外**：它的 OAuth access token 只有 15 分钟，适配器必须在过期时
+  用宿主自己的 refresh_token 刷新，并**原子写回同一个凭据文件**（否则 refresh token
+  轮换后宿主会掉登录）。刷新只写 `~/.kimi-code/credentials/kimi-code.json`，
+  不复制到 dock 配置、不打印 token。
+- **不要在 dock 里另存密钥**：dsh 适配器只从 `~/.dsh/.credentials.yaml` 或
+  `DEEPSEEK_API_KEY` 环境变量读取；需要授权的能力（如 GLM 套餐查询）宁可不做（D008）。
 
 ## 测试要求
 
 一个适配器至少要有：
 
-1. `test/unit/<id>-adapter.test.mjs`：用**临时合成的数据源**（sqlite / jsonl）验证
-   - 今日聚合（含边界：昨天、零 token、非 completed）
+1. `test/unit/<id>-adapter.test.mjs`：用**临时合成的数据源**（sqlite / jsonl / zstd）验证
+   - 今日聚合（含边界：昨天、零 token、非 completed、跨午夜）
    - 预付/订阅行的处理
-   - 上一轮/配额口径
-   - 数据源缺失时返回可读错误
+   - 上一轮/配额口径（多窗口、单窗口、余额、Free 降级）
+   - 数据源缺失 / 网络失败 / 坏数据时返回可读错误
+   - 凭据过期/刷新/并发刷新（Kimi）
+   - 多帧 zstd 与 subagent 会话（dsh）
 2. `test/integration/billing.itest.mjs` 里加一条：HTTP 链路能拿到该口径
-3. 真实数据对账工具（强烈建议）：`tools/verify-<id>.mjs`，用宿主自己的实现或接口当基准，
+3. 浮层：`test/integration/overlay.itest.mjs` 覆盖额度卡、角色映射、主题、未绑定识别列表
+4. 真实数据对账工具（强烈建议）：`tools/verify-<id>.mjs`，用宿主自己的实现或接口当基准，
    逐日比较金额与 tokens，容差写死在脚本里。
 
 ## 已知的两个坑（都踩过）

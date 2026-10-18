@@ -253,7 +253,8 @@ test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口', async (t) =>
   const targetX = (fakeWin.rect.x + Math.floor(fakeWin.rect.w / 2)) / dpr0 - curSx
   const targetY = (fakeWin.rect.y + Math.floor(fakeWin.rect.h / 2)) / dpr0 - curSy
   // 松手时狐狸的左上角（拖动时是按指针居中放置的）
-  dropPos = { x: targetX - 40, y: targetY - 40 }
+  const foxHalf = (geo.width || 128) / 2
+  dropPos = { x: targetX - foxHalf, y: targetY - foxHalf }
 
   // 先确认这个点确实命中的是假窗口：桌面上别的窗口盖住它时，后面会绑错对象，
   // 失败信息会变成「binding created 超时」，看不出真正原因。
@@ -363,8 +364,8 @@ test('snap: 放到窗口右侧 → 贴右边缘（四分吸附）', async (t) =>
   const hCss = fakeWin.rect.h / dpr
   const winLeft = toX - wCss * 0.9
   const winTop = toY - hCss * 0.2
-  // 默认设置 scrollGap=17：贴右边要给滚动条留出 17px；角色默认 64px
-  const wantX = winLeft + wCss - 80 - 17
+  // 默认设置 scrollGap=17：贴右边要给滚动条留出 17px；2.0 角色基准 128px
+  const wantX = winLeft + wCss - 128 - 17
   const wantY = winTop
   const fox = await waitFor(async () => {
     const r = JSON.parse(
@@ -526,7 +527,7 @@ test('settings: 面板里的「大小」改完立刻生效，并写回服务端'
   )
   const size = await waitFor(async () => {
     const w = Number(await cdp.eval("document.getElementById('fox').getBoundingClientRect().width"))
-    return w >= 119 && w <= 121 ? w : null
+    return w >= 191 && w <= 193 ? w : null
   }, 5000, 'fox resized to 1.5x')
   assert.ok(size)
 
@@ -659,6 +660,24 @@ test('search: 明细列表按适配器名过滤', async (t) => {
   assert.ok(v.none.indexOf('无匹配') !== -1, v.none)
 })
 
+test('guard: 其它挂件的全屏浮层不会被当成吸附目标', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const r = JSON.parse(
+    await cdp.eval(
+      "(function(){return JSON.stringify({" +
+        "widget:acceptable({pid:1,exe:'C:\\\\electron.exe',title:'ZCode狐娘小挂件',cls:'Chrome_WidgetWin_1'})," +
+        "dock:acceptable({pid:2,exe:'C:\\\\electron.exe',title:'fox-dock overlay 39401',cls:'Chrome_WidgetWin_1'})," +
+        "kimi:acceptable({pid:3,exe:'E:\\\\KimiCode\\\\Kimi Code\\\\Kimi Code.exe',title:'Kimi Code',cls:'Chrome_WidgetWin_1'})," +
+        "normal:acceptable({pid:4,exe:'C:\\\\Apps\\\\electron.exe',title:'Some App',cls:'Chrome_WidgetWin_1'})})})()"
+    )
+  )
+  assert.equal(r.widget, false)
+  assert.equal(r.dock, false)
+  assert.equal(r.kimi, true)
+  assert.equal(r.normal, true)
+})
+
 test('guard: 最小化窗口的 -32000 矩形不会把狐狸扔到屏幕外', async (t) => {
   if (!ELECTRON) return t.skip('electron binary not found')
 
@@ -704,8 +723,9 @@ test('role: 默认显示嘎啦嘛立绘，尺寸跟着设置走', async (t) => {
   )
   assert.match(info.src, /assets\/roles\/fox\.png$/)
   assert.equal(info.role, 'fox')
-  assert.equal(info.w, 80)
-  assert.equal(info.h, 80)
+  // 呼吸动画会让 getBoundingClientRect 出现极小的亚像素误差
+  assert.ok(Math.abs(info.w - 128) < 0.5, String(info.w))
+  assert.ok(Math.abs(info.h - 128) < 0.5, String(info.h))
   assert.ok(info.natural > 0, '立绘必须真的加载出来')
 })
 
@@ -811,4 +831,177 @@ test('role: 六个角色的立绘与台词池都完整', async (t) => {
     assert.ok(packs[id].pick >= 1, id + ' 缺挑经句')
     assert.ok(packs[id].lines >= 7, id + ' 台词太少')
   }
+})
+
+// ---------- 2.0：额度卡 / 主题 / 角色映射 / agent 识别 ----------
+
+test('quota: 多窗口额度卡显示每条窗口与最紧的一条', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "boundKey='test-key';boundAdapter={id:'kimi',name:'Kimi Code',accent:'#b07cff'};" +
+        "lastSnapshot={ok:true,supported:true,unit:'percent',adapterId:'kimi',adapterName:'Kimi Code'," +
+        "capturedAt:Date.now(),quota:{usedPct:42,remainingPct:58},plan:'Pro',account:'登月者'," +
+        "quotaCard:{kind:'windows',title:'Kimi Code',subtitle:'Pro 套餐',plan:'Pro',account:'登月者'," +
+        "windows:[{key:'limit_5h',label:'5 小时',usedPct:42,remainingPct:58,resetAt:'2026-10-19T05:00:00Z'}," +
+        "{key:'limit_7d',label:'7 天',usedPct:18,remainingPct:82}],note:'额度来自测试'},details:[],source:'kimi:test'};" +
+        "activeTab='quota';renderPanel(null,[]);" +
+        "var b=document.getElementById('panel-body');" +
+        "return JSON.stringify({text:b.textContent,wins:b.querySelectorAll('.qwin').length," +
+        "big:(b.querySelector('.quota-big .num')||{}).textContent||''})})()"
+    )
+  )
+  assert.equal(out.wins, 2)
+  assert.match(out.text, /5 小时/)
+  assert.match(out.text, /7 天/)
+  assert.match(out.text, /Pro/)
+  assert.match(out.text, /余 58%/)
+  assert.match(out.big, /58%/)
+})
+
+test('quota: 余额卡与「主数字=余额」的卡片口径', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "boundKey='test-key';boundAdapter={id:'dsh',name:'DeepSeek Harness',accent:'#4d6bfe'};" +
+        "settings.displayMode='balance';" +
+        "lastSnapshot={ok:true,supported:true,unit:'money',adapterId:'dsh',adapterName:'DeepSeek Harness'," +
+        "capturedAt:Date.now(),today:{amount:5.2,currency:'CNY'},balance:{amount:12.34,currency:'CNY'}," +
+        "quotaCard:{kind:'balance',title:'DeepSeek 余额',subtitle:'按量付费',balance:{amount:12.34,currency:'CNY'},note:'测试'}};" +
+        "renderChip(lastSnapshot);var chip=document.getElementById('chip-value').textContent;" +
+        "activeTab='quota';renderPanel(null,[]);var text=document.getElementById('panel-body').textContent;" +
+        "settings.displayMode='auto';" +
+        "return JSON.stringify({chip:chip,text:text,amt:(document.querySelector('.balance-big .amt')||{}).textContent||''})})()"
+    )
+  )
+  assert.match(out.chip, /余额 ¥12\.34/)
+  assert.match(out.text, /可用余额/)
+  assert.equal(out.amt, '12.34')
+})
+
+test('quota: Free 套餐 → plan 卡，不显示假进度', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const text = String(
+    await cdp.eval(
+      "(function(){" +
+        "boundKey='test-key';boundAdapter={id:'kimi',name:'Kimi Code',accent:'#b07cff'};" +
+        "lastSnapshot={ok:true,supported:true,unit:'percent',quota:null,adapterId:'kimi',adapterName:'Kimi Code'," +
+        "capturedAt:Date.now(),quotaCard:{kind:'plan',title:'Kimi Code',subtitle:'Free',plan:'Free',account:'登月者'," +
+        "note:'当前账号没有可读的套餐额度窗口'}};" +
+        "activeTab='quota';renderPanel(null,[]);" +
+        "return document.getElementById('panel-body').textContent})()"
+    )
+  )
+  assert.match(text, /Free/)
+  assert.match(text, /没有可读的套餐额度窗口/)
+})
+
+test('roles: 六张角色卡 + 点击换角色 + 按宿主落盘', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  await cdp.eval(
+    "(function(){boundKey='test-key';boundAdapter={id:'kimi',name:'Kimi Code',accent:'#b07cff'};" +
+      "activeTab='roles';renderPanel(null,[]);return true})()"
+  )
+  const count = Number(await cdp.eval("document.querySelectorAll('#panel-body .role-card').length"))
+  assert.equal(count, 6)
+
+  const clicked = await cdp.eval(
+    "(function(){var c=document.querySelector('#panel-body .role-card[data-role=\"whale\"]');if(!c)return false;c.click();return true})()"
+  )
+  assert.equal(clicked, true)
+  const switched = await waitFor(
+    async () => (await cdp.eval("roleId")) === 'whale',
+    4000,
+    'role switched'
+  )
+  assert.ok(switched)
+  const saved = await waitFor(async () => {
+    const r = await (await fetch('http://127.0.0.1:' + port + '/settings')).json()
+    return r.settings && r.settings.rolesByAdapter && r.settings.rolesByAdapter.kimi === 'whale' ? r.settings : null
+  }, 4000, 'per-adapter role persisted')
+  assert.ok(saved)
+
+  // 复位，避免影响后续用例
+  await fetch('http://127.0.0.1:' + port + '/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roleId: 'fox', rolesByAdapter: {}, displayMode: 'auto' }),
+  })
+  await cdp.eval("settings.rolesByAdapter={};boundKey='';boundAdapter=null;applyRole('fox')")
+})
+
+test('theme: 深色主题立即生效，auto 跟随系统', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "activeTab='settings';renderPanel(null,[]);" +
+        "var rows=document.querySelectorAll('#panel-body .setting');var sel=null;" +
+        "for(var i=0;i<rows.length;i++){var l=rows[i].querySelector('label');if(l&&l.textContent==='主题')sel=rows[i].querySelector('select')}" +
+        "if(!sel)return JSON.stringify({found:false});" +
+        "sel.value='dark';sel.dispatchEvent(new Event('change',{bubbles:true}));var dark=document.documentElement.dataset.theme;" +
+        "sel.value='auto';sel.dispatchEvent(new Event('change',{bubbles:true}));var auto=document.documentElement.dataset.theme;" +
+        "return JSON.stringify({found:true,dark:dark,auto:auto})})()"
+    )
+  )
+  assert.equal(out.found, true)
+  assert.equal(out.dark, 'dark')
+  assert.match(out.auto, /light|dark/)
+  await fetch('http://127.0.0.1:' + port + '/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme: 'auto' }),
+  })
+})
+
+test('agents: 未绑定时列出检测到的 agent，并提供吸附按钮', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "boundKey='';boundAdapter=null;" +
+        "detectedAgents=[{hwnd:'1',pid:1,exe:'C:\\\\ZCode\\\\ZCode.exe',title:'ZCode — demo',rect:{x:0,y:0,w:800,h:600}," +
+        "adapter:{id:'zcode',name:'ZCode',roleDefault:'fox',accent:'#f0a04b'}}," +
+        "{hwnd:'2',pid:2,exe:'C:\\\\DSH-Windows\\\\DeepSeek Harness.exe',title:'DeepSeek Harness',rect:{x:0,y:0,w:800,h:600}," +
+        "adapter:{id:'dsh',name:'DeepSeek Harness',roleDefault:'whale',accent:'#4d6bfe'}}];" +
+        "activeTab='detail';renderPanel(null,[]);" +
+        "var b=document.getElementById('panel-body');var btns=[];" +
+        "for(var i=0;i<b.querySelectorAll('button').length;i++)btns.push(b.querySelectorAll('button')[i].textContent);" +
+        "return JSON.stringify({text:b.textContent,buttons:btns,rows:b.querySelectorAll('.panel-binding').length})})()"
+    )
+  )
+  assert.match(out.text, /检测到 2 个 agent/)
+  assert.match(out.text, /ZCode/)
+  assert.match(out.text, /DeepSeek Harness/)
+  assert.ok(out.buttons.includes('吸附'))
+  assert.equal(out.rows, 2)
+})
+
+test('usage: 用量页有 7 天列表与绑定管理', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const text = String(
+    await cdp.eval(
+      "(function(){" +
+        "lastSummary={today:{date:'2026-10-19',groups:[{unit:'money',currency:'CNY',amount:1.5,adapters:[{id:'zcode',name:'ZCode',amount:1.5}]}]}," +
+        "days:[{date:'2026-10-18',groups:[{unit:'money',currency:'CNY',amount:2,adapters:[{id:'zcode',name:'ZCode',amount:2}]}]}]};" +
+        "lastBindings=[{key:'a',adapterId:'zcode',window:{title:'ZCode'}},{key:'b',adapterId:'kimi',window:{title:'Kimi'}}];" +
+        "boundKey='a';activeTab='usage';renderPanel(lastSummary,lastBindings);" +
+        "return document.getElementById('panel-body').textContent})()"
+    )
+  )
+  assert.match(text, /全部 agent/)
+  assert.match(text, /10-18/)
+  assert.match(text, /绑定管理/)
+  assert.match(text, /zcode/)
+  assert.match(text, /kimi/)
+  await cdp.eval("boundKey='';lastBindings=[];detectedAgents=[];activeTab='detail';renderPanel(null,[])")
 })

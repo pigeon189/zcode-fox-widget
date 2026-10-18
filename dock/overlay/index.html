@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,29 +10,48 @@
     <div id="say" hidden>
       <span id="say-text"></span>
     </div>
+
     <div id="bubble" hidden>
-      <span id="bubble-text"></span>
-      <span id="bubble-sub"></span>
+      <div class="bubble-main"><span id="bubble-text"></span></div>
+      <div class="bubble-sub" id="bubble-sub"></div>
     </div>
+
     <div id="chip" hidden>
-      <span id="chip-adapter"></span>
-      <span id="chip-value"></span>
+      <span id="chip-dot" aria-hidden="true"></span>
+      <span class="chip-copy">
+        <span id="chip-adapter"></span>
+        <span id="chip-value"></span>
+      </span>
+      <span class="chip-chevron" aria-hidden="true">›</span>
     </div>
+
     <div id="panel" hidden>
       <div class="panel-head">
-        <span id="panel-title">—</span>
-        <button id="panel-close" type="button" title="关闭">×</button>
+        <div class="panel-brand">
+          <span id="panel-accent" aria-hidden="true"></span>
+          <span id="panel-title">—</span>
+        </div>
+        <div class="panel-head-actions">
+          <span id="panel-fresh" class="panel-fresh" title="数据新鲜度"></span>
+          <button id="panel-close" type="button" title="关闭">×</button>
+        </div>
       </div>
-      <div class="panel-tabs">
-        <button type="button" data-tab="detail" class="active">明细</button>
+      <div class="panel-tabs" role="tablist">
+        <button type="button" data-tab="detail" class="active">总览</button>
+        <button type="button" data-tab="quota">额度</button>
+        <button type="button" data-tab="usage">用量</button>
+        <button type="button" data-tab="roles">角色</button>
         <button type="button" data-tab="settings">设置</button>
         <button type="button" data-tab="about">关于</button>
       </div>
       <div id="panel-body"></div>
     </div>
-    <div id="fox" title="拖到 agent 窗口上；单击看明细">
-      <img id="fox-img" src="assets/roles/fox.png" alt="" draggable="false" />
+
+    <div id="fox" title="拖到 agent 窗口上吸附；单击打开面板">
+      <img id="fox-img" src="assets/roles/fox.png" alt="角色" draggable="false" />
+      <span id="fox-badge" hidden></span>
     </div>
+
     <script src="roles.js"></script>
     <script src="renderer.js"></script>
   </body>

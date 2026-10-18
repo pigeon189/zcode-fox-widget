@@ -128,6 +128,104 @@ function pct(v) {
   return Math.min(100, Math.max(0, Math.round(n * 10) / 10))
 }
 
+function text(v, max = 120) {
+  return String(v == null ? '' : v).trim().slice(0, max)
+}
+
+// 金额归一：多币种不混加，主币种与 byCurrency 都保留。
+// credit 口径的「币种」是 CREDIT（宿主积分），不是货币码。
+function normalizeMoney(v, unit) {
+  if (!v || typeof v !== 'object') return null
+  const amount = finiteOrNull(v.amount)
+  if (amount === null) return null
+  const fallback = unit === 'credit' ? 'CREDIT' : 'CNY'
+  const currency = /^[A-Z]{3,8}$/.test(String(v.currency || '')) ? String(v.currency) : fallback
+  const byCurrency = {}
+  if (v.byCurrency && typeof v.byCurrency === 'object') {
+    for (const [k, raw] of Object.entries(v.byCurrency)) {
+      const n = finiteOrNull(raw)
+      if (n !== null && /^[A-Z]{3,8}$/.test(k)) byCurrency[k] = Math.round(n * 10000) / 10000
+    }
+  }
+  if (!Object.keys(byCurrency).length) byCurrency[currency] = Math.round(amount * 10000) / 10000
+  return { amount: Math.round(amount * 10000) / 10000, currency, byCurrency }
+}
+
+// 额度卡：前端只消费这个结构，不再猜各家字段。
+//   kind=windows  一个或多个配额窗口（Kimi Plan、CommandCode 等）
+//   kind=balance  现金余额（DeepSeek、Moonshot 等）
+//   kind=plan     有套餐但没有可读窗口（Kimi Free 等）
+//   kind=error    读取失败（错误原因在 message/note）
+export const QUOTA_CARD_KINDS = ['windows', 'balance', 'plan', 'error']
+
+function normalizeQuotaWindow(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const label = text(raw.label, 24)
+  if (!label) return null
+  let used = pct(raw.usedPct)
+  let remaining = pct(raw.remainingPct)
+  if (remaining === null && used !== null) remaining = pct(100 - used)
+  if (used === null && remaining !== null) used = pct(100 - remaining)
+  if (used === null && remaining === null) return null
+  const resetRaw = raw.resetAt == null ? '' : raw.resetAt
+  const resetAt =
+    typeof resetRaw === 'number' && Number.isFinite(resetRaw)
+      ? resetRaw
+      : typeof resetRaw === 'string'
+        ? resetRaw.slice(0, 40)
+        : ''
+  return {
+    key: text(raw.key || label, 40)
+      .toLowerCase()
+      .replace(/\s+/g, '-'),
+    label,
+    usedPct: used,
+    remainingPct: remaining,
+    resetAt,
+    detail: text(raw.detail, 80),
+  }
+}
+
+export function normalizeQuotaCard(raw, ctx = {}) {
+  if (!raw || typeof raw !== 'object') return null
+  const kind = QUOTA_CARD_KINDS.includes(raw.kind) ? raw.kind : ''
+  if (!kind) return null
+  const windows = Array.isArray(raw.windows)
+    ? raw.windows.map(normalizeQuotaWindow).filter(Boolean).slice(0, 8)
+    : []
+  const out = {
+    kind,
+    title: text(raw.title, 48) || text(ctx.adapterName, 48),
+    subtitle: text(raw.subtitle, 80),
+    plan: text(raw.plan, 40),
+    account: text(raw.account, 60),
+    note: text(raw.note, 160),
+    windows,
+    balance: normalizeMoney(raw.balance, 'money'),
+    message: text(raw.message, 200),
+  }
+  // 没有窗口的 windows 卡没有意义：降级成 plan（有套餐名）或丢掉
+  if (kind === 'windows' && !windows.length) {
+    if (out.plan) out.kind = 'plan'
+    else if (!out.message) out.message = '额度接口没有返回可显示的窗口'
+  }
+  return out
+}
+
+function normalizeDetails(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((d) => {
+      if (!d || typeof d !== 'object') return null
+      const label = text(d.label, 24)
+      const value = text(d.value, 80)
+      if (!label || !value) return null
+      return { label, value, hint: text(d.hint, 120) }
+    })
+    .filter(Boolean)
+    .slice(0, 12)
+}
+
 // 所有适配器的返回值都必须过这一关：
 //   · unit 只能是 money / credit / percent，避免「元」和「积分」被相加
 //   · 金额一律 number 或 null（不出现字符串、NaN、Infinity）
@@ -140,25 +238,6 @@ export function normalizeSnapshot(raw, ctx = {}) {
   const supported = r.supported === true
   const unit = UNITS.includes(r.unit) ? r.unit : null
 
-  const money = (v) => {
-    if (!v || typeof v !== 'object') return null
-    const amount = finiteOrNull(v.amount)
-    if (amount === null) return null
-    // credit 口径的「币种」是 CREDIT（宿主积分），不是货币码；长度放宽到 3–8
-    const fallback = unit === 'credit' ? 'CREDIT' : 'CNY'
-    const currency = /^[A-Z]{3,8}$/.test(String(v.currency || '')) ? String(v.currency) : fallback
-    // 多币种不混加：byCurrency 保留每种币种的真实金额，展示层只挑主币种
-    const byCurrency = {}
-    if (v.byCurrency && typeof v.byCurrency === 'object') {
-      for (const [k, raw] of Object.entries(v.byCurrency)) {
-        const n = finiteOrNull(raw)
-        if (n !== null && /^[A-Z]{3,8}$/.test(k)) byCurrency[k] = Math.round(n * 10000) / 10000
-      }
-    }
-    if (!Object.keys(byCurrency).length) byCurrency[currency] = Math.round(amount * 10000) / 10000
-    return { amount: Math.round(amount * 10000) / 10000, currency, byCurrency }
-  }
-
   const out = {
     ok: r.ok !== false,
     adapterId,
@@ -166,13 +245,24 @@ export function normalizeSnapshot(raw, ctx = {}) {
     supported,
     capturedAt: Number(ctx.now) || Date.now(),
     unit: supported ? unit : null,
-    today: supported ? money(r.today) : null,
-    turn: supported ? money(r.turn) : null,
-    balance: supported ? money(r.balance) : null,
+    today: supported ? normalizeMoney(r.today, unit) : null,
+    turn: supported ? normalizeMoney(r.turn, unit) : null,
+    balance: supported ? normalizeMoney(r.balance, unit) : null,
     quota: supported
       ? r.quota && typeof r.quota === 'object'
         ? { usedPct: pct(r.quota.usedPct), remainingPct: pct(r.quota.remainingPct) }
         : null
+      : null,
+    // 2.0：给 UI 的账户/额度/明细。适配器可以只给其中一部分。
+    quotaCard: supported ? normalizeQuotaCard(r.quotaCard, { adapterName }) : null,
+    plan: supported ? text(r.plan, 40) : '',
+    account: supported ? text(r.account, 60) : '',
+    details: supported ? normalizeDetails(r.details) : [],
+    usage: supported
+      ? {
+          todayTokens: Math.max(0, Math.round(finiteOrNull(r.usage && r.usage.todayTokens) || 0)),
+          turnTokens: Math.max(0, Math.round(finiteOrNull(r.usage && r.usage.turnTokens) || 0)),
+        }
       : null,
     source: supported && r.source ? String(r.source).slice(0, 200) : '',
     error: null,
