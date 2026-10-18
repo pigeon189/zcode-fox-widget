@@ -18,7 +18,8 @@
     "verify:zcode": "node tools/verify-zcode.mjs",
     "verify:workbuddy": "node tools/verify-workbuddy.mjs",
     "check:sync": "node tools/check-pricing-sync.mjs",
-    "e2e:real": "node tools/e2e-real.mjs"
+    "e2e:real": "node tools/e2e-real.mjs",
+    "soak": "node tools/soak.mjs"
   },
   "engines": {
     "node": ">=22.5"
