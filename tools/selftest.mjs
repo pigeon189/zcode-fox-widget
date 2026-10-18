@@ -2039,6 +2039,44 @@ try {
       authedHealth.keyProbe.entries.some((e) => e.providerId === 'enc-plugin' && e.keyEncrypted === true),
     'keySource=' + authedHealth.keySource + ' entries=' + ((authedHealth.keyProbe && authedHealth.keyProbe.entries) || []).length
   )
+  // 关于 / 自检（v1.3.3）：脱敏诊断快照
+  {
+    const res = await fetch('http://127.0.0.1:' + port + '/whale/diag.json')
+    const text = await res.text()
+    const diag = JSON.parse(text)
+    const home = os.homedir()
+    check(
+      '关于 / 自检：返回版本、运行环境与服务信息',
+      res.ok &&
+        diag.ok &&
+        diag.plugin.version === health.version &&
+        !!diag.runtime.node &&
+        diag.runtime.port === port &&
+        typeof diag.runtime.uptimeSec === 'number',
+      JSON.stringify({ v: diag.plugin && diag.plugin.version, node: diag.runtime && diag.runtime.node, port: diag.runtime && diag.runtime.port })
+    )
+    check(
+      '关于 / 自检：路径做过家目录脱敏（响应里不含用户主目录）',
+      typeof diag.paths.dataDir === 'string' && diag.paths.dataDir.indexOf(home) === -1 && text.indexOf(home) === -1,
+      diag.paths.dataDir
+    )
+    check(
+      '关于 / 自检：只回 hasApiKey 布尔值，响应里没有密钥明文或掩码',
+      typeof diag.config.hasApiKey === 'boolean' &&
+        diag.config.apiKey === undefined &&
+        !/sk-[A-Za-z0-9]{6,}/.test(text) &&
+        text.indexOf('keyMasked') === -1,
+      'hasApiKey=' + diag.config.hasApiKey
+    )
+    check(
+      '关于 / 自检：带更新状态与浮层日志尾部（数组，最多 20 行）',
+      !!diag.update &&
+        typeof diag.update.current !== 'undefined' &&
+        Array.isArray(diag.logs.overlayTail) &&
+        diag.logs.overlayTail.length <= 20,
+      JSON.stringify({ update: diag.update && diag.update.current, tail: diag.logs.overlayTail.length })
+    )
+  }
   // 浮层 spawn：环境清理 + profile 按端口隔离（审查 I1·U4）。行为断言，直接调真函数。
   {
     const { overlaySpawnEnv, overlayProfileDir } = await import('../lib/overlay.mjs')

@@ -1090,6 +1090,36 @@ try {
     )
   )
   check('记账二级页：返回按钮收起面板', !!bookClosed && bookClosed.open === false, JSON.stringify(bookClosed))
+  // ⑨f 关于 / 自检（v1.3.3）：菜单入口打开面板，textarea 里是脱敏后的诊断 JSON
+  await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcwv-menu-row button');" +
+      "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='关于 / 自检…'){bs[i].click();return true}}return false})()"
+  )
+  const ABOUT_PROBE =
+    "(function(){var p=document.querySelector('.zcwv-about');if(!p)return null;" +
+    "var ta=p.querySelector('textarea');if(!ta||!ta.value)return null;var d;try{d=JSON.parse(ta.value)}catch(e){return null}" +
+    "return JSON.stringify({open:p.classList.contains('zcwv-panel-open')," +
+    "version:d.plugin&&d.plugin.version,hasKey:typeof (d.config||{}).hasApiKey==='boolean'," +
+    "secret:/sk-[A-Za-z0-9]{6,}/.test(ta.value),text:p.textContent.indexOf('数据目录')!==-1})})()"
+  const aboutView = JSON.parse((await pollEval(cdp, ABOUT_PROBE, 6000)) || 'null')
+  check(
+    '关于 / 自检：面板可开，诊断 JSON 可解析且带版本 / hasApiKey',
+    !!aboutView &&
+      aboutView.open === true &&
+      /^\d+\.\d+\.\d+/.test(String(aboutView.version)) &&
+      aboutView.hasKey === true &&
+      aboutView.text === true,
+    JSON.stringify(aboutView)
+  )
+  check('关于 / 自检：诊断文本里没有密钥明文', !!aboutView && aboutView.secret === false, JSON.stringify(aboutView && { secret: aboutView.secret }))
+  const aboutClosed = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-about');if(!p)return null;var bs=p.querySelectorAll('button');" +
+        "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='关闭'){bs[i].click();" +
+        "return JSON.stringify({open:p.classList.contains('zcwv-panel-open')})}}return null})()"
+    )
+  )
+  check('关于 / 自检：关闭按钮收起面板', !!aboutClosed && aboutClosed.open === false, JSON.stringify(aboutClosed))
   // ⑨e 预警内容模板的「出泡预览」与真出泡同源：预览要显示该预警来源自己的内置
   //     文案（Plan / CmdGo / 余额 三份各不相同），而不是当前计费源的内置视图——
   //     此前三个预览都显示同一份「今日积分 xx 高峰时段」，与实际出泡不符。

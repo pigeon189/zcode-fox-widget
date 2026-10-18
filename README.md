@@ -164,6 +164,7 @@ echo 'sk-xxxxxxxx' | node lib/cli.mjs key
 
 | 现象 | 处理 |
 |---|---|
+| 要反馈问题 | 菜单 →「关于 / 自检…」→「全选复制」，把那段 JSON 一起发出来（不含密钥，路径已脱敏） |
 | 界面上看不到挂件 | WorkBuddy 不提供界面注入点，必须走桌面浮层：`desktop install` 后 `window start` |
 | 打开 WorkBuddy 没自动出现 | 看 `${CODEBUDDY_PLUGIN_DATA}/autostart.log` 最后一行：无新行 = hook 没加载；`skip: autoStartWidget=false` = 配置关了；`overlay=skipped:no-runtime` = 运行时没装 |
 | 点过「关闭插件」想立刻回来 | `node lib/cli.mjs start`（要浮层再加 `window start`）；它只是本次关闭，下次启动照常拉起 |
