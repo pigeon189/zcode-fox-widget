@@ -35,6 +35,8 @@ export function upsertBinding(file, binding) {
     {
       key: binding.key,
       adapterId: binding.adapterId || 'generic',
+      // 客户端自称的适配器只留作排障线索，真正生效的是 adapterId
+      adapterHint: String(binding.adapterHint || ''),
       anchor: binding.anchor || { corner: 'top-right' },
       window: binding.window || null,
       at: Date.now(),

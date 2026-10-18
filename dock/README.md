@@ -2,7 +2,22 @@
 
 桌面常驻的多 agent 成本看板：把挂件拖到 agent 窗口上，自动识别、吸附、切到对应计费口径。
 
-**状态：R3 完成。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog、登录启动器、透明浮层与「拖动狐狸 → 命中宿主 → 绑定 → 吸附」闭环（含 DPI 换算与 500ms 跟随）。
+**状态：R8 完成。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog、登录启动器、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、适配器框架（声明式匹配，不跑第三方 JS）、ZCode（元）与 WorkBuddy（积分）两个真实计费适配器、统一账本与跨 agent 汇总、点狐狸打开明细面板。
+
+## 适配器
+
+| id | 识别 | 计费 | 数据源 |
+|---|---|---|---|
+| `zcode` | `ZCode.exe` | 今日金额（多币种不混加）、上一轮 | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` |
+| `workbuddy` | `WorkBuddy.exe` | 今日积分、上一轮 | `~/.workbuddy/projects/**/*.jsonl` 的 `rawUsage.credit` |
+| `generic` | 兜底 | 不支持（只吸附与跟随，不猜数字） | — |
+
+口径与两条挂件线**逐日对齐**，用 `npm run verify:zcode` / `npm run verify:workbuddy` 现场对账
+（ZCode 用挂件线源码算基准；WorkBuddy 用新进程重算，避开运行中服务的 30s 缓存）。
+
+已知差异：GLM 订阅修正（要读账号套餐事实）没有移植，GLM 订阅用量会按按量价显示金额，
+见 `docs/dock/DECISIONS.md` 的 D008。
+
 
 ## 与现有挂件的关系
 
@@ -30,17 +45,25 @@ docs/dock/     决策记录与计划
 
 ```bash
 cd dock
-npm run check    # 语法检查
-npm test         # 单元测试
-npm run test:it  # 集成测试（真实窗口 + 真服务 + watchdog + 浮层拖拽，需要桌面会话与 Electron）
-npm run test:all # 全部
+npm run check          # 语法检查
+npm run check:sync     # 价目内核与挂件线是否逐字节一致
+npm test               # 单元测试
+npm run test:it        # 集成测试（真实窗口 + 真服务 + watchdog + 浮层拖拽，需要桌面会话与 Electron）
+npm run test:all       # 全部
 
-npm run doctor   # 打印当前桌面窗口与光标命中（不启动服务）
+npm run verify:zcode      # 与 ZCode 挂件线源码逐日对账（今日 + 近 7 天）
+npm run verify:workbuddy  # 与 WorkBuddy 挂件线逐日对账（新进程重算，避开缓存）
+
+npm run doctor   # 打印当前桌面窗口、命中的窗口与识别到的适配器（不启动服务）
+npm run adapters # 列出内置适配器与匹配规则
 npm start        # 启动 watchdog（后台常驻）
 npm run status
 npm run stop
 npm run install-app  # 写登录启动项（默认到真实启动文件夹，可用 --startup-dir 覆盖）
 ```
+
+浮层用法：**单击**狐狸打开明细面板（当前窗口数字 + 全部 agent 今日汇总 + 最近几天），
+**拖动**狐狸到宿主窗口上松开即绑定；绑定后每 500ms 跟随窗口位置。
 
 集成测试不进 CI：它需要真实的桌面会话（GitHub runner 的交互桌面行为不稳定），
 CI 只跑单元测试；集成在本地/真机上跑。

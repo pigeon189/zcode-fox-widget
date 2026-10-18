@@ -9,12 +9,15 @@
     "test:it": "node tools/run-tests.mjs --suite integration",
     "test:all": "node tools/run-tests.mjs --suite all",
     "doctor": "node tools/fox-dock.mjs doctor",
-    "check": "node --check shared/identity.mjs && node --check daemon/src/main.mjs && node --check daemon/src/win32.mjs && node --check daemon/src/paths.mjs && node --check daemon/src/lock.mjs && node --check daemon/src/install.mjs && node --check daemon/src/bindings.mjs && node --check daemon/src/daemon.mjs && node --check daemon/src/watchdog.mjs && node --check tools/fox-dock.mjs && node --check tools/run-tests.mjs && node --check overlay/main.cjs && node --check overlay/preload.cjs && node --check overlay/renderer.js && node --check test/fixtures/fake-agent/main.cjs",
-    "ci": "npm run check && npm test",
+    "check": "node --check shared/identity.mjs && node --check adapters/contracts.mjs && node --check adapters/generic.mjs && node --check adapters/registry.mjs && node --check adapters/zcode/index.mjs && node --check adapters/zcode/store.mjs && node --check adapters/zcode/prepaid.mjs && node --check adapters/zcode/pricing.mjs && node --check adapters/workbuddy/index.mjs && node --check adapters/workbuddy/transcripts.mjs && node --check daemon/src/main.mjs && node --check daemon/src/win32.mjs && node --check daemon/src/paths.mjs && node --check daemon/src/lock.mjs && node --check daemon/src/install.mjs && node --check daemon/src/bindings.mjs && node --check daemon/src/billing.mjs && node --check daemon/src/ledger.mjs && node --check daemon/src/daemon.mjs && node --check daemon/src/watchdog.mjs && node --check tools/fox-dock.mjs && node --check tools/run-tests.mjs && node --check tools/verify-zcode.mjs && node --check tools/verify-workbuddy.mjs && node --check overlay/main.cjs && node --check overlay/preload.cjs && node --check overlay/renderer.js && node --check test/fixtures/fake-agent/main.cjs",
+    "ci": "npm run check && npm run check:sync && npm test",
     "start": "node tools/fox-dock.mjs start",
     "stop": "node tools/fox-dock.mjs stop",
     "status": "node tools/fox-dock.mjs status",
-    "install-app": "node tools/fox-dock.mjs install"
+    "install-app": "node tools/fox-dock.mjs install",
+    "verify:zcode": "node tools/verify-zcode.mjs",
+    "verify:workbuddy": "node tools/verify-workbuddy.mjs",
+    "check:sync": "node tools/check-pricing-sync.mjs"
   },
   "engines": {
     "node": ">=22.5"

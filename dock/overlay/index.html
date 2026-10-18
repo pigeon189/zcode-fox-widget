@@ -8,7 +8,18 @@
   </head>
   <body>
     <div id="target" hidden></div>
-    <div id="fox" title="拖到 agent 窗口上">🦊</div>
+    <div id="chip" hidden>
+      <span id="chip-adapter"></span>
+      <span id="chip-value"></span>
+    </div>
+    <div id="panel" hidden>
+      <div class="panel-head">
+        <span id="panel-title">—</span>
+        <button id="panel-close" type="button" title="关闭">×</button>
+      </div>
+      <div id="panel-body"></div>
+    </div>
+    <div id="fox" title="拖到 agent 窗口上；单击看明细">🦊</div>
     <script src="renderer.js"></script>
   </body>
 </html>

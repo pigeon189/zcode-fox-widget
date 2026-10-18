@@ -22,6 +22,7 @@ export function pathsFor(dataDir) {
     heartbeat: path.join(dir, 'heartbeat.json'),
     watchdogLock: path.join(dir, 'watchdog.lock'),
     bindings: path.join(dir, 'bindings.json'),
+    ledger: path.join(dir, 'ledger.json'),
     logs: path.join(dir, 'logs'),
   }
 }

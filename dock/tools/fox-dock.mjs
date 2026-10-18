@@ -11,6 +11,7 @@ import { VERSION } from '../daemon/src/main.mjs'
 import { isProcessAlive, readLock } from '../daemon/src/lock.mjs'
 import { pathsFor } from '../daemon/src/paths.mjs'
 import { installLauncher, uninstallLauncher } from '../daemon/src/install.mjs'
+import { describeAdapters, resolveAdapter } from '../adapters/registry.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WATCHDOG = path.join(HERE, '..', 'daemon', 'src', 'watchdog.mjs')
@@ -65,25 +66,63 @@ async function doctor(args) {
   bridge.stop()
 
   if (asJson) {
-    console.log(JSON.stringify({ ok: true, version: VERSION, readyMs, snapMs, cursor, windows, hits }, null, 2))
+    const withAdapters = windows.map((w) => {
+      const d = resolveAdapter(w)
+      return { ...w, adapter: { id: d.id, name: d.name, fallback: d.fallback, billing: d.capabilities.billing } }
+    })
+    const hitsWithAdapters = hits.map((h) => {
+      const d = resolveAdapter(h)
+      return { ...h, adapter: { id: d.id, name: d.name, fallback: d.fallback, billing: d.capabilities.billing } }
+    })
+    console.log(
+      JSON.stringify(
+        { ok: true, version: VERSION, readyMs, snapMs, cursor, windows: withAdapters, hits: hitsWithAdapters },
+        null,
+        2
+      )
+    )
     return
   }
 
   console.log('fox-dock ' + VERSION + '  doctor')
   console.log('bridge ready in ' + readyMs + 'ms, snapshot ' + windows.length + ' windows in ' + snapMs + 'ms')
   console.log('')
-  console.log(pad('Z', 4) + pad('PID', 7) + pad('DPI', 5) + pad('RECT', 21) + pad('EXE', 30) + 'TITLE')
+  console.log(
+    pad('Z', 4) + pad('PID', 7) + pad('DPI', 5) + pad('RECT', 21) + pad('ADAPTER', 12) + pad('EXE', 26) + 'TITLE'
+  )
   for (const w of windows.slice(0, 40)) {
     const exe = w.exe ? w.exe.split(/[\\/]/).pop() : '(unknown)'
     const rect = w.rect.x + ',' + w.rect.y + ' ' + w.rect.w + 'x' + w.rect.h
-    console.log(pad(w.z, 4) + pad(w.pid, 7) + pad(w.dpi, 5) + pad(rect, 21) + pad(exe, 30) + w.title)
+    const d = resolveAdapter(w)
+    const tag = d.fallback ? '—' : d.id
+    console.log(pad(w.z, 4) + pad(w.pid, 7) + pad(w.dpi, 5) + pad(rect, 21) + pad(tag, 12) + pad(exe, 26) + w.title)
   }
   console.log('')
   console.log('cursor ' + cursor.x + ',' + cursor.y + ' (own pid ' + process.pid + ' excluded)')
   if (!hits.length) console.log('  no window under cursor')
   for (const h of hits) {
     const exe = h.exe ? h.exe.split(/[\\/]/).pop() : '(unknown)'
-    console.log('  z=' + h.z + ' pid=' + h.pid + ' ' + exe + '  ' + JSON.stringify(h.title))
+    const d = resolveAdapter(h)
+    console.log('  z=' + h.z + ' pid=' + h.pid + ' ' + exe + ' [' + (d.fallback ? 'no adapter' : d.name) + ']  ' + JSON.stringify(h.title))
+  }
+}
+
+function adapters() {
+  const list = describeAdapters()
+  console.log(pad('ID', 14) + pad('NAME', 16) + pad('BILLING', 9) + pad('FALLBACK', 10) + 'MATCH')
+  for (const a of list) {
+    const m = []
+    if (a.match.exeBasenames.length) m.push('exe=' + a.match.exeBasenames.join('|'))
+    if (a.match.exeIncludes.length) m.push('path~' + a.match.exeIncludes.join('|'))
+    if (a.match.titleIncludes.length) m.push('title~' + a.match.titleIncludes.join('|'))
+    if (a.match.classes.length) m.push('cls=' + a.match.classes.join('|'))
+    console.log(
+      pad(a.id, 14) +
+        pad(a.name, 16) +
+        pad(a.billing ? 'yes' : '-', 9) +
+        pad(a.fallback ? 'yes' : '-', 10) +
+        (m.length ? m.join(' & ') : '(兜底，不参与匹配)')
+    )
   }
 }
 
@@ -213,6 +252,7 @@ async function uninstall(args) {
 const [, , cmd, ...rest] = process.argv
 try {
   if (cmd === 'doctor') await doctor(rest)
+  else if (cmd === 'adapters') adapters()
   else if (cmd === 'start') await start(rest)
   else if (cmd === 'stop') await stop(rest)
   else if (cmd === 'status') await status(rest)
@@ -220,7 +260,7 @@ try {
   else if (cmd === 'uninstall') await uninstall(rest)
   else if (cmd === 'version' || cmd === '--version' || cmd === '-v') console.log(VERSION)
   else {
-    console.log('usage: fox-dock <doctor|start|stop|status|install|uninstall|version> [--data-dir <dir>]')
+    console.log('usage: fox-dock <doctor|adapters|start|stop|status|install|uninstall|version> [--data-dir <dir>]')
     process.exitCode = cmd ? 1 : 0
   }
 } catch (err) {

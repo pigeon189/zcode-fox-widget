@@ -41,3 +41,135 @@ body {
   pointer-events: none;
   z-index: 5;
 }
+
+/* 绑定后的小卡片：显示适配器与今日数字。R8 会做成可点开的面板。 */
+#chip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #222;
+  font: 12px/1.25 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 9;
+}
+
+#chip[hidden] {
+  display: none;
+}
+
+#chip-adapter {
+  color: #555;
+}
+
+#chip-adapter::after {
+  content: "·";
+  margin-left: 8px;
+  color: #bbb;
+}
+
+#chip-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+#chip.muted #chip-value {
+  font-weight: 500;
+  color: #888;
+}
+
+#chip.error #chip-value {
+  color: #c0392b;
+}
+
+/* 明细面板：点狐狸打开；点面板外收起 */
+#panel {
+  position: absolute;
+  width: 248px;
+  max-height: 60vh;
+  overflow: hidden;
+  padding: 10px 12px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  color: #1f2328;
+  font: 12px/1.5 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  z-index: 12;
+}
+
+#panel[hidden] {
+  display: none;
+}
+
+#panel .panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+#panel-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#panel-close {
+  border: 0;
+  background: transparent;
+  color: #888;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+#panel-close:hover {
+  color: #222;
+}
+
+#panel-body {
+  max-height: calc(60vh - 40px);
+  overflow-y: auto;
+}
+
+#panel h4 {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  letter-spacing: 0.02em;
+}
+
+#panel .panel-sec {
+  padding-bottom: 2px;
+}
+
+#panel .panel-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 0;
+}
+
+#panel .panel-row .label {
+  color: #666;
+  flex: 0 0 auto;
+}
+
+#panel .panel-row .value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+

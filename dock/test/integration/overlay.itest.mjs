@@ -237,9 +237,30 @@ test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口并吸附到右
 
   assert.equal(binding.window.hwnd, fakeWin.hwnd)
   assert.match(binding.key, new RegExp('\\|' + fakeWin.pid + '\\|'))
+  assert.equal(binding.adapterId, 'generic', '未识别的窗口应落到 generic')
 
   const boundKey = await cdp.eval('document.body.dataset.boundKey || ""')
   assert.equal(boundKey, binding.key)
+})
+
+test('chip: 绑定未接入窗口 → 显示「暂不支持计费」，不编造数字', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const chip = await waitFor(async () => {
+    const raw = await cdp.eval(
+      "(function(){var c=document.getElementById('chip');if(!c)return 'null';" +
+        "return JSON.stringify({hidden:c.hidden,adapter:document.body.dataset.adapterId||''," +
+        "text:(c.textContent||'').replace(/\\\\s+/g,' ').trim(),cls:c.className})})()"
+    )
+    const v = JSON.parse(raw)
+    // 「读取中…」是绑定后、第一次 /billing 回来之前的中间态，不能当成最终结果
+    return v && v.hidden === false && v.text && v.text.indexOf('读取中') === -1 ? v : null
+  }, 8000, 'chip visible')
+
+  assert.equal(chip.adapter, 'generic')
+  assert.match(chip.text, /通用窗口/)
+  assert.match(chip.text, /暂不支持计费/)
+  assert.match(chip.cls, /muted/)
 })
 
 test('snap: 绑定后狐狸贴在窗口右上角（±30px）', async (t) => {
@@ -255,6 +276,43 @@ test('snap: 绑定后狐狸贴在窗口右上角（±30px）', async (t) => {
   const expectedY = fakeWin.rect.y / dpr + 12 - geo.sy
   assert.ok(Math.abs(fox.x - expectedX) <= 30, 'fox.x=' + fox.x + ' expected≈' + expectedX)
   assert.ok(Math.abs(fox.y - expectedY) <= 30, 'fox.y=' + fox.y + ' expected≈' + expectedY)
+})
+
+test('panel: 单击狐狸打开明细面板（不是拖拽），再点收起', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const pos = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+    )
+  )
+
+  const click = async () => {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pos.x, y: pos.y, button: 'left', buttons: 1, clickCount: 1 })
+    await sleep(60)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pos.x, y: pos.y, button: 'left', buttons: 0, clickCount: 1 })
+  }
+
+  await click()
+  const opened = await waitFor(
+    async () => (await cdp.eval("document.body.dataset.panel || ''")) === 'open',
+    6000,
+    'panel opened'
+  )
+  assert.ok(opened)
+  const title = await cdp.eval("document.getElementById('panel-title').textContent")
+  assert.ok(title && title.length > 0, JSON.stringify(title))
+  const rows = Number(await cdp.eval("document.querySelectorAll('#panel-body .panel-row').length"))
+  assert.ok(rows >= 1, 'panel should have at least one row, got ' + rows)
+
+  // 再点一次收起
+  await click()
+  const closed = await waitFor(
+    async () => (await cdp.eval("document.body.dataset.panel || ''")) === 'closed',
+    6000,
+    'panel closed'
+  )
+  assert.ok(closed)
 })
 
 test('reanchor: 宿主窗口移动后狐狸跟随（500ms 轮询）', async (t) => {

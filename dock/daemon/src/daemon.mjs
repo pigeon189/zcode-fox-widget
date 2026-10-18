@@ -17,7 +17,10 @@ import { fileURLToPath } from 'node:url'
 import { VERSION } from './main.mjs'
 import { acquireLock, releaseLock, updateLock } from './lock.mjs'
 import { readBindings, removeBinding, upsertBinding } from './bindings.mjs'
+import { createBillingService } from './billing.mjs'
+import { recordSnapshot, summarize } from './ledger.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
+import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
 import { Win32Bridge } from './win32.mjs'
 
@@ -155,6 +158,10 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     }
   }
 
+  // 适配器：内置 + 声明式匹配；计费快照带 3 秒缓存
+  const adapters = builtinAdapters
+  const billing = createBillingService({ adapters })
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1')
     const p = url.pathname
@@ -199,6 +206,58 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       return
     }
 
+    if (p === '/adapters' && req.method === 'GET') {
+      sendJson(res, 200, { ok: true, adapters: describeAdapters(adapters) })
+      return
+    }
+
+    if (p === '/resolve' && req.method === 'GET') {
+      const det = resolveAdapter(
+        {
+          exe: url.searchParams.get('exe') || '',
+          title: url.searchParams.get('title') || '',
+          cls: url.searchParams.get('cls') || '',
+          pid: Number(url.searchParams.get('pid') || 0),
+        },
+        adapters
+      )
+      sendJson(res, 200, {
+        ok: true,
+        adapter: { id: det.id, name: det.name, fallback: det.fallback, score: det.score, capabilities: det.capabilities },
+      })
+      return
+    }
+
+    if (p === '/billing' && req.method === 'GET') {
+      const key = url.searchParams.get('key') || ''
+      const binding = key ? readBindings(paths.bindings).find((b) => b.key === key) : null
+      if (!binding) {
+        sendJson(res, 404, { ok: false, error: 'binding-not-found' })
+        return
+      }
+      const snap = await billing.snapshot(binding.window, {
+        force: url.searchParams.get('force') === '1',
+      })
+      // 记账：只记成功且可计价的快照（失败/不支持不写假 0）
+      recordSnapshot(paths.ledger, {
+        adapterId: snap.adapterId,
+        adapterName: snap.adapterName,
+        snapshot: snap,
+        now: Date.now(),
+      })
+      sendJson(res, 200, { ok: true, bindingKey: binding.key, snapshot: snap })
+      return
+    }
+
+    if (p === '/summary' && req.method === 'GET') {
+      const days = Number(url.searchParams.get('days') || 7)
+      sendJson(res, 200, {
+        ok: true,
+        ...summarize(paths.ledger, { now: Date.now(), days: Number.isFinite(days) ? days : 7 }),
+      })
+      return
+    }
+
     if (p === '/bindings' && req.method === 'GET') {
       sendJson(res, 200, { ok: true, bindings: readBindings(paths.bindings) })
       return
@@ -213,19 +272,29 @@ export async function runDaemon(argv = process.argv.slice(2)) {
           startMs: body.startMs,
           hwnd: body.hwnd,
         })
+        // 适配器由**服务端**判定：客户端传的 adapterId 只作为提示记录，
+        // 避免前端被改坏或被第三方页面误导而写错计费口径。
+        const det = resolveAdapter({ exe: body.exe, title: body.title, cls: body.cls }, adapters)
         const saved = upsertBinding(paths.bindings, {
           key,
-          adapterId: body.adapterId,
+          adapterId: det.id,
+          adapterHint: typeof body.adapterId === 'string' ? body.adapterId.slice(0, 40) : '',
           anchor: body.anchor,
           window: {
             title: String(body.title || '').slice(0, 200),
             exe: String(body.exe || '').slice(0, 400),
             pid: Number(body.pid),
+            startMs: Number(body.startMs),
             hwnd: String(body.hwnd || ''),
+            cls: String(body.cls || '').slice(0, 120),
             rect: body.rect || null,
           },
         })
-        sendJson(res, 200, { ok: true, binding: saved })
+        sendJson(res, 200, {
+          ok: true,
+          binding: saved,
+          adapter: { id: det.id, name: det.name, fallback: det.fallback, capabilities: det.capabilities },
+        })
       } catch (err) {
         sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
       }
