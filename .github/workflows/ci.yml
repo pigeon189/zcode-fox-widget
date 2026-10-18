@@ -1,0 +1,44 @@
+name: ci
+
+# 三条自检都是纯本地进程（临时数据目录 + 本地 HTTP + 无头浏览器），不需要密钥。
+# 浮层端到端那几条在没装 Electron 运行时的机器上会自动 SKIP，CI 正好走这条路径；
+# smoke-ui 找不到 Edge/Chrome 也会打印 SKIP 并以 0 退出（windows-latest 自带 Edge）。
+
+on:
+  push:
+    branches: [workbuddy]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 语法检查
+        shell: bash
+        run: |
+          fail=0
+          for f in lib/*.mjs lib/widget.js desktop/main.cjs tools/*.mjs; do
+            node --check "$f" || { echo "FAIL $f"; fail=1; }
+          done
+          exit $fail
+
+      - name: 主自检（功能 / 接口 / 解析）
+        run: node tools/selftest.mjs
+
+      - name: 更新内核自检（探测 / 解包 / 验签 / 落盘）
+        run: node tools/selftest-update.mjs
+
+      - name: 前端冒烟（真实页面 + 无头 Edge）
+        run: node tools/smoke-ui.mjs
