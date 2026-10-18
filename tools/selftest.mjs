@@ -52,7 +52,7 @@ const { readPlanBalance, turnPlanUsage } = await import('../lib/plan-balance.mjs
 const { getPath, TEMPLATES, fetchFromTemplate, pickVendorBalance, listVendorStatus } = await import('../lib/vendors.mjs')
 const { isBlockedHost } = await import('../lib/blocked-host.mjs')
 const { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } = await import('../lib/discover.mjs')
-const { computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } = await import('../lib/balance.mjs')
+const { balanceSplit, computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } = await import('../lib/balance.mjs')
 const { mapHostTheme, themeOfPreferences, resolveHostTheme } = await import('../lib/host-theme.mjs')
 const { safeMirrorUrl, overlaySpawnEnv, overlayStopOutcome, stopOverlay } = await import('../lib/overlay.mjs')
 const { MODEL_ROLE_RULES, roleIdForModel, BUILTIN_ROLES } = await import('../lib/paths.mjs')
@@ -2672,6 +2672,48 @@ try {
     sizeBack && sizeBack.alerts && sizeBack.alerts.quotaPct === 20 && sizeBack.alerts.moneyAlert === 5.5,
     JSON.stringify(sizeBack.alerts)
   )
+  // 今日预算（v1.3.3）：单位是积分；负数/非法归 0，超大值封顶 1e6
+  const budgetPut = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, alerts: { budgetToday: 12.34 } }),
+  })
+  const budgetBody = await budgetPut.json()
+  check(
+    '今日预算：写入后与其他预警并存（12.34，不覆盖已有阈值）',
+    budgetPut.ok && budgetBody.alerts && budgetBody.alerts.budgetToday === 12.34 && budgetBody.alerts.quotaPct === 20 && budgetBody.alerts.moneyAlert === 5.5,
+    JSON.stringify(budgetBody.alerts)
+  )
+  const budgetNeg = await (
+    await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scale: 1.5, alerts: { budgetToday: -5 } }),
+    })
+  ).json()
+  check('今日预算：负数归 0（等于关闭）', budgetNeg.alerts && budgetNeg.alerts.budgetToday === 0, JSON.stringify(budgetNeg.alerts))
+  const budgetHuge = await (
+    await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scale: 1.5, alerts: { budgetToday: 9e9 } }),
+    })
+  ).json()
+  check('今日预算：超大值封顶 1e6（防手滑多打几个零）', budgetHuge.alerts && budgetHuge.alerts.budgetToday === 1000000, JSON.stringify(budgetHuge.alerts))
+  const budgetText = await (
+    await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scale: 1.5, alerts: { budgetToday: 'abc' } }),
+    })
+  ).json()
+  check('今日预算：非数字归 0', budgetText.alerts && budgetText.alerts.budgetToday === 0, JSON.stringify(budgetText.alerts))
+  // 复位成 0，避免影响后续用例
+  await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, alerts: { budgetToday: 0 } }),
+  })
   // 旧配置迁移：模拟升级用户的文件（只有 DS¥/BM¥ 旧键、没有 moneyAlert），
   // 读出来应是 moneyAlert=deepseekBelow（先设过的那个），旧键不再保留
   const legacyState = JSON.parse(fs.readFileSync(path.join(dataDir, 'widget-state.json'), 'utf8'))
@@ -4556,6 +4598,26 @@ try {
       pb([{ currency: 'CNY' }, { currency: 'USD', total_balance: 1 }]) === 'USD:1',
       pb([{ currency: 'CNY' }, { currency: 'USD', total_balance: 1 }])
     )
+    // 余额构成（赠金 / 充值）：缺失与 0 必须区分——0 是"真没有"，null 是"接口没给"
+    {
+      const full = balanceSplit({ total_balance: '12.30', granted_balance: '2.10', topped_up_balance: '10.20' })
+      check(
+        'balanceSplit：赠金 / 充值原样取出（字符串转数字）',
+        full.grantedBalance === 2.1 && full.toppedBalance === 10.2,
+        JSON.stringify(full)
+      )
+      const zero = balanceSplit({ total_balance: '0', granted_balance: '0', topped_up_balance: '0' })
+      check('balanceSplit：真的为 0 时给 0（不是 null）', zero.grantedBalance === 0 && zero.toppedBalance === 0, JSON.stringify(zero))
+      const missing = balanceSplit({ total_balance: '5' })
+      check(
+        'balanceSplit：字段缺失给 null（与 0 区分）',
+        missing.grantedBalance === null && missing.toppedBalance === null,
+        JSON.stringify(missing)
+      )
+      const junk = balanceSplit({ granted_balance: 'abc', topped_up_balance: null })
+      check('balanceSplit：非法值 / null 一律 null，不抛异常', junk.grantedBalance === null && junk.toppedBalance === null, JSON.stringify(junk))
+      check('balanceSplit：空入参不抛异常', JSON.stringify(balanceSplit(undefined)) === '{"grantedBalance":null,"toppedBalance":null}', '')
+    }
   }
 
   // （迁移删除）套餐扣费轮的「余额口径」纯函数测试（quotaBucketForModel /

@@ -11,6 +11,14 @@
 
 ---
 
+## 未发布
+
+- **今日预算**：记账二级页新增「预算」，当日累计消耗达到该积分值时提醒一次（0 关闭）；与「余额¥」方向相反——一个盯账户见底、一个盯当天用超，两条各自去重。
+- **余额构成**：配置了 DeepSeek key 时，余额接口返回的赠金 / 充值余额一并显示在记账页；字段缺失时整行隐藏。
+- **用量搜索**：用量记录面板可按模型名 / 日期 / 时间过滤「近 7 天」与「最近轮次」，无命中时给提示；打字期间跳过 30 秒轮询重绘。
+
+---
+
 ## wb-v1.3.2 修复：浮层主进程每次加载都弹 ReferenceError
 
 - **浮层主进程弹「A JavaScript error occurred in the main process」**：上一版把 ZCode 线的浮层补丁 cherry-pick 过来时，函数名没跟着换（本线叫 `applyHostBounds`，补丁里写的是 `applyZCodeBounds`），`did-finish-load` 每次触发都抛 `ReferenceError`。改用本线的函数名，并加一条静态自检：`desktop/main.cjs` 里调用的 `apply*Bounds` 必须在本文件有定义。

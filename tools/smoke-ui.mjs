@@ -1053,14 +1053,35 @@ try {
         "inputs:p?p.querySelectorAll('input[type=number]').length:0})}}return null})()"
     )
   )
-  // 4 个数字输入框 = 额度% + 余额¥ + 到账¥ + 扣减¥（校正收在这一页）；
-  // 4 行 = 预警阈值 + 预警内容模板（DSH 移植：Plan / CmdGo / 余额三入口）+
-  // 校正 + 其余行（结构见 buildBookPanel）；用量记录不在本页（v1.8.7 移回一级菜单）
+  // 5 个数字输入框 = 额度% + 余额¥ + 预算 + 到账¥ + 扣减¥（校正收在这一页）；
+  // 5 行 = 预警阈值 + 今日预算 + 预警内容模板（DSH 移植：Plan / CmdGo / 余额三入口）
+  // + 校正 + 其余行（结构见 buildBookPanel）；用量记录不在本页（v1.8.7 移回一级菜单）
   check(
-    '记账二级页：入口可开，阈值 / 预警内容模板 / 校正齐备（4 行，无用量记录）',
-    !!bookOpened && bookOpened.open === true && bookOpened.rows === 4 && bookOpened.hasUsage === false && bookOpened.inputs === 4,
+    '记账二级页：入口可开，阈值 / 今日预算 / 预警内容模板 / 校正齐备（5 行，无用量记录）',
+    !!bookOpened && bookOpened.open === true && bookOpened.rows === 5 && bookOpened.hasUsage === false && bookOpened.inputs === 5,
     JSON.stringify(bookOpened)
   )
+  // 今日预算：输入后经 300ms 去抖落盘；断言完立刻复位 0，避免预算提醒在后面的
+  // 用例里弹泡（fixture 的今日积分远高于 0.01）
+  await cdp.eval(
+    "(function(){var i=document.querySelector('.zcwv-budget');if(!i)return false;" +
+      "i.value='12.34';i.dispatchEvent(new Event('input',{bubbles:true}));return true})()"
+  )
+  await new Promise((r) => setTimeout(r, 700))
+  const budgetSaved = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check(
+    '今日预算：面板输入后落盘（alerts.budgetToday = 12.34）',
+    !!budgetSaved.alerts && budgetSaved.alerts.budgetToday === 12.34,
+    JSON.stringify(budgetSaved.alerts)
+  )
+  await cdp.eval(
+    "(function(){var i=document.querySelector('.zcwv-budget');if(!i)return false;" +
+      "i.value='0';i.dispatchEvent(new Event('input',{bubbles:true}));return true})()"
+  )
+  await new Promise((r) => setTimeout(r, 700))
+  const budgetReset = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check('今日预算：复位 0 后关闭提醒', !!budgetReset.alerts && budgetReset.alerts.budgetToday === 0, JSON.stringify(budgetReset.alerts))
+
   const bookClosed = JSON.parse(
     await cdp.eval(
       "(function(){var p=document.querySelector('.zcwv-book');if(!p)return null;var bs=p.querySelectorAll('button');" +
@@ -1810,6 +1831,52 @@ try {
     '用量记录：面板今日块标题为「今日积分」（订阅积分口径，不再是「本机 ¥」对账）',
     typeof panelHead === 'string' && panelHead.indexOf('今日积分') !== -1,
     'head=' + JSON.stringify(panelHead)
+  )
+
+  // ⑮c 用量搜索（v1.3.3）：按模型名 / 日期过滤「近 7 天」与「最近轮次」。
+  // fixture 里有 zz-unknown-model 这一条（只在最近轮次里出现），正好验证三态。
+  const SEARCH_PROBE =
+    "(function(){var i=document.querySelector('.zcwv-usage-q');if(!i)return null;" +
+    "var ns=document.querySelectorAll('.zcwv-panel [data-q]'),vis=0,hid=0,first='';" +
+    "for(var k=0;k<ns.length;k++){var d=getComputedStyle(ns[k]).display;" +
+    "if(d==='none'){hid++}else{vis++;if(!first)first=ns[k].getAttribute('data-q')}}" +
+    "var e=document.querySelector('.zcwv-usage-empty');" +
+    'return JSON.stringify({vis:vis,hid:hid,first:first,empty:!!e&&getComputedStyle(e).display!=="none"})})()'
+  const searchInit = JSON.parse((await pollEval(cdp, SEARCH_PROBE, 5000)) || 'null')
+  check(
+    '用量记录：搜索框存在，初始展示全部行（无过滤）',
+    !!searchInit && searchInit.vis > 0 && searchInit.hid === 0 && searchInit.empty === false,
+    JSON.stringify(searchInit)
+  )
+  await cdp.eval(
+    "(function(){var i=document.querySelector('.zcwv-usage-q');i.value='zz-unknown-model';" +
+      "i.dispatchEvent(new Event('input',{bubbles:true}));return i.value})()"
+  )
+  const searchHit = JSON.parse((await pollEval(cdp, SEARCH_PROBE, 3000)) || 'null')
+  check(
+    '用量记录：搜索模型名只留命中行（zz-unknown-model）',
+    !!searchHit && searchHit.vis >= 1 && searchHit.hid > 0 && searchHit.first.indexOf('zz-unknown-model') !== -1 && searchHit.empty === false,
+    JSON.stringify(searchHit)
+  )
+  await cdp.eval(
+    "(function(){var i=document.querySelector('.zcwv-usage-q');i.value='zzz-no-hit';" +
+      "i.dispatchEvent(new Event('input',{bubbles:true}));return i.value})()"
+  )
+  const searchNone = JSON.parse((await pollEval(cdp, SEARCH_PROBE, 3000)) || 'null')
+  check(
+    '用量记录：无命中时全部隐藏并给「没有匹配的记录」',
+    !!searchNone && searchNone.vis === 0 && searchNone.hid > 0 && searchNone.empty === true,
+    JSON.stringify(searchNone)
+  )
+  await cdp.eval(
+    "(function(){var i=document.querySelector('.zcwv-usage-q');i.value='';" +
+      "i.dispatchEvent(new Event('input',{bubbles:true}));return i.value})()"
+  )
+  const searchCleared = JSON.parse((await pollEval(cdp, SEARCH_PROBE, 3000)) || 'null')
+  check(
+    '用量记录：清空搜索恢复全部（提示同时隐藏）',
+    !!searchCleared && searchCleared.vis > 0 && searchCleared.hid === 0 && searchCleared.empty === false,
+    JSON.stringify(searchCleared)
   )
 
   await cdp.eval(
