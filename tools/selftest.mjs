@@ -3475,6 +3475,21 @@ try {
         /hideOverlay\('host-identity-changed'\)/.test(mainSrc),
       ''
     )
+    // 两线各有一个「按宿主窗口算浮层边界」的函数，名字不同（本线是
+    // applyHostBounds，ZCode 线是 applyZCodeBounds）。从 main cherry-pick 浮层补丁时
+    // hunk 能对上、函数名却可能对不上——2026-10-18 真机就弹过
+    // 「ReferenceError: applyZCodeBounds is not defined」，每次页面加载都抛。
+    // 这里按「调用了就必须定义」兜住这一类，不针对具体名字。
+    const boundCalls = new Set()
+    for (const m of mainSrc.matchAll(/\b(apply[A-Za-z0-9_]*Bounds)\s*\(/g)) boundCalls.add(m[1])
+    const boundMissing = [...boundCalls].filter(
+      (name) => !new RegExp('function\\s+' + name + '\\s*\\(').test(mainSrc)
+    )
+    check(
+      'desktop/main.cjs 调用的边界函数都在本文件有定义（' + ([...boundCalls].join(',') || '无') + '）',
+      boundMissing.length === 0,
+      boundMissing.join(',')
+    )
   }
 
   // 角色库：内置嘎啦嘛（默认）/大肥鱼固定在前，上传件自动启用；未指定时默认嘎啦嘛

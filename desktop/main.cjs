@@ -287,12 +287,15 @@ function createWindow() {
   // 页面加载完成后按最后一次跟随消息重新走一遍：启动早期到达的消息会在
   // applyFrame 里因 pageReady=false 被丢弃，而跟随脚本只在状态变化时发消息，
   // ZCode 窗口静止时不会再有第二条来补上屏（曾因此整窗停在隐藏态）。
-  // 重走 applyZCodeBounds 同时兼顾隐藏、最小化与桌宠视口，不只是补发视口。
+  // 重走 applyHostBounds 同时兼顾隐藏、最小化与桌宠视口，不只是补发视口。
   win.webContents.on('did-finish-load', () => {
     pageReady = true
     startPageHeartbeat()
     if (lastFollowerMsg) {
-      applyZCodeBounds(lastFollowerMsg)
+      // 本线的边界函数叫 applyHostBounds（ZCode 线才叫 applyZCodeBounds）：
+      // PR #4 从 main cherry-pick 过来时只对齐了 hunk 上下文，函数名没跟着改，
+      // 结果每次页面加载主进程都抛 ReferenceError（2026-10-18 真机弹窗）。
+      applyHostBounds(lastFollowerMsg)
       return
     }
     if (!lastViewport) return
