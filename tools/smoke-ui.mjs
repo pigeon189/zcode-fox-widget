@@ -1120,6 +1120,41 @@ try {
     )
   )
   check('关于 / 自检：关闭按钮收起面板', !!aboutClosed && aboutClosed.open === false, JSON.stringify(aboutClosed))
+  // ⑨g 事件音（v1.15.2）：菜单三行（消耗/提问/授权），各带开关 + 独立音量 + 试听
+  const evRows = JSON.parse(
+    await cdp.eval(
+      "(function(){var want=['消耗音','提醒音'],out={};" +
+        "var rows=document.querySelectorAll('.zcwv-menu-row');" +
+        "for(var i=0;i<rows.length;i++){var t=rows[i].textContent||'';" +
+        "for(var k=0;k<want.length;k++){if(t.indexOf(want[k])===0){" +
+        "out[want[k]]={check:rows[i].querySelectorAll('input[type=checkbox]').length," +
+        "range:rows[i].querySelectorAll('input[type=range]').length," +
+        "btn:rows[i].querySelectorAll('button').length}}}}return JSON.stringify(out)})()"
+    )
+  )
+  const evOk = (r) => !!r && r.check === 1 && r.range === 1 && r.btn === 1
+  check(
+    '事件音：菜单两行齐备（消耗音 / 提醒音，各带开关+音量+试听；本线无独立授权事件）',
+    evOk(evRows['消耗音']) && evOk(evRows['提醒音']),
+    JSON.stringify(evRows)
+  )
+  await cdp.eval(
+    "(function(){var c=document.querySelector('.zcwv-sound-cost');if(!c)return false;" +
+      "c.checked=true;c.dispatchEvent(new Event('change',{bubbles:true}));return c.checked})()"
+  )
+  await new Promise((r) => setTimeout(r, 700))
+  const evSaved = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check(
+    '事件音：勾选「消耗音」后落盘（soundEvents.cost.on = true）',
+    !!evSaved.soundEvents && evSaved.soundEvents.cost.on === true,
+    JSON.stringify(evSaved.soundEvents)
+  )
+  // 复位（否则后续用例的每轮消耗气泡会一直响）
+  await cdp.eval(
+    "(function(){var c=document.querySelector('.zcwv-sound-cost');if(!c)return false;" +
+      "c.checked=false;c.dispatchEvent(new Event('change',{bubbles:true}));return true})()"
+  )
+  await new Promise((r) => setTimeout(r, 700))
   // ⑨e 预警内容模板的「出泡预览」与真出泡同源：预览要显示该预警来源自己的内置
   //     文案（Plan / CmdGo / 余额 三份各不相同），而不是当前计费源的内置视图——
   //     此前三个预览都显示同一份「今日积分 xx 高峰时段」，与实际出泡不符。
