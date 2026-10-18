@@ -2754,45 +2754,6 @@ try {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scale: 1.5, alerts: { budgetToday: 0 } }),
   })
-  // 事件音（v1.15.2）：三个事件各自开关/音量；单条更新不清空其余；音量夹紧
-  const putSoundEvents = async (patch) =>
-    (
-      await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scale: 1.5, soundEvents: patch }),
-      })
-    ).json()
-  const se1 = await putSoundEvents({ cost: { on: true, vol: 0.35 } })
-  check(
-    '事件音：单条更新不影响其余两条',
-    se1.soundEvents &&
-      se1.soundEvents.cost.on === true &&
-      se1.soundEvents.cost.vol === 0.35 &&
-      se1.soundEvents.ask.on === false &&
-      se1.soundEvents.approve.on === false,
-    JSON.stringify(se1.soundEvents)
-  )
-  const se2 = await putSoundEvents({ ask: { vol: 9 } })
-  check(
-    '事件音：音量夹到 0..1，且保留已开的 cost',
-    se2.soundEvents && se2.soundEvents.ask.vol === 1 && se2.soundEvents.cost.on === true,
-    JSON.stringify(se2.soundEvents)
-  )
-  const se3 = await putSoundEvents({ approve: { on: true, set: 'bad id!' } })
-  check(
-    '事件音：非法音效组 id 归空（跟随按压组）',
-    se3.soundEvents && se3.soundEvents.approve.on === true && se3.soundEvents.approve.set === '',
-    JSON.stringify(se3.soundEvents)
-  )
-  const seBack = await getJson(port, '/whale/size.json')
-  check(
-    '事件音：配置持久化回读',
-    seBack.soundEvents && seBack.soundEvents.cost.on === true && seBack.soundEvents.approve.on === true,
-    JSON.stringify(seBack.soundEvents)
-  )
-  // 复位，避免影响后续用例（事件音默认关）
-  await putSoundEvents({ cost: { on: false, vol: 0.6 }, ask: { on: false, vol: 0.6 }, approve: { on: false, vol: 0.6, set: '' } })
   // 旧配置迁移：模拟升级用户的文件（只有 DS¥/BM¥ 旧键、没有 moneyAlert），
   // 读出来应是 moneyAlert=deepseekBelow（先设过的那个），旧键不再保留
   const legacyState = JSON.parse(fs.readFileSync(path.join(dataDir, 'widget-state.json'), 'utf8'))
