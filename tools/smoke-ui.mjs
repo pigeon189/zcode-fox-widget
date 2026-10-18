@@ -1155,6 +1155,8 @@ try {
       "c.checked=false;c.dispatchEvent(new Event('change',{bubbles:true}));return true})()"
   )
   await new Promise((r) => setTimeout(r, 700))
+  const hasUpdateHistory = await cdp.eval("(function(){return !!document.querySelector('.zcwv-update-history')})()")
+  check('更新面板：最近更新记录容器已就位（成功/回滚/失败留痕）', hasUpdateHistory === true)
   // ⑨e 预警内容模板的「出泡预览」与真出泡同源：预览要显示该预警来源自己的内置
   //     文案（Plan / CmdGo / 余额 三份各不相同），而不是当前计费源的内置视图——
   //     此前三个预览都显示同一份「今日积分 xx 高峰时段」，与实际出泡不符。
