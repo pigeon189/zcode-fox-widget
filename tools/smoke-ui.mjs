@@ -1522,12 +1522,16 @@ try {
         "var cs=getComputedStyle(n);return JSON.stringify({name:cs.animationName,dur:cs.animationDuration," +
         "bg:cs.backgroundImage})})()"
     )
-    await cdp.send('Emulation.setEmulatedMedia', { features: [] })
-    await new Promise((r) => setTimeout(r, 200))
+    // 恢复也必须显式给 no-preference：直接清空 features 会回落到**系统默认**，
+    // CI runner 系统级就是 reduce → 恢复后仍是 none（2026-10-18 第二轮 CI 实测）
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] })
+    await new Promise((r) => setTimeout(r, 300))
     const flowAnimBack = await cdp.eval(
       "(function(){var n=document.querySelector('.zcwv-text .zcwv-flow');if(!n)return null;" +
         "return getComputedStyle(n).animationName})()"
     )
+    // 断言完再交还系统默认，避免影响后面的用例
+    await cdp.send('Emulation.setEmulatedMedia', { features: [] })
     const parsedBefore = (() => {
       try {
         return JSON.parse(flowAnimBefore)
