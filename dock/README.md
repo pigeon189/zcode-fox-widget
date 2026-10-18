@@ -2,7 +2,7 @@
 
 桌面常驻的多 agent 成本看板：把挂件拖到 agent 窗口上，自动识别、吸附、切到对应计费口径。
 
-**状态：R0 骨架。** 目前只有目录结构、身份键纯函数与 CI；功能在 R1 起逐步落地。
+**状态：R2 完成。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog 自动拉起、登录启动器安装。
 
 ## 与现有挂件的关系
 
@@ -30,6 +30,17 @@ docs/dock/     决策记录与计划
 
 ```bash
 cd dock
-npm run check   # 语法检查
-npm test        # 单元测试（node:test，零依赖）
+npm run check    # 语法检查
+npm test         # 单元测试
+npm run test:it  # 集成测试（真实窗口 + 真服务 + watchdog，需要桌面会话）
+npm run test:all # 全部
+
+npm run doctor   # 打印当前桌面窗口与光标命中（不启动服务）
+npm start        # 启动 watchdog（后台常驻）
+npm run status
+npm run stop
+npm run install-app  # 写登录启动项（默认到真实启动文件夹，可用 --startup-dir 覆盖）
 ```
+
+集成测试不进 CI：它需要真实的桌面会话（GitHub runner 的交互桌面行为不稳定），
+CI 只跑单元测试；集成在本地/真机上跑。
