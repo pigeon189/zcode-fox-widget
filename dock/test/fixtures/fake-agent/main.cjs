@@ -23,7 +23,6 @@ app.whenReady().then(() => {
   // 仍然在它之上，命中测试本来就会排除浮层自己。
   win.setAlwaysOnTop(true, 'normal')
   win.moveTop()
-  win.focus()
   win.once('ready-to-show', () => console.log('FAKE_READY_TO_SHOW'))
 })
 

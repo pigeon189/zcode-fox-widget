@@ -7,6 +7,10 @@
 const params = new URLSearchParams(location.search)
 const PORT = Number(params.get('port') || 0)
 const SELF_PID = Number(params.get('pid') || 0)
+// ct=0 表示窗口不穿透（测试/排障用）：这时不需要光标轮询，
+// 而且合成事件不会移动真实光标，轮询反而会把交互关掉。
+const CLICK_THROUGH = params.get('ct') !== '0'
+
 const IGNORE_PIDS = new Set(
   String(params.get('ignore') || '')
     .split(',')
@@ -25,7 +29,6 @@ const IGNORE_CLASSES = new Set([
 ])
 
 const fox = document.getElementById('fox')
-const targetEl = document.getElementById('target')
 const chip = document.getElementById('chip')
 const chipAdapter = document.getElementById('chip-adapter')
 const chipValue = document.getElementById('chip-value')
@@ -41,6 +44,8 @@ let lastHitAt = 0
 let boundKey = ''
 let boundHwnd = ''
 let boundAdapter = null
+// 狐狸左上角相对绑定窗口左上角的偏移（CSS px）；null = 没有就退回右上角
+let boundAnchor = null
 let lastSnapshot = null
 let billingTimer = null
 let panelOpen = false
@@ -344,8 +349,24 @@ function isOverFox(x, y) {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
 }
 
-function toView(x, y) {
-  return { x: x / DPR - window.screenX, y: y / DPR - window.screenY }
+// 窗口在屏幕上的位置：**用指针事件自己算**（screenX - clientX）。
+// window.screenX 在窗口激活/DPI 校正前后会变（实测差 128px），拿它换算会错位。
+let screenOffset = null
+function updateScreenOffset(e) {
+  if (!e) return
+  screenOffset = { x: e.screenX - e.clientX, y: e.screenY - e.clientY }
+}
+let boundsOrigin = null
+try {
+  if (window.foxOverlay && window.foxOverlay.getBounds) {
+    window.foxOverlay.getBounds().then((b) => {
+      if (b && Number.isFinite(b.x)) boundsOrigin = { x: b.x, y: b.y }
+    })
+  }
+} catch (err) {}
+
+function screenOrigin() {
+  return screenOffset || boundsOrigin || { x: window.screenX, y: window.screenY }
 }
 
 function acceptable(win) {
@@ -358,43 +379,73 @@ function acceptable(win) {
 
 async function hitAt(x, y) {
   if (!base) return null
+  const px = Math.round(x * DPR)
+  const py = Math.round(y * DPR)
   try {
-    const res = await fetch(
-      base + '/hit?x=' + Math.round(x * DPR) + '&y=' + Math.round(y * DPR) + '&exclude=' + SELF_PID,
-      {
-        cache: 'no-store',
-      }
-    )
-    const data = await res.json()
-    if (!data.ok) return null
+    // 优先走主进程：拖拽期间渲染进程的网络请求会被 Chromium 整体挂起
+    const api = window.foxOverlay
+    const data =
+      api && typeof api.hit === 'function'
+        ? await api.hit(px, py, SELF_PID)
+        : await (await fetch(base + '/hit?x=' + px + '&y=' + py + '&exclude=' + SELF_PID, { cache: 'no-store' })).json()
+    if (!data || !data.ok) return null
     return (data.hits || []).find(acceptable) || null
   } catch (err) {
     return null
   }
 }
 
-function showTarget(win) {
-  if (!win) {
-    targetEl.hidden = true
-    return
-  }
-  const p = toView(win.rect.x, win.rect.y)
-  targetEl.hidden = false
-  targetEl.style.left = p.x + 'px'
-  targetEl.style.top = p.y + 'px'
-  targetEl.style.width = win.rect.w / DPR + 'px'
-  targetEl.style.height = win.rect.h / DPR + 'px'
+// 只让狐狸自己有反应（描边 + 轻微放大），不画目标窗口的框
+function setArmed(on) {
+  fox.classList.toggle('armed', !!on)
 }
 
-function snapTo(win) {
-  const p = toView(win.rect.x + win.rect.w, win.rect.y)
-  p.x -= foxSize() + 12
-  p.y += 12
-  place(p.x, p.y)
+function windowTopLeft(rect) {
+  const o = screenOrigin()
+  return { x: rect.x / DPR - o.x, y: rect.y / DPR - o.y }
+}
+
+// 四分吸附（与挂件线同款语义）：落点中心靠哪条边就贴哪条边，中间区域保留自由位置。
+// 锚点存 {h,v,hOff,vOff}：h/v 是贴的边，为 null 时 hOff/vOff 是离左上角的距离。
+function anchorForDrop(win) {
+  const tl = windowTopLeft(win.rect)
+  const w = win.rect.w / DPR
+  const h = win.rect.h / DPR
+  const left = (parseFloat(fox.style.left || '0') || 0) - tl.x
+  const top = (parseFloat(fox.style.top || '0') || 0) - tl.y
+  const cx = left + foxSize() / 2
+  const cy = top + foxSize() / 2
+  const a = { h: null, v: null, hOff: 0, vOff: 0 }
+  if (cx < w / 4) a.h = 'left'
+  else if (cx > (w * 3) / 4) a.h = 'right'
+  else a.hOff = Math.round(Math.min(Math.max(0, left), Math.max(0, w - foxSize())))
+  if (cy < h / 4) a.v = 'top'
+  else if (cy > (h * 3) / 4) a.v = 'bottom'
+  else a.vOff = Math.round(Math.min(Math.max(0, top), Math.max(0, h - foxSize())))
+  return a
+}
+
+function placeByAnchor(rect) {
+  const tl = windowTopLeft(rect)
+  const w = rect.w / DPR
+  const h = rect.h / DPR
+  const size = foxSize()
+  const a = boundAnchor || { h: 'right', v: 'top', hOff: 0, vOff: 0 }
+  let x
+  if (a.h === 'left') x = 0
+  else if (a.h === 'right') x = Math.max(0, w - size)
+  else x = Math.min(Math.max(0, Number(a.hOff) || 0), Math.max(0, w - size))
+  let y
+  if (a.v === 'top') y = 0
+  else if (a.v === 'bottom') y = Math.max(0, h - size)
+  else y = Math.min(Math.max(0, Number(a.vOff) || 0), Math.max(0, h - size))
+  place(tl.x + x, tl.y + y)
 }
 
 async function bind(win) {
   if (!base) return
+  // 四分吸附：靠边就贴边，中间就留在原地
+  const anchor = anchorForDrop(win)
   try {
     const res = await fetch(base + '/bind', {
       method: 'POST',
@@ -407,7 +458,7 @@ async function bind(win) {
         title: win.title,
         rect: win.rect,
         adapterId: 'generic',
-        anchor: { corner: 'top-right' },
+        anchor,
       }),
     })
     const data = await res.json()
@@ -415,6 +466,7 @@ async function bind(win) {
       boundKey = data.binding.key
       boundHwnd = win.hwnd
       boundAdapter = data.adapter || { id: data.binding.adapterId, name: data.binding.adapterId }
+      boundAnchor = data.binding.anchor && (data.binding.anchor.h || data.binding.anchor.v || Number.isFinite(data.binding.anchor.hOff)) ? data.binding.anchor : anchor
       document.body.dataset.boundKey = boundKey
       document.body.dataset.boundTitle = win.title || ''
       document.body.dataset.adapterId = boundAdapter.id
@@ -422,7 +474,7 @@ async function bind(win) {
       chip.hidden = false
       renderChip(null)
       startBilling()
-      snapTo(win)
+      placeByAnchor(win.rect)
       return true
     }
   } catch (err) {}
@@ -437,6 +489,7 @@ async function unbind() {
   boundKey = ''
   boundHwnd = ''
   boundAdapter = null
+  boundAnchor = null
   stopBilling()
   chip.hidden = true
   chipValue.textContent = ''
@@ -457,19 +510,38 @@ window.addEventListener('mousemove', (e) => {
   setInteractive(isOverFox(e.clientX, e.clientY))
 })
 
+// 光标轮询（权威来源）：穿透状态下 mousemove 转发在部分场景收不到——
+// 实测 WorkBuddy 在前台时狐狸完全点不到。改为每 50ms 直接问一次系统光标位置，
+// 压在狐狸上就打开交互，否则立刻回到穿透。
+setInterval(async () => {
+  if (!CLICK_THROUGH || pressing || dragging) return
+  const api = window.foxOverlay
+  if (!api || typeof api.getCursor !== 'function') return
+  try {
+    const p = await api.getCursor()
+    if (!p) return
+    const o = screenOrigin()
+    const over = isOverFox(p.x - o.x, p.y - o.y)
+    setInteractive(panelOpen || over)
+  } catch (err) {}
+}, 50)
+
 fox.addEventListener('pointerdown', (e) => {
   e.preventDefault()
-  try {
-    fox.setPointerCapture(e.pointerId)
-  } catch (err) {}
+  updateScreenOffset(e)
+  // 不设 pointer capture：窗口本身就是全屏的，指针跑不出去；
+  // capture 期间 Chromium 会把渲染进程的微任务推迟到手势结束（实测 hit 请求全卡到松手后才回）
+
   // 先不进入拖拽：移动超过阈值才算拖，否则松开就是「点击开面板」
   pressing = { x: e.clientX, y: e.clientY, at: performance.now() }
   window.__foxDebug.downs++
+  setArmed(false)
   setInteractive(true)
 })
 
 window.addEventListener('pointermove', (e) => {
   window.__foxDebug.moves++
+  updateScreenOffset(e)
   if (!pressing) return
   if (!dragging) {
     const dx = e.clientX - pressing.x
@@ -488,18 +560,18 @@ window.addEventListener('pointermove', (e) => {
     window.__foxDebug.hits++
     window.__foxDebug.targets.push(win ? win.title + '#' + win.pid : null)
     currentTarget = win
-    showTarget(win)
+    setArmed(!!win)
   })
 })
 
 window.addEventListener('pointerup', async (e) => {
   if (!pressing) return
+  updateScreenOffset(e)
   const wasDragging = dragging
   pressing = null
   dragging = false
   window.__foxDebug.ups++
   fox.classList.remove('dragging')
-  showTarget(null)
 
   if (!wasDragging) {
     window.__foxDebug.clicks++
@@ -510,7 +582,13 @@ window.addEventListener('pointerup', async (e) => {
 
   const target = currentTarget
   currentTarget = null
-  if (target) await bind(target)
+  setArmed(false)
+  if (target) {
+    await bind(target)
+  } else if (boundKey) {
+    // 拖到空白处松手 = 解绑：狐狸停在这儿，不再跟着原来的窗口跑
+    await unbind()
+  }
   setInteractive(isOverFox(e.clientX, e.clientY))
 })
 
@@ -534,7 +612,7 @@ setInterval(async () => {
     const res = await fetch(base + '/rect?hwnd=' + encodeURIComponent(boundHwnd), { cache: 'no-store' })
     const data = await res.json()
     if (data.ok && data.rect) {
-      snapTo({ rect: data.rect })
+      placeByAnchor(data.rect)
     } else {
       await unbind()
     }
@@ -563,6 +641,7 @@ async function restoreBinding() {
       boundKey = b.key
       boundHwnd = b.window.hwnd
       boundAdapter = det.ok ? det.adapter : { id: b.adapterId, name: b.adapterId }
+      boundAnchor = b.anchor && typeof b.anchor === 'object' ? b.anchor : null
       document.body.dataset.boundKey = boundKey
       document.body.dataset.boundTitle = b.window.title || ''
       document.body.dataset.adapterId = boundAdapter.id
@@ -571,8 +650,7 @@ async function restoreBinding() {
       chip.hidden = false
       renderChip(null)
       startBilling()
-      placeChip()
-      place((rect.rect.x + rect.rect.w) / DPR - window.screenX - foxSize() - 12, rect.rect.y / DPR - window.screenY + 12)
+      placeByAnchor(rect.rect)
       return true
     }
   } catch (err) {}

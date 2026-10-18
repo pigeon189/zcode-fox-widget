@@ -33,13 +33,14 @@ body {
   transition: none;
 }
 
-#target {
-  position: absolute;
-  border: 2px dashed #4c8bf5;
-  border-radius: 8px;
-  background: rgba(76, 139, 245, 0.08);
-  pointer-events: none;
-  z-index: 5;
+/* 拖到可绑定的窗口上时，只让狐狸自己有反应——不画目标框 */
+#fox.armed {
+  transform: scale(1.04);
+  box-shadow: 0 0 0 3px rgba(255, 159, 67, 0.85), 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+#fox.armed.dragging {
+  transform: scale(1.1);
 }
 
 /* 绑定后的小卡片：显示适配器与今日数字。R8 会做成可点开的面板。 */

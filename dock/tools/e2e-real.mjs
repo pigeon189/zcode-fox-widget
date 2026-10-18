@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { overlayPidsOf } from '../daemon/src/electron.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DOCK = path.join(HERE, '..')
@@ -146,10 +147,11 @@ async function main() {
     }
     vlog('目标窗口', targets.map((t) => path.basename(t.exe) + '#' + t.pid))
 
-    // 桌面上的挂件浮层会吃掉命中，按标题识别后排除
-    const overlays = (all.windows || []).filter((w) => /小挂件/.test(w.title || '') && /electron\.exe$/i.test(w.exe || ''))
-    const ignoreArg = '--ignore-pids=' + overlays.map((o) => o.pid).join(',')
-    vlog('忽略浮层', overlays.map((o) => o.pid))
+    // 桌面上的浮层（其它挂件 + 可能残留的 fox-dock）会吃掉命中，按标题识别后排除
+    const overlayPids = overlayPidsOf(all.windows)
+    const overlays = overlayPids.map((pid) => ({ pid }))
+    const ignoreArg = '--ignore-pids=' + overlayPids.join(',')
+    vlog('忽略浮层', overlayPids)
 
     overlay = spawn(
       ELECTRON,
@@ -235,8 +237,9 @@ async function main() {
         )
       )
       const dpr = Number(await cdp.eval('window.devicePixelRatio')) || 1
-      const sx = Number(await cdp.eval('window.screenX')) || 0
-      const sy = Number(await cdp.eval('window.screenY')) || 0
+      // CDP 合成事件的 screenX == clientX，窗口原点按 0 算才对得上（真实鼠标没有这个问题）
+      const sx = 0
+      const sy = 0
       const spot = await pickVisiblePoint(target)
       if (!spot) {
         // 用户可能正把别的窗口铺满屏幕。这不是 dock 的缺陷，别报成失败——

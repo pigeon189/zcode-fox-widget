@@ -106,10 +106,37 @@ let fake = null
 let overlay = null
 let cdp = null
 let fakeCdp = null
+let dropPos = null // 拖拽落点（狐狸左上角，CSS px）
 let port = 0
 let fakeWin = null
 let binding = null
 let geo = null
+
+// 把狐狸从当前位置拖到目标点（CSS 坐标）。合成事件下命中采样偶发失败，
+// 因此调用方可以重试；这里只负责动作本身。
+async function dragFoxTo(toX, toY) {
+  const from = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+    )
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', buttons: 1, clickCount: 1 })
+  const steps = 6
+  for (let i = 1; i <= steps; i++) {
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: from.x + ((toX - from.x) * i) / steps,
+      y: from.y + ((toY - from.y) * i) / steps,
+      button: 'left',
+      buttons: 1,
+    })
+    await sleep(40)
+  }
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: toX, y: toY, button: 'left', buttons: 1 })
+  await sleep(300)
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: toX, y: toY, button: 'left', buttons: 0, clickCount: 1 })
+  await sleep(300)
+}
 
 before(async (t) => {
   if (!ELECTRON) {
@@ -213,11 +240,20 @@ after(() => {
   } catch (err) {}
 })
 
-test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口并吸附到右上角', async (t) => {
+test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口', async (t) => {
   if (!ELECTRON) return t.skip('electron binary not found')
 
-  const targetX = fakeWin.rect.x + Math.floor(fakeWin.rect.w / 2) - geo.sx
-  const targetY = fakeWin.rect.y + Math.floor(fakeWin.rect.h / 2) - geo.sy
+  // CDP 合成事件里 screenX == clientX（不叠加窗口原点），渲染层算出的偏移就是 0；
+  // 测试也按 0 算，两边才一致。真实鼠标用的是系统给的 screenX，不受影响。
+  const curSx = 0
+  const curSy = 0
+  geo.sx = curSx
+  geo.sy = curSy
+  const dpr0 = Number(await cdp.eval('window.devicePixelRatio')) || 1
+  const targetX = (fakeWin.rect.x + Math.floor(fakeWin.rect.w / 2)) / dpr0 - curSx
+  const targetY = (fakeWin.rect.y + Math.floor(fakeWin.rect.h / 2)) / dpr0 - curSy
+  // 松手时狐狸的左上角（拖动时是按指针居中放置的）
+  dropPos = { x: targetX - 26, y: targetY - 26 }
 
   // 先确认这个点确实命中的是假窗口：桌面上别的窗口盖住它时，后面会绑错对象，
   // 失败信息会变成「binding created 超时」，看不出真正原因。
@@ -229,24 +265,21 @@ test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口并吸附到右
   assert.ok(topHit, 'no window under fake agent center')
   assert.equal(topHit.pid, fakeWin.pid, 'fake agent should be the topmost window at its center, got ' + JSON.stringify(topHit))
 
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: geo.x, y: geo.y, button: 'left', buttons: 1, clickCount: 1 })
-  const steps = 6
-  for (let i = 1; i <= steps; i++) {
-    const x = geo.x + ((targetX - geo.x) * i) / steps
-    const y = geo.y + ((targetY - geo.y) * i) / steps
-    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 })
-    await sleep(40)
+  // 合成事件下命中采样偶发为 null（窗口被遮挡/时序），失败就重试；三次都失败才报错
+  let found = null
+  for (let attempt = 0; attempt < 3 && !found; attempt++) {
+    if (attempt) await sleep(400)
+    await dragFoxTo(targetX, targetY)
+    found = await waitFor(async () => {
+      const r = await json('http://127.0.0.1:' + port + '/bindings')
+      return (r.bindings || []).find((b) => b.window && b.window.pid === fakeWin.pid) || null
+    }, 3000, 'binding created').catch(() => null)
+    if (!found && attempt === 2) {
+      console.error('DEBUG drag', await cdp.eval('JSON.stringify(window.__foxDebug||{})'))
+    }
   }
-  // 落点再补一次 move 并多等一会儿：最后一次命中采样是异步的，
-  // 机器忙时 120ms 可能还没回来，指针已经松开 → 绑到上一帧的窗口（实测偶发）。
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: targetX, y: targetY, button: 'left', buttons: 1 })
-  await sleep(250)
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: targetX, y: targetY, button: 'left', buttons: 0, clickCount: 1 })
-
-  binding = await waitFor(async () => {
-    const r = await json('http://127.0.0.1:' + port + '/bindings')
-    return (r.bindings || []).find((b) => b.window && b.window.pid === fakeWin.pid) || null
-  }, 8000, 'binding created')
+  assert.ok(found, 'binding created after retries')
+  binding = found
 
   assert.equal(binding.window.hwnd, fakeWin.hwnd)
   assert.match(binding.key, new RegExp('\\|' + fakeWin.pid + '\\|'))
@@ -276,19 +309,74 @@ test('chip: 绑定未接入窗口 → 显示「暂不支持计费」，不编造
   assert.match(chip.cls, /muted/)
 })
 
-test('snap: 绑定后狐狸贴在窗口右上角（±30px）', async (t) => {
+test('anchor: 绑定后狐狸停在放下的位置（不再强行贴右上角）', async (t) => {
   if (!ELECTRON) return t.skip('electron binary not found')
 
-  await sleep(400) // 等吸附的 120ms 过渡结束
+  await sleep(400) // 等 120ms 过渡结束
   const rect = await cdp.eval(
     "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y,dpr:window.devicePixelRatio})})()"
   )
   const fox = JSON.parse(rect)
-  const dpr = fox.dpr || 1
-  const expectedX = (fakeWin.rect.x + fakeWin.rect.w) / dpr - geo.sx - 52 - 12
-  const expectedY = fakeWin.rect.y / dpr + 12 - geo.sy
-  assert.ok(Math.abs(fox.x - expectedX) <= 30, 'fox.x=' + fox.x + ' expected≈' + expectedX)
-  assert.ok(Math.abs(fox.y - expectedY) <= 30, 'fox.y=' + fox.y + ' expected≈' + expectedY)
+  assert.ok(dropPos, 'dropPos missing')
+
+  const binds = await (await fetch('http://127.0.0.1:' + port + '/bindings')).json()
+  const b = (binds.bindings || []).find((x) => x.window && x.window.pid === fakeWin.pid)
+  const anchorInfo = JSON.stringify(b && b.anchor)
+  assert.ok(Math.abs(fox.x - dropPos.x) <= 10, 'fox.x=' + fox.x + ' expected≈' + dropPos.x + ' anchor=' + anchorInfo)
+  assert.ok(Math.abs(fox.y - dropPos.y) <= 10, 'fox.y=' + fox.y + ' expected≈' + dropPos.y + ' anchor=' + anchorInfo)
+  assert.ok(b && (b.anchor.h || b.anchor.v || Number.isFinite(b.anchor.hOff)), 'binding should persist the drop anchor: ' + anchorInfo)
+})
+
+test('snap: 放到窗口右侧 → 贴右边缘（四分吸附）', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const dpr = Number(await cdp.eval('window.devicePixelRatio')) || 1
+  const from = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+    )
+  )
+  const curSx = 0
+  const curSy = 0
+  const toX = (fakeWin.rect.x + fakeWin.rect.w * 0.9) / dpr
+  const toY = (fakeWin.rect.y + fakeWin.rect.h * 0.2) / dpr
+
+  let saved = null
+  for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+    if (attempt) await sleep(400)
+    await dragFoxTo(toX, toY)
+    saved = await waitFor(async () => {
+      const r = await json('http://127.0.0.1:' + port + '/bindings')
+      const b = (r.bindings || []).find((x) => x.window && x.window.pid === fakeWin.pid)
+      return b && b.anchor && b.anchor.h === 'right' && b.anchor.v === 'top' ? b : null
+    }, 3000, 'snapped anchor').catch(() => null)
+    if (!saved && attempt === 2) {
+      console.error('DEBUG snap', await cdp.eval('JSON.stringify(window.__foxDebug||{})'))
+    }
+  }
+  assert.ok(saved, 'snapped anchor after retries')
+
+  // 贴右边缘：left = 窗口宽 - 52；贴上边缘：top = 0。
+  // 窗口左/上边界用「落点的 client 坐标 - 落在窗口内的比例」反推，
+  // 不依赖 window.screenX（它在窗口激活前后会变）。
+  const wCss = fakeWin.rect.w / dpr
+  const hCss = fakeWin.rect.h / dpr
+  const winLeft = toX - wCss * 0.9
+  const winTop = toY - hCss * 0.2
+  const wantX = winLeft + wCss - 52
+  const wantY = winTop
+  const fox = await waitFor(async () => {
+    const r = JSON.parse(
+      await cdp.eval(
+        "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"
+      )
+    )
+    return Math.abs(r.x - wantX) <= 6 && Math.abs(r.y - wantY) <= 6 ? { r, wantX, wantY } : null
+  }, 8000, 'fox snapped to right edge')
+
+  assert.ok(fox)
+  assert.equal(saved.anchor.h, 'right')
+  assert.equal(saved.anchor.v, 'top')
 })
 
 test('panel: 单击狐狸打开明细面板（不是拖拽），再点收起', async (t) => {
@@ -332,6 +420,11 @@ test('reanchor: 宿主窗口移动后狐狸跟随（500ms 轮询）', async (t) 
   if (!ELECTRON) return t.skip('electron binary not found')
 
   const before = (await json('http://127.0.0.1:' + port + '/windows')).windows.find((x) => x.pid === fakeWin.pid)
+  const beforeFox = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"
+    )
+  )
   const dpr = Number(await cdp.eval('window.devicePixelRatio')) || 1
   // window.moveTo 用 CSS 像素；桥读回来是物理像素
   await fakeCdp.eval('window.moveTo(' + (before.rect.x / dpr + 60) + ',' + (before.rect.y / dpr + 40) + ')')
@@ -342,14 +435,14 @@ test('reanchor: 宿主窗口移动后狐狸跟随（500ms 轮询）', async (t) 
     return w && Math.abs(w.rect.x - (before.rect.x + dx)) <= 8 ? w : null
   }, 8000, 'fake window moved')
 
+  // 相对位置不变：窗口移动 (60,40)，狐狸也移动 (60,40)
   const fox = await waitFor(async () => {
     const r = JSON.parse(
       await cdp.eval(
         "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"
       )
     )
-    const expectedX = (moved.rect.x + moved.rect.w) / dpr - geo.sx - 52 - 12
-    return Math.abs(r.x - expectedX) <= 30 ? r : null
+    return Math.abs(r.x - (beforeFox.x + 60)) <= 12 && Math.abs(r.y - (beforeFox.y + 40)) <= 12 ? r : null
   }, 8000, 'fox re-anchored')
 
   assert.ok(fox)

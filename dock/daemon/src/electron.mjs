@@ -38,10 +38,14 @@ export function resolveElectron(candidates = electronCandidates()) {
   return ''
 }
 
-// 从任务栏窗口里认出「别的挂件浮层」：它们是全屏置顶，会把命中全吃掉。
+// 从任务栏窗口里认出「浮层」：它们是全屏置顶，会把命中全吃掉。
+// 包括别的挂件（标题含「小挂件」）和可能残留的 fox-dock 浮层。
 export function overlayPidsOf(windows) {
   return (windows || [])
-    .filter((w) => w && /小挂件/.test(w.title || '') && /electron\.exe$/i.test(w.exe || ''))
+    .filter((w) => {
+      const title = (w && w.title) || ''
+      return (/小挂件/.test(title) || /^fox-dock overlay/i.test(title)) && /electron\.exe$/i.test((w && w.exe) || '')
+    })
     .map((w) => w.pid)
     .filter((pid) => Number.isInteger(pid) && pid > 0)
 }
