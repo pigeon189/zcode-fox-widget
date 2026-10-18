@@ -1,0 +1,42 @@
+name: dock-ci
+
+# 只服务 feat/dock 这条线：路径过滤保证现有 main / workbuddy 的改动不会触发它。
+# R0 阶段没有依赖（零 npm 包），所以不跑 npm ci。
+
+on:
+  push:
+    branches: [feat/dock]
+    paths:
+      - 'dock/**'
+      - 'docs/dock/**'
+      - '.github/workflows/dock-ci.yml'
+  pull_request:
+    paths:
+      - 'dock/**'
+      - 'docs/dock/**'
+      - '.github/workflows/dock-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: dock-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dock
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 语法检查
+        run: npm run check
+
+      - name: 单元测试
+        run: npm test

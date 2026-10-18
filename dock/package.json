@@ -1,0 +1,15 @@
+{
+  "name": "fox-dock",
+  "version": "0.1.0-pre.0",
+  "private": true,
+  "type": "module",
+  "description": "Desktop dock for multi-agent cost visibility (work in progress)",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check shared/identity.mjs && node --check daemon/src/main.mjs",
+    "ci": "npm run check && npm test"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}
