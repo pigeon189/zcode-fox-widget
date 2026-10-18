@@ -53,6 +53,7 @@ npm run test:all       # 全部
 
 npm run verify:zcode      # 与 ZCode 挂件线源码逐日对账（今日 + 近 7 天）
 npm run verify:workbuddy  # 与 WorkBuddy 挂件线逐日对账（新进程重算，避开缓存）
+npm run e2e:real          # 真机端到端：把狐狸拖到真正的 ZCode / WorkBuddy 窗口上（不代替人工）
 
 npm run doctor   # 打印当前桌面窗口、命中的窗口与识别到的适配器（不启动服务）
 npm run adapters # 列出内置适配器与匹配规则
@@ -60,6 +61,10 @@ npm start        # 启动 watchdog（后台常驻）
 npm run status
 npm run stop
 npm run install-app  # 写登录启动项（默认到真实启动文件夹，可用 --startup-dir 覆盖）
+
+node tools/fox-dock.mjs update --check    # 检查更新（默认清单在 feat/dock 分支的 docs/dock/update.json）
+node tools/fox-dock.mjs update --apply    # 下载 + 校验 sha256 + 落盘（失败自动回滚）
+node tools/fox-dock.mjs update --history  # 最近的更新记录
 ```
 
 浮层用法：**单击**狐狸打开明细面板（当前窗口数字 + 全部 agent 今日汇总 + 最近几天），

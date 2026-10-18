@@ -467,9 +467,10 @@ document.getElementById('panel-close').addEventListener('click', (e) => {
   togglePanel(false)
 })
 
-// 跟随绑定窗口：窗口被拖动/缩放后，狐狸重新贴回右上角
+// 跟随绑定窗口：窗口被拖动/缩放后，狐狸重新贴回右上角。
+// **拖拽/按住期间必须让路**——否则每 500ms 把狐狸拽回旧位置，用户拖到一半就被抢走。
 setInterval(async () => {
-  if (!boundKey || !boundHwnd || !base) return
+  if (!boundKey || !boundHwnd || !base || dragging || pressing) return
   try {
     const res = await fetch(base + '/rect?hwnd=' + encodeURIComponent(boundHwnd), { cache: 'no-store' })
     const data = await res.json()

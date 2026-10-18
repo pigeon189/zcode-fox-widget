@@ -12,6 +12,7 @@ import { isProcessAlive, readLock } from '../daemon/src/lock.mjs'
 import { pathsFor } from '../daemon/src/paths.mjs'
 import { installLauncher, uninstallLauncher } from '../daemon/src/install.mjs'
 import { describeAdapters, resolveAdapter } from '../adapters/registry.mjs'
+import { DEFAULT_CHANNEL, compareVersions, fetchManifest, readUpdateState, updateFromManifest } from '../daemon/src/update.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WATCHDOG = path.join(HERE, '..', 'daemon', 'src', 'watchdog.mjs')
@@ -105,6 +106,68 @@ async function doctor(args) {
     const d = resolveAdapter(h)
     console.log('  z=' + h.z + ' pid=' + h.pid + ' ' + exe + ' [' + (d.fallback ? 'no adapter' : d.name) + ']  ' + JSON.stringify(h.title))
   }
+}
+
+function defaultManifestUrl() {
+  const channel = argValue(process.argv, '--channel') || DEFAULT_CHANNEL
+  return (
+    argValue(process.argv, '--manifest') ||
+    process.env.FOX_DOCK_MANIFEST ||
+    'https://raw.githubusercontent.com/pigeon189/zcode-fox-widget/' + channel + '/docs/dock/update.json'
+  )
+}
+
+const DOCK_ROOT = path.join(HERE, '..')
+
+async function updateCmd(args) {
+  const dataDir = pathsFor(dataDirFrom(args)).dir
+  const stateFile = path.join(dataDir, 'update-state.json')
+  const url = defaultManifestUrl()
+
+  if (args.includes('--history')) {
+    const st = readUpdateState(stateFile)
+    if (!st.history.length) {
+      console.log('暂无更新记录')
+      return
+    }
+    for (const h of st.history.slice().reverse()) {
+      console.log(
+        new Date(h.at).toLocaleString() + '  v' + (h.from || '?') + ' → v' + (h.to || '?') + '  ' + h.result + (h.error ? '  ' + h.error : '')
+      )
+    }
+    return
+  }
+
+  let manifest = null
+  try {
+    manifest = await fetchManifest(url)
+  } catch (err) {
+    console.error('检查失败：' + (err && err.message ? err.message : err))
+    console.error('（清单地址：' + url + '；可用 --manifest 或 FOX_DOCK_MANIFEST 覆盖）')
+    process.exitCode = 1
+    return
+  }
+
+  const cmp = compareVersions(manifest.version, VERSION)
+  console.log('当前 v' + VERSION + '，清单 v' + manifest.version + (cmp > 0 ? '（有更新）' : '（已是最新）'))
+  if (manifest.notes) console.log('说明：' + manifest.notes)
+  if (!args.includes('--apply')) {
+    console.log('加 --apply 执行更新（更新后需重启：fox-dock stop 再 start）')
+    return
+  }
+  if (cmp <= 0) return
+
+  const root = argValue(args, '--root') || path.resolve(DOCK_ROOT)
+  console.log('目标目录：' + root)
+  const r = await updateFromManifest(manifest, { root, dataDir, currentVersion: VERSION })
+  if (!r.ok) {
+    console.error('更新失败：' + r.reason + (r.error ? '（' + r.error + '）' : ''))
+    if (r.rollback && !r.rollback.ok) console.error('⚠ 回滚未完成：' + r.rollback.errors.join('; '))
+    process.exitCode = 1
+    return
+  }
+  console.log('已写入 ' + r.files + ' 个文件，备份在 ' + r.backupDir)
+  console.log('重启后生效：fox-dock stop && fox-dock start')
 }
 
 function adapters() {
@@ -253,6 +316,7 @@ const [, , cmd, ...rest] = process.argv
 try {
   if (cmd === 'doctor') await doctor(rest)
   else if (cmd === 'adapters') adapters()
+  else if (cmd === 'update') await updateCmd(rest)
   else if (cmd === 'start') await start(rest)
   else if (cmd === 'stop') await stop(rest)
   else if (cmd === 'status') await status(rest)
@@ -260,7 +324,7 @@ try {
   else if (cmd === 'uninstall') await uninstall(rest)
   else if (cmd === 'version' || cmd === '--version' || cmd === '-v') console.log(VERSION)
   else {
-    console.log('usage: fox-dock <doctor|adapters|start|stop|status|install|uninstall|version> [--data-dir <dir>]')
+    console.log('usage: fox-dock <doctor|adapters|update|start|stop|status|install|uninstall|version> [--data-dir <dir>]')
     process.exitCode = cmd ? 1 : 0
   }
 } catch (err) {
