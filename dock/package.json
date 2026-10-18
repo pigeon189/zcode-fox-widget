@@ -5,8 +5,11 @@
   "type": "module",
   "description": "Desktop dock for multi-agent cost visibility (work in progress)",
   "scripts": {
-    "test": "node --test",
-    "check": "node --check shared/identity.mjs && node --check daemon/src/main.mjs",
+    "test": "node tools/run-tests.mjs --suite unit",
+    "test:it": "node tools/run-tests.mjs --suite integration",
+    "test:all": "node tools/run-tests.mjs --suite all",
+    "doctor": "node tools/fox-dock.mjs doctor",
+    "check": "node --check shared/identity.mjs && node --check daemon/src/main.mjs && node --check daemon/src/win32.mjs && node --check tools/fox-dock.mjs && node --check tools/run-tests.mjs",
     "ci": "npm run check && npm test"
   },
   "engines": {
