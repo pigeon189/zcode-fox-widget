@@ -20,6 +20,7 @@ import { acquireLock, releaseLock, updateLock } from './lock.mjs'
 import { readBindings, removeBinding, upsertBinding } from './bindings.mjs'
 import { createBillingService } from './billing.mjs'
 import { recordSnapshot, summarize } from './ledger.mjs'
+import { readSettings, writeSettings } from './settings.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
 import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
@@ -301,6 +302,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
           at: b.at,
         })),
         bindingCount: binds.length,
+        settings: readSettings(paths.settings),
         summary: summarize(paths.ledger, { now: Date.now(), days: 7 }),
         update: readUpdateStateSafe(),
         logs: LOG_RING.slice(-60).map((l) => redactHome(l).slice(0, 300)),
@@ -314,6 +316,22 @@ export async function runDaemon(argv = process.argv.slice(2)) {
         ok: true,
         ...summarize(paths.ledger, { now: Date.now(), days: Number.isFinite(days) ? days : 7 }),
       })
+      return
+    }
+
+    if (p === '/settings' && req.method === 'GET') {
+      sendJson(res, 200, { ok: true, settings: readSettings(paths.settings) })
+      return
+    }
+
+    if (p === '/settings' && req.method === 'PUT') {
+      try {
+        const patch = await readBody(req)
+        const settings = writeSettings(paths.settings, patch)
+        sendJson(res, 200, { ok: true, settings })
+      } catch (err) {
+        sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+      }
       return
     }
 

@@ -150,3 +150,48 @@ test('/diag.json：版本/适配器/绑定/日志齐全，且路径脱敏', asyn
   assert.ok(d.summary && d.summary.today)
   assert.equal(text.indexOf(home), -1, 'home dir must be redacted')
 })
+
+test('/settings：默认值可读，PUT 合并且丢弃未知字段', async () => {
+  const d0 = await get('/settings')
+  assert.equal(d0.status, 200)
+  assert.equal(d0.body.ok, true)
+  assert.equal(d0.body.settings.scale, 1)
+  assert.equal(d0.body.settings.scrollGap, 17)
+
+  const put = async (patch) => {
+    const res = await fetch('http://127.0.0.1:' + port + '/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    return { status: res.status, body: await res.json() }
+  }
+
+  const r1 = await put({ scale: 1.5, budgetMoney: 20, evil: '<script>' })
+  assert.equal(r1.status, 200)
+  assert.equal(r1.body.settings.scale, 1.5)
+  assert.equal(r1.body.settings.budgetMoney, 20)
+  assert.equal('evil' in r1.body.settings, false)
+
+  // 只发改动项，其余字段必须保留
+  const r2 = await put({ showChip: false })
+  assert.equal(r2.body.settings.scale, 1.5)
+  assert.equal(r2.body.settings.budgetMoney, 20)
+  assert.equal(r2.body.settings.showChip, false)
+
+  // 越界值夹回
+  const r3 = await put({ followMs: 99999, quotaWarnPct: 130, scrollGap: -3 })
+  assert.equal(r3.body.settings.followMs, 1000)
+  assert.equal(r3.body.settings.quotaWarnPct, 100)
+  assert.equal(r3.body.settings.scrollGap, 0)
+
+  const back = await get('/settings')
+  assert.deepEqual(back.body.settings, r3.body.settings)
+
+  // 诊断包里也带设置（排障时不用再问用户改了什么）
+  const diag = await get('/diag.json')
+  assert.equal(diag.body.settings.scale, 1.5)
+
+  // 复位，避免影响后续用例
+  await put({ scale: 1, showChip: true, followMs: 500, scrollGap: 17, quotaWarnPct: 0, budgetMoney: 0 })
+})

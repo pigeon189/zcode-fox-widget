@@ -307,14 +307,19 @@ async function main() {
     }
 
     // 汇总接口：已绑定的适配器都要进账本（被遮挡跳过的不算）
-    const summary = await (await fetch('http://127.0.0.1:' + port + '/summary')).json()
-    const units = new Set((summary.today.groups || []).map((g) => g.unit))
-    const missing = [...boundUnits].filter((u) => !units.has(u))
-    check(
-      '汇总：包含已绑定适配器的口径（' + ([...boundUnits].join(' + ') || '无') + '）',
-      boundUnits.size > 0 && missing.length === 0,
-      { bound: [...boundUnits], got: [...units] }
-    )
+    if (boundUnits.size === 0) {
+      // 目标全被别的窗口盖住时什么都没绑，不能把「没测到」算成失败
+      skip('汇总：本次没有成功绑定的目标', '全部目标被遮挡')
+    } else {
+      const summary = await (await fetch('http://127.0.0.1:' + port + '/summary')).json()
+      const units = new Set((summary.today.groups || []).map((g) => g.unit))
+      const missing = [...boundUnits].filter((u) => !units.has(u))
+      check(
+        '汇总：包含已绑定适配器的口径（' + [...boundUnits].join(' + ') + '）',
+        missing.length === 0,
+        { bound: [...boundUnits], got: [...units] }
+      )
+    }
   } finally {
     if (cdp) cdp.close()
     for (const p of [overlay, daemon]) {

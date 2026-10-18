@@ -35,6 +35,33 @@ const chipValue = document.getElementById('chip-value')
 const panel = document.getElementById('panel')
 const panelTitle = document.getElementById('panel-title')
 const panelBody = document.getElementById('panel-body')
+const bubble = document.getElementById('bubble')
+const bubbleText = document.getElementById('bubble-text')
+const bubbleSub = document.getElementById('bubble-sub')
+
+// 设置（由 daemon 持久化，见 daemon/src/settings.mjs）。这里的初值只用于首帧，
+// 真实值在 loadSettings() 回来之前不会影响几何（狐狸默认 1×）。
+let settings = {
+  scale: 1,
+  showChip: true,
+  followMs: 500,
+  scrollGap: 17,
+  turnBubble: true,
+  turnBubbleMs: 5000,
+  budgetMoney: 0,
+  quotaWarnPct: 0,
+  alertBubble: true,
+}
+let followTimer = null
+let lastBoundRect = null
+let bubbleTimer = null
+let activeTab = 'detail'
+let filterText = ''
+let lastSummary = null
+let lastBindings = []
+// 上一轮的「今日累计 + 本轮」指纹：用来判断是不是又花了一轮
+let turnFingerprint = null
+let alertTimer = null
 
 let dragging = false
 let pressing = null // { x, y, at }：按下但还没判定成拖拽
@@ -70,11 +97,206 @@ function place(x, y) {
   fox.style.left = Math.round(x) + 'px'
   fox.style.top = Math.round(y) + 'px'
   placeChip()
+  positionBubble()
   positionPanel()
 }
 
+const FOX_BASE = 52
+
 function foxSize() {
-  return 52
+  return Math.round(FOX_BASE * (Number(settings.scale) || 1))
+}
+
+// 缩放只改两个 CSS 变量，几何全部由它们算（狐狸、卡片、面板定位都读 foxSize）
+function applyScale() {
+  const size = foxSize()
+  document.documentElement.style.setProperty('--fox-size', size + 'px')
+  document.documentElement.style.setProperty('--fox-font', Math.round(size * 0.654) + 'px')
+}
+
+// ---------- 气泡（每轮消耗 / 预算提醒） ----------
+
+function positionBubble() {
+  if (bubble.hidden) return
+  const fw = foxSize()
+  const left = parseFloat(fox.style.left || '0') || 0
+  const top = parseFloat(fox.style.top || '0') || 0
+  const bw = bubble.offsetWidth || 0
+  const bh = bubble.offsetHeight || 0
+  let x = left + fw / 2 - bw / 2
+  let y = top - bh - 8
+  if (y < 8) y = top + fw + 8
+  x = Math.max(8, Math.min(x, window.innerWidth - bw - 8))
+  bubble.style.left = Math.round(x) + 'px'
+  bubble.style.top = Math.round(y) + 'px'
+}
+
+// ms 省略 = 一直显示（调用方自己隐藏，预算提醒走这条路）
+function showBubble(text, sub, opts) {
+  if (!settings.alertBubble && opts && opts.warn) return
+  bubbleText.textContent = text
+  bubbleSub.textContent = sub || ''
+  bubbleSub.hidden = !sub
+  bubble.classList.toggle('warn', !!(opts && opts.warn))
+  bubble.hidden = false
+  positionBubble()
+  requestAnimationFrame(() => bubble.classList.add('open'))
+  if (bubbleTimer) clearTimeout(bubbleTimer)
+  bubbleTimer = null
+  const ms = opts && Number(opts.ms)
+  if (Number.isFinite(ms) && ms > 0) {
+    bubbleTimer = setTimeout(() => hideBubble(), ms)
+  }
+}
+
+function hideBubble() {
+  if (bubbleTimer) clearTimeout(bubbleTimer)
+  bubbleTimer = null
+  bubble.classList.remove('open')
+  setTimeout(() => {
+    if (!bubble.classList.contains('open')) bubble.hidden = true
+  }, 200)
+}
+
+// ---------- 设置（daemon 持久化） ----------
+
+async function loadSettings() {
+  if (!base) return
+  try {
+    const r = await (await fetch(base + '/settings', { cache: 'no-store' })).json()
+    if (r && r.ok && r.settings) {
+      settings = { ...settings, ...r.settings }
+      applySettings()
+    }
+  } catch (err) {}
+}
+
+async function saveSettings(patch) {
+  settings = { ...settings, ...patch }
+  applySettings()
+  if (!base) return settings
+  try {
+    const r = await (
+      await fetch(base + '/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+    ).json()
+    if (r && r.ok && r.settings) {
+      settings = { ...settings, ...r.settings }
+      applySettings()
+    }
+  } catch (err) {}
+  return settings
+}
+
+function applySettings() {
+  applyScale()
+  updateChipVisibility()
+  restartFollowTimer()
+  restartAlertTimer()
+  if (lastBoundRect) placeByAnchor(lastBoundRect)
+  if (panelOpen) renderPanel(lastSummary, lastBindings)
+}
+
+function updateChipVisibility() {
+  chip.hidden = !boundKey || !settings.showChip
+}
+
+// ---------- 提醒（今日预算 / 额度预警） ----------
+
+function dayKeyNow() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+
+// 同一天同一项只弹一次：预算刚超时会每 30s 命中一次，不节流会变成骚扰
+function alertOnce(name, text, sub) {
+  const key = 'fox-dock:alert:' + dayKeyNow() + ':' + name
+  try {
+    if (localStorage.getItem(key)) return false
+    localStorage.setItem(key, '1')
+  } catch (err) {}
+  showBubble(text, sub, { warn: true, ms: Math.max(4000, settings.turnBubbleMs) })
+  return true
+}
+
+function moneyTotalCny(groups) {
+  let sum = 0
+  let has = false
+  for (const g of groups || []) {
+    if (g.unit === 'money' && g.currency === 'CNY') {
+      sum += Number(g.amount) || 0
+      has = true
+    }
+  }
+  return has ? Math.round(sum * 10000) / 10000 : null
+}
+
+async function checkAlerts() {
+  if (!base) return
+  // 额度预警：只看当前绑定窗口的快照（其它 agent 的额度不在这里消费）
+  const snap = lastSnapshot
+  const warnPct = Number(settings.quotaWarnPct) || 0
+  if (warnPct > 0 && snap && snap.ok && snap.quota && typeof snap.quota.remainingPct === 'number') {
+    if (snap.quota.remainingPct <= warnPct) {
+      alertOnce(
+        'quota:' + (snap.adapterId || 'x'),
+        (snap.adapterName || '额度') + ' 快用完了',
+        '剩余 ' + fmtNum(snap.quota.remainingPct) + '%（阈值 ' + warnPct + '%）'
+      )
+    }
+  }
+
+  const budget = Number(settings.budgetMoney) || 0
+  if (budget > 0) {
+    try {
+      const r = await (await fetch(base + '/summary?days=1', { cache: 'no-store' })).json()
+      const total = moneyTotalCny(r && r.today && r.today.groups)
+      if (total !== null && total > budget) {
+        alertOnce(
+          'budget',
+          '今日预算超了',
+          '已用 ¥' + total.toFixed(2) + ' / 预算 ¥' + budget.toFixed(2)
+        )
+      }
+    } catch (err) {}
+  }
+}
+
+function restartAlertTimer() {
+  if (alertTimer) clearInterval(alertTimer)
+  alertTimer = null
+  if (!base) return
+  const budget = Number(settings.budgetMoney) || 0
+  const warnPct = Number(settings.quotaWarnPct) || 0
+  if (budget <= 0 && warnPct <= 0) return
+  checkAlerts()
+  alertTimer = setInterval(checkAlerts, 30000)
+}
+
+// 每轮消耗：适配器给的是「上一轮金额」，没有轮次 id，所以用
+// 「今日累计 + 本轮金额」的指纹判断是否又花了一轮（两轮同额也能认出来）。
+function noteTurn(snap) {
+  if (!snap || !snap.ok || !snap.supported) {
+    turnFingerprint = null
+    return
+  }
+  const turnAmount = snap.turn && typeof snap.turn.amount === 'number' ? snap.turn.amount : null
+  const todayAmount = snap.today && typeof snap.today.amount === 'number' ? snap.today.amount : null
+  if (turnAmount === null && todayAmount === null) return
+  const fp = String(todayAmount) + '|' + String(turnAmount)
+  const prev = turnFingerprint
+  turnFingerprint = fp
+  if (prev === null || prev === fp) return
+  if (!settings.turnBubble || turnAmount === null) return
+  const label =
+    snap.unit === 'money'
+      ? fmtMoney(snap.turn)
+      : fmtNum(turnAmount) + (snap.unit === 'credit' ? ' 积分' : snap.unit === 'percent' ? '%' : '')
+  showBubble('本轮 ' + label, snap.adapterName || '', { ms: Number(settings.turnBubbleMs) || 5000 })
 }
 
 // ---------- 绑定后的数字卡片（R4：只展示，不可点） ----------
@@ -129,6 +351,7 @@ function renderChip(snap) {
     chipValue.textContent = snap.today ? '今日 ' + fmtMoney(snap.today) : '—'
     if (snap.turn) chip.title = '上一轮 ' + fmtMoney(snap.turn)
   }
+  noteTurn(snap)
   placeChip()
 }
 
@@ -188,24 +411,42 @@ function groupLabel(g) {
   return fmtNum(g.amount) + ' ' + g.unit
 }
 
-function renderPanel(summary, bindings) {
-  const name = (boundAdapter && boundAdapter.name) || '未绑定'
-  panelTitle.textContent = name
-  clearNode(panelBody)
+const PANEL_TABS = ['detail', 'settings', 'about']
 
-  // 多窗口歧义：同一个 agent 开了多个窗口时，标题是唯一能让人确认「绑对没绑对」的东西
-  const boundTitle = document.body.dataset.boundTitle || ''
-  if (boundKey && boundTitle) {
-    const sub = document.createElement('div')
-    sub.className = 'panel-sub'
-    sub.textContent = boundTitle
-    sub.title = boundTitle
-    panelBody.appendChild(sub)
+let aboutDiag = null
+let aboutLoading = false
+let aboutError = ''
+
+function setActiveTab(tab) {
+  activeTab = PANEL_TABS.includes(tab) ? tab : 'detail'
+  for (const b of document.querySelectorAll('#panel .panel-tabs button')) {
+    b.classList.toggle('active', b.dataset.tab === activeTab)
   }
+}
 
-  const snap = lastSnapshot
+function renderPanel(summary, bindings) {
+  if (summary) lastSummary = summary
+  if (bindings) lastBindings = bindings
+  const name = (boundAdapter && boundAdapter.name) || '未绑定'
+  panelTitle.textContent = activeTab === 'detail' ? name : activeTab === 'settings' ? '设置' : '关于'
+  setActiveTab(activeTab)
+  clearNode(panelBody)
+  if (activeTab === 'settings') {
+    renderSettings()
+  } else if (activeTab === 'about') {
+    renderAbout()
+  } else {
+    renderDetail()
+  }
+  positionPanel()
+}
+
+// ---------- 明细 ----------
+
+function windowSection() {
   const sec = document.createElement('div')
   sec.className = 'panel-sec'
+  const snap = lastSnapshot
   if (!boundKey) {
     sec.appendChild(row('状态', '拖到 agent 窗口上试试'))
   } else if (!snap) {
@@ -217,15 +458,60 @@ function renderPanel(summary, bindings) {
     sec.appendChild(row('状态', '读取失败', snap.error))
     sec.appendChild(row('原因', snap.error || '未知', snap.error))
   } else {
-    const today = snap.unit === 'money' ? fmtMoney(snap.today) : fmtNum(snap.today && snap.today.amount) + (snap.unit === 'credit' ? ' 积分' : '%')
+    const today =
+      snap.unit === 'money'
+        ? fmtMoney(snap.today)
+        : fmtNum(snap.today && snap.today.amount) + (snap.unit === 'credit' ? ' 积分' : '%')
     sec.appendChild(row('今日', today))
     if (snap.turn) {
       const t = snap.unit === 'money' ? fmtMoney(snap.turn) : fmtNum(snap.turn.amount) + (snap.unit === 'credit' ? ' 积分' : '')
       sec.appendChild(row('上一轮', t))
     }
+    if (snap.quota && typeof snap.quota.remainingPct === 'number') {
+      sec.appendChild(row('额度剩余', fmtNum(snap.quota.remainingPct) + '%'))
+    }
     if (snap.source) sec.appendChild(row('来源', snap.source, '适配器读取的数据源'))
   }
   panelBody.appendChild(sec)
+}
+
+function matchesFilter(name, date) {
+  const q = filterText.trim().toLowerCase()
+  if (!q) return true
+  return String(name || '').toLowerCase().includes(q) || String(date || '').includes(q)
+}
+
+function renderDetail() {
+  // 多窗口歧义：同一个 agent 开了多个窗口时，标题是唯一能让人确认「绑对没绑对」的东西
+  const boundTitle = document.body.dataset.boundTitle || ''
+  if (boundKey && boundTitle) {
+    const sub = document.createElement('div')
+    sub.className = 'panel-sub'
+    sub.textContent = boundTitle
+    sub.title = boundTitle
+    panelBody.appendChild(sub)
+  }
+
+  windowSection()
+
+  const search = document.createElement('input')
+  search.type = 'search'
+  search.placeholder = '搜索适配器 / 日期'
+  search.value = filterText
+  search.addEventListener('input', () => {
+    filterText = search.value
+    renderDetailList()
+  })
+  search.addEventListener('focus', () => setInteractive(true))
+  const wrap = document.createElement('div')
+  wrap.className = 'setting'
+  wrap.appendChild(search)
+  panelBody.appendChild(wrap)
+
+  const list = document.createElement('div')
+  list.id = 'detail-list'
+  panelBody.appendChild(list)
+  renderDetailList()
 
   if (boundKey) {
     const actions = document.createElement('div')
@@ -242,24 +528,57 @@ function renderPanel(summary, bindings) {
     actions.appendChild(un)
     panelBody.appendChild(actions)
   }
+}
+
+// 只重画列表：搜索框在输入时不能被重建，否则每敲一个字就丢焦点
+function renderDetailList() {
+  const list = document.getElementById('detail-list')
+  if (!list) return
+  clearNode(list)
+  const summary = lastSummary
 
   if (summary && summary.today && summary.today.groups && summary.today.groups.length) {
-    const h = document.createElement('h4')
-    h.textContent = '全部 agent（今日）'
-    panelBody.appendChild(h)
+    const matched = []
     for (const g of summary.today.groups) {
       for (const a of g.adapters) {
-        panelBody.appendChild(row(a.name, groupLabel({ ...g, amount: a.amount })))
+        if (matchesFilter(a.name, summary.today.date)) matched.push({ g, a })
       }
+    }
+    if (matched.length) {
+      const h = document.createElement('h4')
+      h.textContent = '全部 agent（今日）'
+      list.appendChild(h)
+      for (const { g, a } of matched) list.appendChild(row(a.name, groupLabel({ ...g, amount: a.amount })))
     }
   }
 
+  const days = (summary && summary.days) || []
+  const rows = []
+  for (const d of days.slice().reverse().slice(0, 7)) {
+    const parts = []
+    for (const g of d.groups || []) {
+      for (const a of g.adapters) {
+        if (!matchesFilter(a.name, d.date)) continue
+        parts.push(a.name + ' ' + groupLabel({ ...g, amount: a.amount }))
+      }
+    }
+    if (parts.length) rows.push({ date: d.date, text: parts.join('　') })
+  }
+  if (rows.length) {
+    const h = document.createElement('h4')
+    h.textContent = rows.length + ' 天记录'
+    list.appendChild(h)
+    for (const r of rows) list.appendChild(row(r.date.slice(5), r.text))
+  } else if (filterText.trim()) {
+    list.appendChild(row('无匹配', '换个关键词试试'))
+  }
+
   // 其它绑定：换窗口时常常忘了旧的那条，这里能直接清掉
-  const others = (bindings || []).filter((b) => b.key !== boundKey).slice(0, 5)
+  const others = (lastBindings || []).filter((b) => b.key !== boundKey).slice(0, 5)
   if (others.length) {
     const h = document.createElement('h4')
     h.textContent = '其它绑定'
-    panelBody.appendChild(h)
+    list.appendChild(h)
     for (const b of others) {
       const title = (b.window && b.window.title) || (b.window && b.window.exe) || b.key
       const r = document.createElement('div')
@@ -279,23 +598,265 @@ function renderPanel(summary, bindings) {
       })
       r.appendChild(a)
       r.appendChild(btn)
-      panelBody.appendChild(r)
+      list.appendChild(r)
     }
   }
-
-  const days = (summary && summary.days) || []
-  const withData = days.filter((d) => d.groups && d.groups.length)
-  if (withData.length) {
-    const h = document.createElement('h4')
-    h.textContent = '最近 ' + withData.length + ' 天'
-    panelBody.appendChild(h)
-    for (const d of withData.slice(-7).reverse()) {
-      const text = d.groups.map(groupLabel).join('　')
-      panelBody.appendChild(row(d.date.slice(5), text))
-    }
-  }
-
   positionPanel()
+}
+
+// ---------- 设置 ----------
+
+function settingRow(labelText, control, hint) {
+  const r = document.createElement('div')
+  r.className = 'setting'
+  const l = document.createElement('label')
+  l.textContent = labelText
+  r.appendChild(l)
+  r.appendChild(control)
+  if (hint) {
+    const box = document.createElement('div')
+    box.appendChild(r)
+    const h = document.createElement('p')
+    h.className = 'setting-hint'
+    h.textContent = hint
+    box.appendChild(h)
+    return box
+  }
+  return r
+}
+
+function selectControl(options, value, onChange) {
+  const sel = document.createElement('select')
+  for (const o of options) {
+    const op = document.createElement('option')
+    op.value = String(o.value)
+    op.textContent = o.label
+    sel.appendChild(op)
+  }
+  sel.value = String(value)
+  sel.addEventListener('change', () => onChange(sel.value))
+  return sel
+}
+
+function checkboxControl(checked, onChange) {
+  const box = document.createElement('input')
+  box.type = 'checkbox'
+  box.checked = !!checked
+  box.addEventListener('change', () => onChange(box.checked))
+  return box
+}
+
+function numberControl(value, { min, max, step }, onChange) {
+  const input = document.createElement('input')
+  input.type = 'number'
+  input.min = String(min)
+  input.max = String(max)
+  input.step = String(step || 1)
+  input.value = String(value)
+  input.addEventListener('change', () => {
+    const n = Number(input.value)
+    if (Number.isFinite(n)) onChange(n)
+  })
+  return input
+}
+
+function renderSettings() {
+  const note = document.createElement('p')
+  note.className = 'setting-hint'
+  note.textContent = '改动立即生效并保存到本机（%LOCALAPPDATA%\\fox-dock\\settings.json）。'
+  panelBody.appendChild(note)
+
+  panelBody.appendChild(
+    settingRow(
+      '大小',
+      selectControl(
+        [
+          { value: 0.75, label: '小' },
+          { value: 1, label: '标准' },
+          { value: 1.25, label: '大' },
+          { value: 1.5, label: '特大' },
+        ],
+        settings.scale,
+        (v) => saveSettings({ scale: Number(v) })
+      )
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '跟随间隔',
+      selectControl(
+        [
+          { value: 250, label: '250ms' },
+          { value: 500, label: '500ms' },
+          { value: 1000, label: '1s' },
+        ],
+        settings.followMs,
+        (v) => saveSettings({ followMs: Number(v) })
+      ),
+      '宿主窗口移动后，狐狸多久跟过去。太短会频繁读窗口矩形。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '显示数字卡片',
+      checkboxControl(settings.showChip, (v) => saveSettings({ showChip: v })),
+      '关掉后只留狐狸，单击仍可看明细。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '每轮消耗气泡',
+      checkboxControl(settings.turnBubble, (v) => saveSettings({ turnBubble: v })),
+      '绑定窗口每花完一轮，在狐狸头上冒一次金额。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '气泡停留',
+      numberControl(settings.turnBubbleMs / 1000, { min: 1, max: 15, step: 1 }, (v) =>
+        saveSettings({ turnBubbleMs: Math.round(v * 1000) })
+      ),
+      '单位：秒（1–15）。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '今日预算',
+      numberControl(settings.budgetMoney, { min: 0, max: 1000000, step: 1 }, (v) => saveSettings({ budgetMoney: v })),
+      '单位：元。跨 agent 汇总（只算人民币）超过就提醒一次，每天一次；0 = 不设。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '额度预警',
+      numberControl(settings.quotaWarnPct, { min: 0, max: 100, step: 5 }, (v) => saveSettings({ quotaWarnPct: v })),
+      '剩余额度低于该百分比时提醒；只对能读出额度的适配器生效，0 = 关闭。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '滚动条宽度',
+      numberControl(settings.scrollGap, { min: 0, max: 60, step: 1 }, (v) => saveSettings({ scrollGap: v })),
+      '贴右/下边时留出的距离，避免盖住宿主滚动条（px）。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '提醒气泡',
+      checkboxControl(settings.alertBubble, (v) => saveSettings({ alertBubble: v })),
+      '预算 / 额度提醒；关掉后每轮消耗气泡仍按上面的开关走。'
+    )
+  )
+
+  const foot = document.createElement('p')
+  foot.className = 'setting-hint'
+  foot.textContent = '注：音效、角色、桌宠模式没有移植——见 docs/dock/MIGRATION.md 里的理由。'
+  panelBody.appendChild(foot)
+}
+
+// ---------- 关于 / 自检 ----------
+
+async function loadDiag() {
+  if (aboutLoading || !base) return
+  aboutLoading = true
+  aboutError = ''
+  try {
+    const r = await fetch(base + '/diag.json', { cache: 'no-store' })
+    const d = await r.json()
+    if (!d || d.ok === false) throw new Error((d && d.error) || '读取失败')
+    aboutDiag = d
+  } catch (err) {
+    aboutError = String((err && err.message) || err)
+  }
+  aboutLoading = false
+  if (activeTab === 'about') renderPanel(lastSummary, lastBindings)
+}
+
+function electronVersion() {
+  const m = /Electron\/([\d.]+)/.exec(navigator.userAgent || '')
+  return m ? m[1] : '—'
+}
+
+function renderAbout() {
+  if (!aboutDiag) {
+    panelBody.appendChild(row('状态', aboutError ? '读取失败：' + aboutError : '读取中…'))
+    if (!aboutLoading) loadDiag()
+    return
+  }
+  const d = aboutDiag
+  panelBody.appendChild(row('版本', 'v' + d.version))
+  panelBody.appendChild(row('运行', 'Electron ' + electronVersion() + ' · ' + d.runtime.platform + '/' + d.runtime.arch))
+  panelBody.appendChild(row('服务', 'pid ' + d.runtime.pid + ' · 端口 ' + d.runtime.port + ' · ' + d.runtime.uptimeSec + 's'))
+  panelBody.appendChild(row('数据目录', d.paths.dataDir, d.paths.dataDir))
+  panelBody.appendChild(row('适配器', (d.adapters || []).map((a) => a.name).join('、') || '—'))
+  panelBody.appendChild(row('绑定', String(d.bindingCount || 0) + ' 个窗口'))
+  const up = d.update || {}
+  if (up.appliedVersion || up.latest) {
+    panelBody.appendChild(row('更新', (up.appliedVersion || d.version) + ' → ' + (up.latest || '—')))
+  }
+
+  const h = document.createElement('h4')
+  h.textContent = '最近日志'
+  panelBody.appendChild(h)
+  const pre = document.createElement('pre')
+  pre.className = 'diag-log'
+  const lines = (d.logs || []).slice(-14)
+  pre.textContent = lines.length ? lines.join('\n') : '（暂无）'
+  panelBody.appendChild(pre)
+
+  const actions = document.createElement('div')
+  actions.className = 'panel-actions'
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.textContent = '复制诊断信息'
+  copy.title = '不含密钥；路径里的用户名已替换成 ~'
+  copy.addEventListener('click', (e) => {
+    e.stopPropagation()
+    copyDiagnostics()
+  })
+  const refresh = document.createElement('button')
+  refresh.type = 'button'
+  refresh.textContent = '刷新'
+  refresh.style.marginLeft = '6px'
+  refresh.addEventListener('click', (e) => {
+    e.stopPropagation()
+    aboutDiag = null
+    renderPanel(lastSummary, lastBindings)
+  })
+  actions.appendChild(copy)
+  actions.appendChild(refresh)
+  panelBody.appendChild(actions)
+
+  const hint = document.createElement('p')
+  hint.className = 'setting-hint'
+  hint.textContent = '遇到问题把这个贴给维护者即可（不含密钥，路径已脱敏）。'
+  panelBody.appendChild(hint)
+  positionPanel()
+}
+
+function copyDiagnostics() {
+  if (!aboutDiag) return
+  const text = JSON.stringify(aboutDiag, null, 2)
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+  } catch (err) {}
 }
 
 function positionPanel() {
@@ -426,18 +987,21 @@ function anchorForDrop(win) {
 }
 
 function placeByAnchor(rect) {
+  lastBoundRect = rect
   const tl = windowTopLeft(rect)
   const w = rect.w / DPR
   const h = rect.h / DPR
   const size = foxSize()
   const a = boundAnchor || { h: 'right', v: 'top', hOff: 0, vOff: 0 }
+  // 贴右边时留出滚动条宽度，否则会正好盖住宿主的滚动条（挂件线同款处理）
+  const gap = Math.max(0, Math.min(60, Number(settings.scrollGap) || 0))
   let x
   if (a.h === 'left') x = 0
-  else if (a.h === 'right') x = Math.max(0, w - size)
+  else if (a.h === 'right') x = Math.max(0, w - size - gap)
   else x = Math.min(Math.max(0, Number(a.hOff) || 0), Math.max(0, w - size))
   let y
   if (a.v === 'top') y = 0
-  else if (a.v === 'bottom') y = Math.max(0, h - size)
+  else if (a.v === 'bottom') y = Math.max(0, h - size - gap)
   else y = Math.min(Math.max(0, Number(a.vOff) || 0), Math.max(0, h - size))
   place(tl.x + x, tl.y + y)
 }
@@ -446,6 +1010,7 @@ async function bind(win) {
   if (!base) return
   // 四分吸附：靠边就贴边，中间就留在原地
   const anchor = anchorForDrop(win)
+  turnFingerprint = null
   try {
     const res = await fetch(base + '/bind', {
       method: 'POST',
@@ -471,7 +1036,7 @@ async function bind(win) {
       document.body.dataset.boundTitle = win.title || ''
       document.body.dataset.adapterId = boundAdapter.id
       fox.title = '已绑定：' + (win.title || win.exe) + '（' + boundAdapter.name + '）'
-      chip.hidden = false
+      updateChipVisibility()
       renderChip(null)
       startBilling()
       placeByAnchor(win.rect)
@@ -491,7 +1056,7 @@ async function unbind() {
   boundAdapter = null
   boundAnchor = null
   stopBilling()
-  chip.hidden = true
+  updateChipVisibility()
   chipValue.textContent = ''
   delete document.body.dataset.boundKey
   delete document.body.dataset.boundTitle
@@ -604,20 +1169,35 @@ document.getElementById('panel-close').addEventListener('click', (e) => {
   togglePanel(false)
 })
 
-// 跟随绑定窗口：窗口被拖动/缩放后，狐狸重新贴回右上角。
-// **拖拽/按住期间必须让路**——否则每 500ms 把狐狸拽回旧位置，用户拖到一半就被抢走。
-setInterval(async () => {
-  if (!boundKey || !boundHwnd || !base || dragging || pressing) return
-  try {
-    const res = await fetch(base + '/rect?hwnd=' + encodeURIComponent(boundHwnd), { cache: 'no-store' })
-    const data = await res.json()
-    if (data.ok && data.rect) {
-      placeByAnchor(data.rect)
-    } else {
-      await unbind()
-    }
-  } catch (err) {}
-}, 500)
+for (const btn of document.querySelectorAll('#panel .panel-tabs button')) {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    activeTab = btn.dataset.tab || 'detail'
+    renderPanel(lastSummary, lastBindings)
+    if (activeTab === 'about') loadDiag()
+  })
+}
+
+// 跟随绑定窗口：窗口被拖动/缩放后，狐狸按锚点重新贴回去。
+// **拖拽/按住期间必须让路**——否则定时器会把狐狸拽回旧位置，用户拖到一半就被抢走。
+function restartFollowTimer() {
+  if (followTimer) clearInterval(followTimer)
+  followTimer = null
+  if (!base) return
+  const every = Math.max(200, Number(settings.followMs) || 500)
+  followTimer = setInterval(async () => {
+    if (!boundKey || !boundHwnd || dragging || pressing) return
+    try {
+      const res = await fetch(base + '/rect?hwnd=' + encodeURIComponent(boundHwnd), { cache: 'no-store' })
+      const data = await res.json()
+      if (data.ok && data.rect) {
+        placeByAnchor(data.rect)
+      } else {
+        await unbind()
+      }
+    } catch (err) {}
+  }, every)
+}
 
 // 重建上次的绑定：重启浮层（或更新后）不用再拖一次。
 // 只认「窗口还在」的那条——进程重启后 hwnd 失效，就不要恢复，免得狐狸挂在空处。
@@ -640,6 +1220,7 @@ async function restoreBinding() {
       ).json()
       boundKey = b.key
       boundHwnd = b.window.hwnd
+      turnFingerprint = null
       boundAdapter = det.ok ? det.adapter : { id: b.adapterId, name: b.adapterId }
       boundAnchor = b.anchor && typeof b.anchor === 'object' ? b.anchor : null
       document.body.dataset.boundKey = boundKey
@@ -647,7 +1228,7 @@ async function restoreBinding() {
       document.body.dataset.adapterId = boundAdapter.id
       document.body.dataset.restored = '1'
       fox.title = '已恢复绑定：' + (b.window.title || b.window.exe) + '（' + boundAdapter.name + '）'
-      chip.hidden = false
+      updateChipVisibility()
       renderChip(null)
       startBilling()
       placeByAnchor(rect.rect)
@@ -657,6 +1238,8 @@ async function restoreBinding() {
   return false
 }
 
-// 初始位置：右下角
+// 初始位置：右下角（先按默认缩放摆一次，设置回来后会重算）
 place(window.innerWidth - foxSize() - 28, window.innerHeight - foxSize() - 96)
+applyScale()
+loadSettings()
 restoreBinding()

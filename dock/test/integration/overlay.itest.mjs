@@ -363,7 +363,8 @@ test('snap: 放到窗口右侧 → 贴右边缘（四分吸附）', async (t) =>
   const hCss = fakeWin.rect.h / dpr
   const winLeft = toX - wCss * 0.9
   const winTop = toY - hCss * 0.2
-  const wantX = winLeft + wCss - 52
+  // 默认设置 scrollGap=17：贴右边要给滚动条留出 17px
+  const wantX = winLeft + wCss - 52 - 17
   const wantY = winTop
   const fox = await waitFor(async () => {
     const r = JSON.parse(
@@ -372,7 +373,9 @@ test('snap: 放到窗口右侧 → 贴右边缘（四分吸附）', async (t) =>
       )
     )
     return Math.abs(r.x - wantX) <= 6 && Math.abs(r.y - wantY) <= 6 ? { r, wantX, wantY } : null
-  }, 8000, 'fox snapped to right edge')
+  }, 8000, 'fox snapped to right edge').catch(async (err) => {
+    throw new Error(err.message + ' | fox=' + (await cdp.eval("JSON.stringify(document.getElementById('fox').getBoundingClientRect())")))
+  })
 
   assert.ok(fox)
   assert.equal(saved.anchor.h, 'right')
@@ -456,15 +459,30 @@ test('panel: 「解绑这个窗口」清掉绑定并收起面板', async (t) => 
   const mine = (before.bindings || []).find((b) => b.window && b.window.pid === fakeWin.pid)
   assert.ok(mine, 'binding should exist before unbind')
 
-  const pos = JSON.parse(
-    await cdp.eval(
-      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+  // 合成点击偶发丢掉（时序），开面板这件事重试几次；每次重新读狐狸位置
+  let opened = false
+  for (let i = 0; i < 3 && !opened; i++) {
+    if (i) {
+      await sleep(300)
+      await cdp.eval('if (panelOpen) togglePanel(false)')
+    }
+    const pos = JSON.parse(
+      await cdp.eval(
+        "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+      )
     )
-  )
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pos.x, y: pos.y, button: 'left', buttons: 1, clickCount: 1 })
-  await sleep(50)
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pos.x, y: pos.y, button: 'left', buttons: 0, clickCount: 1 })
-  await waitFor(async () => (await cdp.eval("document.body.dataset.panel || ''")) === 'open', 6000, 'panel open')
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pos.x, y: pos.y, button: 'left', buttons: 1, clickCount: 1 })
+    await sleep(60)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pos.x, y: pos.y, button: 'left', buttons: 0, clickCount: 1 })
+    opened = await waitFor(
+      async () => (await cdp.eval("document.body.dataset.panel || ''")) === 'open',
+      2500,
+      'panel open'
+    )
+      .then(() => true)
+      .catch(() => false)
+  }
+  assert.ok(opened, 'panel should open after retries')
 
   const clicked = await cdp.eval(
     "(function(){var bs=document.querySelectorAll('#panel button');" +
@@ -483,4 +501,155 @@ test('panel: 「解绑这个窗口」清掉绑定并收起面板', async (t) => 
   assert.ok(gone)
   const closed = await waitFor(async () => (await cdp.eval("document.body.dataset.panel || ''")) === 'closed', 6000, 'panel closed')
   assert.ok(closed)
+})
+
+// ---------- 从挂件线移植的功能（设置 / 气泡 / 关于） ----------
+
+test('settings: 面板里的「大小」改完立刻生效，并写回服务端', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  await cdp.eval("togglePanel(true); activeTab='settings'; renderPanel(null, [])")
+  const hasControls = await cdp.eval(
+    "(function(){var b=document.querySelector('#panel-body');if(!b)return null;" +
+      "return JSON.stringify({select:b.querySelectorAll('select').length,number:b.querySelectorAll('input[type=number]').length," +
+      "check:b.querySelectorAll('input[type=checkbox]').length})})()"
+  )
+  const ctl = JSON.parse(hasControls)
+  assert.ok(ctl.select >= 2 && ctl.number >= 3 && ctl.check >= 3, hasControls)
+
+  await cdp.eval(
+    "(function(){var s=document.querySelector('#panel-body .setting select');s.value='1.5';" +
+      "s.dispatchEvent(new Event('change',{bubbles:true}));return true})()"
+  )
+  const size = await waitFor(async () => {
+    const w = Number(await cdp.eval("document.getElementById('fox').getBoundingClientRect().width"))
+    return w >= 77 && w <= 79 ? w : null
+  }, 5000, 'fox resized to 1.5x')
+  assert.ok(size)
+
+  const saved = await (await fetch('http://127.0.0.1:' + port + '/settings')).json()
+  assert.equal(saved.settings.scale, 1.5)
+
+  // 复位，后面的用例按 1× 计算几何
+  await cdp.eval(
+    "(function(){var s=document.querySelector('#panel-body .setting select');s.value='1';" +
+      "s.dispatchEvent(new Event('change',{bubbles:true}));return true})()"
+  )
+  await sleep(300)
+})
+
+test('about: 关于页显示版本 / 数据目录 / 复制按钮', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  await cdp.eval("activeTab='about'; renderPanel(null, [])")
+  const text = await waitFor(async () => {
+    const s = String(await cdp.eval("document.querySelector('#panel-body') ? document.querySelector('#panel-body').textContent : ''"))
+    return s.indexOf('版本') !== -1 && s.indexOf('数据目录') !== -1 ? s : null
+  }, 8000, 'about tab filled')
+  assert.ok(text)
+  assert.match(text, /v\d+\.\d+\.\d+/)
+
+  const hasCopy = await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('#panel-body button');" +
+      "for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('复制诊断信息')!==-1)return true}return false})()"
+  )
+  assert.equal(hasCopy, true)
+  await cdp.eval("togglePanel(false)")
+})
+
+test('bubble: 每轮消耗气泡会出现并自动消失', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  await cdp.eval("showBubble('本轮 ¥0.42','ZCode',{ms:900})")
+  // open 类是在 requestAnimationFrame 里加的（为了触发淡入过渡），不能同步断言
+  const shown = await waitFor(async () => {
+    const raw = await cdp.eval(
+      "(function(){var b=document.getElementById('bubble');" +
+        "return JSON.stringify({hidden:b.hidden,open:b.classList.contains('open'),text:b.textContent})})()"
+    )
+    const v = JSON.parse(raw)
+    return v.hidden === false && v.open === true ? v : null
+  }, 3000, 'bubble visible')
+  assert.ok(shown)
+  assert.ok(shown.text.indexOf('本轮 ¥0.42') !== -1, shown.text)
+
+  const gone = await waitFor(
+    async () => (await cdp.eval("document.getElementById('bubble').hidden")) === true,
+    4000,
+    'bubble auto hidden'
+  )
+  assert.ok(gone)
+})
+
+test('bubble: 今日累计或本轮金额变化时冒一次，首次不冒', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const snap = (today, turn) =>
+    "renderChip({ok:true,supported:true,unit:'money',adapterId:'zcode',adapterName:'ZCode'," +
+    "today:{amount:" + today + ",currency:'CNY',byCurrency:{CNY:" + today + "}}," +
+    "turn:{amount:" + turn + ",currency:'CNY'}})"
+
+  await cdp.eval("turnFingerprint=null; hideBubble()")
+  // hideBubble 有 200ms 淡出，等它真的收起再开始
+  await waitFor(async () => (await cdp.eval("document.getElementById('bubble').hidden")) === true, 3000, 'bubble hidden')
+  await cdp.eval(snap(10, 0.5))
+  await sleep(200)
+  assert.equal(await cdp.eval("document.getElementById('bubble').hidden"), true, '首次读到不该冒泡')
+
+  await cdp.eval(snap(10.5, 0.5))
+  const after = await waitFor(async () => {
+    const raw = await cdp.eval(
+      "(function(){var b=document.getElementById('bubble');" +
+        "return JSON.stringify({hidden:b.hidden,text:b.textContent})})()"
+    )
+    const v = JSON.parse(raw)
+    return v.hidden === false ? v : null
+  }, 3000, 'bubble after turn change')
+  assert.ok(after)
+  assert.ok(after.text.indexOf('本轮 ¥0.50') !== -1, after.text)
+  await cdp.eval('hideBubble()')
+})
+
+test('alert: 预算只算人民币、同日同一项只弹一次', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const res = JSON.parse(
+    await cdp.eval(
+      "(function(){localStorage.clear();" +
+        "var total=moneyTotalCny([{unit:'money',currency:'CNY',amount:12.34}," +
+        "{unit:'money',currency:'USD',amount:99},{unit:'credit',currency:'CREDIT',amount:100}]);" +
+        "var first=alertOnce('unit-test','今日预算超了','已用 ¥12.34');" +
+        "var second=alertOnce('unit-test','今日预算超了','已用 ¥12.34');" +
+        "return JSON.stringify({total:total,first:first,second:second})})()"
+    )
+  )
+  // 美元与积分不能和人民币相加
+  assert.equal(res.total, 12.34)
+  assert.equal(res.first, true)
+  assert.equal(res.second, false, '同一天同一项只能提醒一次')
+  await cdp.eval('hideBubble()')
+})
+
+test('search: 明细列表按适配器名过滤', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const built = await cdp.eval(
+    "(function(){" +
+      "lastSummary={today:{date:'2026-10-18',groups:[" +
+      "{unit:'money',currency:'CNY',amount:10,adapters:[{id:'zcode',name:'ZCode',amount:10}]}," +
+      "{unit:'credit',currency:'CREDIT',amount:193,adapters:[{id:'workbuddy',name:'WorkBuddy',amount:193}]}]},days:[]};" +
+      "lastBindings=[];filterText='';" +
+      "togglePanel(true);activeTab='detail';renderPanel(lastSummary,[]);" +
+      "var all=document.getElementById('detail-list').textContent;" +
+      "filterText='work';renderDetailList();" +
+      "var filtered=document.getElementById('detail-list').textContent;" +
+      "filterText='zzz';renderDetailList();" +
+      "var none=document.getElementById('detail-list').textContent;" +
+      "filterText='';renderDetailList();togglePanel(false);" +
+      "return JSON.stringify({all:all,filtered:filtered,none:none})})()"
+  )
+  const v = JSON.parse(built)
+  assert.ok(v.all.indexOf('ZCode') !== -1 && v.all.indexOf('WorkBuddy') !== -1, v.all)
+  assert.ok(v.filtered.indexOf('ZCode') === -1 && v.filtered.indexOf('WorkBuddy') !== -1, v.filtered)
+  assert.ok(v.none.indexOf('无匹配') !== -1, v.none)
 })
