@@ -293,6 +293,55 @@ function mkRoot(name, entries) {
   check('applyUpdateFiles：新包顶层目录之外的本地文件保留', fs.existsSync(path.join(rootA, 'scratch', 'local-only.js')))
 }
 
+// ---------- 5b. 写入失败 → 自动回滚（v1.3.3） ----------
+{
+  const root = mkRoot('rollback-root', { 'lib/old.js': 'old-content', 'lib/gone.js': 'bye' })
+  // 目标路径先放一个**目录**，writeFile 必然失败（EISDIR/EPERM），模拟半途失败
+  fs.mkdirSync(path.join(root, 'lib', 'blocked.js'), { recursive: true })
+  const files = new Map([
+    ['.zcode-plugin/plugin.json', Buffer.from('{"version":"9.9.9"}')],
+    ['lib/old.js', Buffer.from('NEW')],
+    ['lib/blocked.js', Buffer.from('x')],
+    ['lib/gone.js', Buffer.from('still here')],
+    ['lib/brand-new.js', Buffer.from('new')],
+  ])
+  const res = (await U.applyUpdateFiles(files, '9.9.9', [root], { stamp: 'rb-1' }))[0]
+  const read = (rel) => {
+    try {
+      return fs.readFileSync(path.join(root, rel), 'utf8')
+    } catch (err) {
+      return null
+    }
+  }
+  check('回滚：写入失败时 errors 有记录、rollback.ok 为真', res.errors.length > 0 && !!res.rollback && res.rollback.ok === true, JSON.stringify({ errors: res.errors, rollback: res.rollback }))
+  check('回滚：不写新 manifest（否则下次会把半套文件当已更新）', !U.readManifestFor(root), JSON.stringify(U.readManifestFor(root)))
+  check(
+    '回滚：已写文件恢复原内容、被删文件找回',
+    read('lib/old.js') === 'old-content' && read('lib/gone.js') === 'bye',
+    JSON.stringify({ old: read('lib/old.js'), gone: read('lib/gone.js') })
+  )
+  check('回滚：原本不存在的新文件被清掉', read('lib/brand-new.js') === null, String(read('lib/brand-new.js')))
+  check('回滚：新建的目录未破坏（blocked.js 仍是目录）', (() => {
+    try {
+      return fs.statSync(path.join(root, 'lib', 'blocked.js')).isDirectory()
+    } catch (err) {
+      return false
+    }
+  })())
+}
+
+// ---------- 5c. 更新历史（最多 10 条） ----------
+{
+  U.writeUpdateState({ history: [] })
+  for (let i = 0; i < 12; i++) U.appendUpdateHistory({ from: '1.0.' + i, to: '1.0.' + (i + 1), result: 'ok' })
+  const st = U.readUpdateState()
+  check(
+    '更新历史：最多保留 10 条，新的在末尾',
+    Array.isArray(st.history) && st.history.length === 10 && st.history[9].to === '1.0.12' && typeof st.history[0].at === 'number',
+    JSON.stringify({ n: st.history && st.history.length, last: st.history && st.history[9] })
+  )
+}
+
 // ---------- 6. 跳过标记（widget-state） ----------
 {
   check('updateSkip 写入合法版本号', (() => {
