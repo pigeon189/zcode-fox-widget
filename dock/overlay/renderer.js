@@ -38,10 +38,15 @@ const panelBody = document.getElementById('panel-body')
 const bubble = document.getElementById('bubble')
 const bubbleText = document.getElementById('bubble-text')
 const bubbleSub = document.getElementById('bubble-sub')
+const foxImg = document.getElementById('fox-img')
+const sayEl = document.getElementById('say')
+const sayText = document.getElementById('say-text')
 
 // 设置（由 daemon 持久化，见 daemon/src/settings.mjs）。这里的初值只用于首帧，
 // 真实值在 loadSettings() 回来之前不会影响几何（狐狸默认 1×）。
 let settings = {
+  roleId: 'fox',
+  chatterMs: 300000,
   scale: 1,
   showChip: true,
   followMs: 500,
@@ -62,6 +67,11 @@ let lastBindings = []
 // 上一轮的「今日累计 + 本轮」指纹：用来判断是不是又花了一轮
 let turnFingerprint = null
 let alertTimer = null
+// 角色与台词
+let roleId = 'fox'
+let lastLine = ''
+let sayTimer = null
+let chatterTimer = null
 
 let dragging = false
 let pressing = null // { x, y, at }：按下但还没判定成拖拽
@@ -98,10 +108,11 @@ function place(x, y) {
   fox.style.top = Math.round(y) + 'px'
   placeChip()
   positionBubble()
+  positionSay()
   positionPanel()
 }
 
-const FOX_BASE = 52
+const FOX_BASE = 80
 
 function foxSize() {
   return Math.round(FOX_BASE * (Number(settings.scale) || 1))
@@ -112,6 +123,104 @@ function applyScale() {
   const size = foxSize()
   document.documentElement.style.setProperty('--fox-size', size + 'px')
   document.documentElement.style.setProperty('--fox-font', Math.round(size * 0.654) + 'px')
+}
+
+// ---------- 角色与台词（从挂件线移植） ----------
+
+// 抽一句，尽量不连着说同一句
+function pickLine(pool) {
+  if (!Array.isArray(pool) || !pool.length) return ''
+  if (pool.length === 1) return pool[0]
+  let line = pool[Math.floor(Math.random() * pool.length)]
+  for (let i = 0; i < 3 && line === lastLine; i++) line = pool[Math.floor(Math.random() * pool.length)]
+  lastLine = line
+  return line
+}
+
+function positionSay() {
+  if (sayEl.hidden) return
+  const fw = foxSize()
+  const left = parseFloat(fox.style.left || '0') || 0
+  const top = parseFloat(fox.style.top || '0') || 0
+  const bw = sayEl.offsetWidth || 0
+  const bh = sayEl.offsetHeight || 0
+  let x = left + fw / 2 - bw / 2
+  let y = top - bh - 8
+  sayEl.classList.remove('below')
+  // 面板也在角色旁边：气泡放到面板的**另一边**，别互相压住
+  const panelTop = panelOpen ? parseFloat(panel.style.top || '0') || 0 : NaN
+  const panelAbove = panelOpen && panelTop < top
+  // 上方放不下（或面板在上面）就翻到下面，尖角跟着换方向
+  if (y < 6 || panelAbove) {
+    y = top + fw + 8
+    sayEl.classList.add('below')
+  }
+  x = Math.max(8, Math.min(x, window.innerWidth - bw - 8))
+  sayEl.style.left = Math.round(x) + 'px'
+  sayEl.style.top = Math.round(Math.max(6, y)) + 'px'
+}
+
+function showSay(text, ms) {
+  if (!text) return
+  sayText.textContent = text
+  sayEl.hidden = false
+  positionSay()
+  requestAnimationFrame(() => sayEl.classList.add('open'))
+  if (sayTimer) clearTimeout(sayTimer)
+  sayTimer = setTimeout(hideSay, Number(ms) || 5200)
+}
+
+function hideSay() {
+  if (sayTimer) clearTimeout(sayTimer)
+  sayTimer = null
+  sayEl.classList.remove('open')
+  setTimeout(() => {
+    if (!sayEl.classList.contains('open')) sayEl.hidden = true
+  }, 200)
+}
+
+// 换角色：立绘做一次淡入；speak=true 时说这个角色的「挑经句」
+function applyRole(id, speak) {
+  const role = foxRoleOf(id)
+  if (!role) return
+  const changed = roleId !== role.id
+  roleId = role.id
+  if (changed) {
+    foxImg.classList.add('switching')
+    const clear = () => foxImg.classList.remove('switching')
+    foxImg.addEventListener('load', clear, { once: true })
+    foxImg.addEventListener(
+      'error',
+      () => {
+        // 立绘缺失不该让整个角色消失：退回默认形象
+        foxImg.src = FOX_ROLES.fox.image
+        clear()
+      },
+      { once: true }
+    )
+    foxImg.src = role.image
+    setTimeout(clear, 800)
+  }
+  if (speak) showSay(pickLine(role.pick.length ? role.pick : role.lines), 5200)
+}
+
+function sayRandom() {
+  const role = foxRoleOf(roleId || settings.roleId)
+  showSay(pickLine(role.lines), 5200)
+}
+
+// 随机台词：默认 5 分钟一句，可在设置里调或关掉。
+// 拖拽中 / 面板开着 / 数字气泡正在显示时不抢话。
+function restartChatter() {
+  if (chatterTimer) clearInterval(chatterTimer)
+  chatterTimer = null
+  const ms = Number(settings.chatterMs) || 0
+  if (ms <= 0) return
+  chatterTimer = setInterval(() => {
+    if (dragging || pressing || panelOpen) return
+    if (!bubble.hidden) return
+    sayRandom()
+  }, Math.max(30000, ms))
 }
 
 // ---------- 气泡（每轮消耗 / 预算提醒） ----------
@@ -193,6 +302,8 @@ async function saveSettings(patch) {
 
 function applySettings() {
   applyScale()
+  applyRole(settings.roleId)
+  restartChatter()
   updateChipVisibility()
   restartFollowTimer()
   restartAlertTimer()
@@ -668,6 +779,39 @@ function renderSettings() {
 
   panelBody.appendChild(
     settingRow(
+      '角色',
+      selectControl(
+        FOX_ROLE_ORDER.map((id) => ({ value: id, label: FOX_ROLES[id].name })),
+        settings.roleId,
+        (v) => {
+          // 先换立绘并说一句「挑经句」，再落盘（saveSettings 内部不会重复换）
+          applyRole(v, true)
+          saveSettings({ roleId: v })
+        }
+      ),
+      '换角色会同时换立绘和台词。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
+      '随机台词',
+      selectControl(
+        [
+          { value: 0, label: '不说话' },
+          { value: 180000, label: '3 分钟' },
+          { value: 300000, label: '5 分钟' },
+          { value: 600000, label: '10 分钟' },
+        ],
+        settings.chatterMs,
+        (v) => saveSettings({ chatterMs: Number(v) })
+      ),
+      '角色会自己冒一句；拖拽中、面板打开时不说。'
+    )
+  )
+
+  panelBody.appendChild(
+    settingRow(
       '大小',
       selectControl(
         [
@@ -1052,6 +1196,7 @@ async function bind(win) {
       renderChip(null)
       startBilling()
       placeByAnchor(win.rect)
+      sayRandom()
       return true
     }
   } catch (err) {}
@@ -1152,6 +1297,7 @@ window.addEventListener('pointerup', async (e) => {
 
   if (!wasDragging) {
     window.__foxDebug.clicks++
+    sayRandom()
     togglePanel()
     if (!panelOpen) setInteractive(isOverFox(e.clientX, e.clientY))
     return

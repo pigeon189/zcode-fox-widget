@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div id="say" hidden>
+      <span id="say-text"></span>
+    </div>
     <div id="bubble" hidden>
       <span id="bubble-text"></span>
       <span id="bubble-sub"></span>
@@ -27,7 +30,10 @@
       </div>
       <div id="panel-body"></div>
     </div>
-    <div id="fox" title="拖到 agent 窗口上；单击看明细">🦊</div>
+    <div id="fox" title="拖到 agent 窗口上；单击看明细">
+      <img id="fox-img" src="assets/roles/fox.png" alt="" draggable="false" />
+    </div>
+    <script src="roles.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

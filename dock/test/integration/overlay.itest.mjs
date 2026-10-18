@@ -253,7 +253,7 @@ test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口', async (t) =>
   const targetX = (fakeWin.rect.x + Math.floor(fakeWin.rect.w / 2)) / dpr0 - curSx
   const targetY = (fakeWin.rect.y + Math.floor(fakeWin.rect.h / 2)) / dpr0 - curSy
   // 松手时狐狸的左上角（拖动时是按指针居中放置的）
-  dropPos = { x: targetX - 26, y: targetY - 26 }
+  dropPos = { x: targetX - 40, y: targetY - 40 }
 
   // 先确认这个点确实命中的是假窗口：桌面上别的窗口盖住它时，后面会绑错对象，
   // 失败信息会变成「binding created 超时」，看不出真正原因。
@@ -363,8 +363,8 @@ test('snap: 放到窗口右侧 → 贴右边缘（四分吸附）', async (t) =>
   const hCss = fakeWin.rect.h / dpr
   const winLeft = toX - wCss * 0.9
   const winTop = toY - hCss * 0.2
-  // 默认设置 scrollGap=17：贴右边要给滚动条留出 17px
-  const wantX = winLeft + wCss - 52 - 17
+  // 默认设置 scrollGap=17：贴右边要给滚动条留出 17px；角色默认 64px
+  const wantX = winLeft + wCss - 80 - 17
   const wantY = winTop
   const fox = await waitFor(async () => {
     const r = JSON.parse(
@@ -517,13 +517,16 @@ test('settings: 面板里的「大小」改完立刻生效，并写回服务端'
   const ctl = JSON.parse(hasControls)
   assert.ok(ctl.select >= 2 && ctl.number >= 3 && ctl.check >= 3, hasControls)
 
+  // 按 label 找控件：面板里第一个 select 现在是「角色」，不能再靠位置选
   await cdp.eval(
-    "(function(){var s=document.querySelector('#panel-body .setting select');s.value='1.5';" +
-      "s.dispatchEvent(new Event('change',{bubbles:true}));return true})()"
+    "(function(){var rows=document.querySelectorAll('#panel-body .setting');" +
+      "for(var i=0;i<rows.length;i++){var l=rows[i].querySelector('label');" +
+      "if(l&&l.textContent==='大小'){var s=rows[i].querySelector('select');s.value='1.5';" +
+      "s.dispatchEvent(new Event('change',{bubbles:true}));return true}}return false})()"
   )
   const size = await waitFor(async () => {
     const w = Number(await cdp.eval("document.getElementById('fox').getBoundingClientRect().width"))
-    return w >= 77 && w <= 79 ? w : null
+    return w >= 119 && w <= 121 ? w : null
   }, 5000, 'fox resized to 1.5x')
   assert.ok(size)
 
@@ -532,8 +535,10 @@ test('settings: 面板里的「大小」改完立刻生效，并写回服务端'
 
   // 复位，后面的用例按 1× 计算几何
   await cdp.eval(
-    "(function(){var s=document.querySelector('#panel-body .setting select');s.value='1';" +
-      "s.dispatchEvent(new Event('change',{bubbles:true}));return true})()"
+    "(function(){var rows=document.querySelectorAll('#panel-body .setting');" +
+      "for(var i=0;i<rows.length;i++){var l=rows[i].querySelector('label');" +
+      "if(l&&l.textContent==='大小'){var s=rows[i].querySelector('select');s.value='1';" +
+      "s.dispatchEvent(new Event('change',{bubbles:true}));return true}}return false})()"
   )
   await sleep(300)
 })
@@ -683,4 +688,127 @@ test('guard: 最小化窗口的 -32000 矩形不会把狐狸扔到屏幕外', as
   )
   // 无效矩形时狐狸必须待在原处，不能被摆到屏幕外
   assert.ok(Math.abs(after.x - before.x) <= 1 && Math.abs(after.y - before.y) <= 1, JSON.stringify({ before, after }))
+})
+
+// ---------- 角色立绘与台词（R12） ----------
+
+test('role: 默认显示嘎啦嘛立绘，尺寸跟着设置走', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const info = JSON.parse(
+    await cdp.eval(
+      "(function(){var i=document.getElementById('fox-img');var r=i.getBoundingClientRect();" +
+        "return JSON.stringify({src:i.getAttribute('src'),w:r.width,h:r.height," +
+        "natural:i.naturalWidth,role:roleId})})()"
+    )
+  )
+  assert.match(info.src, /assets\/roles\/fox\.png$/)
+  assert.equal(info.role, 'fox')
+  assert.equal(info.w, 80)
+  assert.equal(info.h, 80)
+  assert.ok(info.natural > 0, '立绘必须真的加载出来')
+})
+
+test('role: 切换角色 → 立绘换图、说挑经句、落盘', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  await cdp.eval("togglePanel(true); activeTab='settings'; renderPanel(null, [])")
+  const switched = await cdp.eval(
+    "(function(){var rows=document.querySelectorAll('#panel-body .setting');" +
+      "for(var i=0;i<rows.length;i++){var l=rows[i].querySelector('label');" +
+      "if(l&&l.textContent==='角色'){var s=rows[i].querySelector('select');s.value='kimi';" +
+      "s.dispatchEvent(new Event('change',{bubbles:true}));return true}}return false})()"
+  )
+  assert.equal(switched, true, '设置页应该有角色下拉')
+
+  const img = await waitFor(async () => {
+    const v = JSON.parse(
+      await cdp.eval(
+        "(function(){var i=document.getElementById('fox-img');" +
+          "return JSON.stringify({src:i.getAttribute('src'),natural:i.naturalWidth})})()"
+      )
+    )
+    return /kimi\.png$/.test(v.src) && v.natural > 0 ? v : null
+  }, 8000, 'role image switched')
+  assert.ok(img)
+
+  // 换角色会说一句「挑经句」
+  const said = await waitFor(
+    async () => {
+      const v = JSON.parse(
+        await cdp.eval(
+          "(function(){var s=document.getElementById('say');" +
+            "return JSON.stringify({hidden:s.hidden,text:s.textContent.trim()})})()"
+        )
+      )
+      return v.hidden === false && v.text ? v : null
+    },
+    4000,
+    'role speaks on switch'
+  )
+  assert.ok(said)
+  assert.ok(said.text.length >= 2, said.text)
+
+  const saved = await (await fetch('http://127.0.0.1:' + port + '/settings')).json()
+  assert.equal(saved.settings.roleId, 'kimi')
+
+  // 复位
+  await cdp.eval(
+    "(function(){var rows=document.querySelectorAll('#panel-body .setting');" +
+      "for(var i=0;i<rows.length;i++){var l=rows[i].querySelector('label');" +
+      "if(l&&l.textContent==='角色'){var s=rows[i].querySelector('select');s.value='fox';" +
+      "s.dispatchEvent(new Event('change',{bubbles:true}));return true}}return false})()"
+  )
+  await sleep(400)
+  await cdp.eval('togglePanel(false)')
+})
+
+test('role: 说话气泡会出现、自动消失，且相邻两次不重复', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  await cdp.eval('hideSay()')
+  await waitFor(async () => (await cdp.eval("document.getElementById('say').hidden")) === true, 3000, 'say hidden')
+  await cdp.eval('sayRandom()')
+  const shown = await waitFor(async () => {
+    const v = JSON.parse(
+      await cdp.eval(
+        "(function(){var s=document.getElementById('say');" +
+          "return JSON.stringify({hidden:s.hidden,open:s.classList.contains('open'),text:s.textContent.trim()})})()"
+      )
+    )
+    return v.hidden === false && v.open && v.text ? v : null
+  }, 3000, 'say visible')
+  assert.ok(shown)
+  assert.ok(shown.text.length >= 2, shown.text)
+
+  const lines = JSON.parse(
+    await cdp.eval(
+      "(function(){var out=[];for(var i=0;i<30;i++)out.push(pickLine(FOX_ROLES.whale.lines));" +
+        "return JSON.stringify(out)})()"
+    )
+  )
+  assert.equal(lines.length, 30)
+  for (let i = 1; i < lines.length; i++) {
+    assert.notEqual(lines[i], lines[i - 1], '相邻两次台词不能重复')
+  }
+  await cdp.eval('hideSay()')
+})
+
+test('role: 六个角色的立绘与台词池都完整', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const packs = JSON.parse(
+    await cdp.eval(
+      "(function(){var out={};for(var id in FOX_ROLES){var r=FOX_ROLES[id];" +
+        "out[id]={name:r.name,image:r.image,pick:r.pick.length,lines:r.lines.length}}return JSON.stringify(out)})()"
+    )
+  )
+  const ids = Object.keys(packs)
+  assert.equal(ids.length, 6)
+  for (const id of ids) {
+    assert.ok(packs[id].name, id + ' 缺名字')
+    assert.match(packs[id].image, new RegExp('assets/roles/' + id + '\\.png$'))
+    assert.ok(packs[id].pick >= 1, id + ' 缺挑经句')
+    assert.ok(packs[id].lines >= 7, id + ' 台词太少')
+  }
 })

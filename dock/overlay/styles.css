@@ -21,16 +21,29 @@ body {
   width: var(--fox-size);
   height: var(--fox-size);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  font-size: var(--fox-font);
   line-height: 1;
-  border-radius: calc(var(--fox-size) * 0.27);
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
   cursor: grab;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.28));
   transition: left 120ms ease-out, top 120ms ease-out, transform 120ms ease-out;
   z-index: 10;
+}
+
+/* 立绘是透明底 PNG（610×610），容器只负责尺寸与命中框 */
+#fox img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  transition: opacity 160ms ease-out;
+}
+
+#fox img.switching {
+  opacity: 0.35;
 }
 
 #fox.dragging {
@@ -39,10 +52,10 @@ body {
   transition: none;
 }
 
-/* 拖到可绑定的窗口上时，只让狐狸自己有反应——不画目标框 */
+/* 拖到可绑定的窗口上时，只让角色自己有反应——不画目标框 */
 #fox.armed {
   transform: scale(1.04);
-  box-shadow: 0 0 0 3px rgba(255, 159, 67, 0.85), 0 6px 18px rgba(0, 0, 0, 0.22);
+  filter: drop-shadow(0 0 5px rgba(255, 159, 67, 0.95)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.28));
 }
 
 #fox.armed.dragging {
@@ -395,5 +408,64 @@ body {
   #panel .diag-log {
     background: rgba(255, 255, 255, 0.06);
     color: #bdc1c6;
+  }
+}
+
+/* ---------- 台词气泡（点击 / 随机说话） ---------- */
+:root {
+  --say-bg: rgba(255, 255, 255, 0.97);
+  --say-ink: #1f2328;
+}
+
+#say {
+  position: absolute;
+  /* 绝对定位默认会收缩到最小内容宽度（中文会被压成一列字），按内容撑开再限宽 */
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--say-bg);
+  color: var(--say-ink);
+  font: 12px/1.45 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  white-space: normal;
+  word-break: break-word;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+  z-index: 14;
+}
+
+#say[hidden] {
+  display: none;
+}
+
+#say.open {
+  opacity: 1;
+}
+
+/* 尖角：默认朝下（气泡在角色上方）；空间不够翻到下方时朝上 */
+#say::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: var(--say-bg);
+  border-bottom: 0;
+}
+
+#say.below::after {
+  top: -5px;
+  bottom: auto;
+  border-top: 0;
+  border-bottom: 5px solid var(--say-bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --say-bg: rgba(32, 36, 43, 0.97);
+    --say-ink: #e8eaed;
   }
 }

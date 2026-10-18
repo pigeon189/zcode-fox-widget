@@ -57,6 +57,16 @@ test('settings: 数值越界夹回，布尔接受字符串', () => {
   assert.equal(s.alertBubble, true)
 })
 
+test('settings: 角色只认内置 id，未知值回落 fox', () => {
+  assert.equal(normalizeSettings({ roleId: 'kimi' }).roleId, 'kimi')
+  assert.equal(normalizeSettings({ roleId: 'evil' }).roleId, 'fox')
+  assert.equal(normalizeSettings({ roleId: null }).roleId, 'fox')
+  // 随机台词间隔只留 0 / 3 / 5 / 10 分钟四档
+  assert.equal(normalizeSettings({ chatterMs: 0 }).chatterMs, 0)
+  assert.equal(normalizeSettings({ chatterMs: 170000 }).chatterMs, 180000)
+  assert.equal(normalizeSettings({ chatterMs: 999999 }).chatterMs, 600000)
+})
+
 test('settings: 预算保留两位小数，NaN 当非法值', () => {
   assert.equal(normalizeSettings({ budgetMoney: 12.3456 }).budgetMoney, 12.35)
   assert.equal(normalizeSettings({ budgetMoney: 'abc' }).budgetMoney, 0)

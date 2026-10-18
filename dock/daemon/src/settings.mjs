@@ -9,7 +9,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export const DEFAULTS = {
-  // 狐狸大小（倍率）。只允许这几档：连续值会让吸附/气泡定位在不同缩放下出偏差
+  // 角色（立绘 + 台词）。未知 id 一律回落 fox，见 normalizeSettings
+  roleId: 'fox',
+  // 随机台词间隔（ms）。0 = 不说话
+  chatterMs: 300000,
+  // 角色大小（倍率）。只允许这几档：连续值会让吸附/气泡定位在不同缩放下出偏差
   scale: 1,
   showChip: true,
   // 绑定窗口的跟随间隔（ms）
@@ -28,6 +32,8 @@ export const DEFAULTS = {
 
 export const SCALES = [0.75, 1, 1.25, 1.5]
 const FOLLOW_MS = [250, 500, 1000]
+export const ROLES = ['fox', 'whale', 'gpt', 'kimi', 'xiaoke', 'gemini']
+export const CHATTER_MS = [0, 180000, 300000, 600000]
 
 function clampNum(v, min, max, fallback) {
   const n = typeof v === 'number' ? v : Number(v)
@@ -50,7 +56,13 @@ export function normalizeSettings(raw) {
   const scale = SCALES.reduce((best, s) => (Math.abs(s - scaleRaw) < Math.abs(best - scaleRaw) ? s : best), SCALES[0])
   const followRaw = clampNum(r.followMs, 200, 5000, DEFAULTS.followMs)
   const followMs = FOLLOW_MS.reduce((best, s) => (Math.abs(s - followRaw) < Math.abs(best - followRaw) ? s : best), FOLLOW_MS[0])
+  const roleRaw = String(r.roleId || '')
+  const roleId = ROLES.includes(roleRaw) ? roleRaw : DEFAULTS.roleId
+  const chatterRaw = clampNum(r.chatterMs, 0, 600000, DEFAULTS.chatterMs)
+  const chatterMs = CHATTER_MS.reduce((best, s) => (Math.abs(s - chatterRaw) < Math.abs(best - chatterRaw) ? s : best), CHATTER_MS[0])
   return {
+    roleId,
+    chatterMs,
     scale,
     showChip: bool(r.showChip, DEFAULTS.showChip),
     followMs,
