@@ -392,7 +392,10 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       }
       try {
         const hwnd = url.searchParams.get('hwnd') || ''
-        sendJson(res, 200, { ok: true, rect: await bridge.rect(hwnd) })
+        const r = await bridge.rect(hwnd)
+        // 桥会区分「窗口最小化 / 已离屏」与「读失败」：前者前端要原地等，后者才解绑
+        if (r && r.ok && r.rect) sendJson(res, 200, { ok: true, rect: r.rect })
+        else sendJson(res, 200, { ok: false, reason: (r && (r.reason || r.error)) || 'rect-unavailable' })
       } catch (err) {
         sendJson(res, 500, { ok: false, error: String((err && err.message) || err) })
       }

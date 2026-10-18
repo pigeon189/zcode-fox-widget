@@ -986,7 +986,19 @@ function anchorForDrop(win) {
   return a
 }
 
+// Windows 给最小化窗口的矩形是 (-32000,-32000)：拿它定位会把狐狸扔到屏幕外
+// （真机踩过：用户以为挂件没启动）。宁可不动，也不要摆到看不见的地方。
+function plausibleRect(rect) {
+  if (!rect || typeof rect !== 'object') return false
+  const { x, y, w, h } = rect
+  if (![x, y, w, h].every((v) => typeof v === 'number' && Number.isFinite(v))) return false
+  if (w <= 0 || h <= 0) return false
+  if (x <= -30000 || y <= -30000) return false
+  return true
+}
+
 function placeByAnchor(rect) {
+  if (!plausibleRect(rect)) return
   lastBoundRect = rect
   const tl = windowTopLeft(rect)
   const w = rect.w / DPR
@@ -1192,6 +1204,8 @@ function restartFollowTimer() {
       const data = await res.json()
       if (data.ok && data.rect) {
         placeByAnchor(data.rect)
+      } else if (data.reason === 'minimized' || data.reason === 'offscreen' || data.reason === 'rect-failed') {
+        // 宿主最小化 / 暂时离屏：保留绑定，狐狸就地等着，别把绑定也丢了
       } else {
         await unbind()
       }
@@ -1209,7 +1223,11 @@ async function restoreBinding() {
     for (const b of list) {
       const rectRes = await fetch(base + '/rect?hwnd=' + encodeURIComponent(b.window.hwnd), { cache: 'no-store' })
       const rect = await rectRes.json()
-      if (!rect.ok || !rect.rect) continue
+      const rectOk = rect.ok && rect.rect && plausibleRect(rect.rect)
+      // 窗口只是最小化/暂时离屏：绑定仍然有效，先认领，等它回来再摆位置。
+      // 只有读不到矩形（窗口已经关了）才放弃这条绑定。
+      const transient = rect.reason === 'minimized' || rect.reason === 'offscreen' || rect.reason === 'rect-failed'
+      if (!rectOk && !transient) continue
       const det = await (
         await fetch(
           base +
@@ -1231,7 +1249,7 @@ async function restoreBinding() {
       updateChipVisibility()
       renderChip(null)
       startBilling()
-      placeByAnchor(rect.rect)
+      if (rectOk) placeByAnchor(rect.rect)
       return true
     }
   } catch (err) {}

@@ -82,8 +82,15 @@ export class Win32Bridge {
         const item = this.#pending.shift()
         if (!item) return
         clearTimeout(item.timer)
-        if (msg.ok === false) item.reject(new BridgeError(msg.error || 'bridge error'))
-        else item.resolve(msg)
+        if (msg.ok === false) {
+          // 把结构化失败挂到错误上：rect 需要区分「最小化」和「真失败」，
+          // 不能统一压成 bridge error
+          const err = new BridgeError(msg.error || msg.reason || 'bridge error')
+          err.payload = msg
+          item.reject(err)
+        } else {
+          item.resolve(msg)
+        }
       })
 
       child.on('exit', (code) => {
@@ -140,9 +147,18 @@ export class Win32Bridge {
     return res.hits || []
   }
 
+  // 返回 { ok, rect } 或 { ok:false, reason }：调用方要能区分
+  // minimized / offscreen（原地等）与 rect-failed（解绑）
   async rect(hwnd) {
-    const res = await this.#request('rect ' + String(hwnd).replace(/^0x/, ''))
-    return res.rect
+    try {
+      const res = await this.#request('rect ' + String(hwnd).replace(/^0x/, ''))
+      return res.rect ? { ok: true, rect: res.rect } : { ok: false, reason: 'rect-unavailable' }
+    } catch (err) {
+      if (err && err.payload && err.payload.ok === false) {
+        return { ok: false, reason: err.payload.reason || err.payload.error || 'rect-failed' }
+      }
+      throw err
+    }
   }
 
   async cursor() {

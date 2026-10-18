@@ -210,9 +210,16 @@ public static class FoxWin32
         if (!long.TryParse(hwndHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out raw))
             return "{\"ok\":false,\"error\":\"bad-hwnd\"}";
         IntPtr h = new IntPtr(raw);
+        // 最小化的窗口没有可用的屏幕矩形：Windows 会给 (-32000,-32000)，
+        // 直接拿去定位会把浮层放到屏幕外（真机踩过：狐狸消失）
+        if (IsIconic(h)) return "{\"ok\":false,\"reason\":\"minimized\"}";
         RECT r;
-        if (!GetWindowRect(h, out r)) return "{\"ok\":false,\"error\":\"rect-failed\"}";
-        return "{\"ok\":true,\"rect\":{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + (r.Right - r.Left) + ",\"h\":" + (r.Bottom - r.Top) + "}}";
+        if (!GetWindowRect(h, out r)) return "{\"ok\":false,\"reason\":\"rect-failed\"}";
+        int w = r.Right - r.Left;
+        int hh = r.Bottom - r.Top;
+        if (w <= 0 || hh <= 0 || r.Left <= -30000 || r.Top <= -30000)
+            return "{\"ok\":false,\"reason\":\"offscreen\"}";
+        return "{\"ok\":true,\"rect\":{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + w + ",\"h\":" + hh + "}}";
     }
 }
 '@

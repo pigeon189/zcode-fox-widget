@@ -653,3 +653,34 @@ test('search: 明细列表按适配器名过滤', async (t) => {
   assert.ok(v.filtered.indexOf('ZCode') === -1 && v.filtered.indexOf('WorkBuddy') !== -1, v.filtered)
   assert.ok(v.none.indexOf('无匹配') !== -1, v.none)
 })
+
+test('guard: 最小化窗口的 -32000 矩形不会把狐狸扔到屏幕外', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const before = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"
+    )
+  )
+  const plausible = JSON.parse(
+    await cdp.eval(
+      "(function(){return JSON.stringify({min:plausibleRect({x:-32000,y:-32000,w:283,h:40})," +
+        "zero:plausibleRect({x:0,y:0,w:0,h:40}),nan:plausibleRect({x:NaN,y:0,w:10,h:10})," +
+        "ok:plausibleRect({x:0,y:0,w:800,h:600})})})()"
+    )
+  )
+  assert.equal(plausible.min, false)
+  assert.equal(plausible.zero, false)
+  assert.equal(plausible.nan, false)
+  assert.equal(plausible.ok, true)
+
+  await cdp.eval("placeByAnchor({x:-32000,y:-32000,w:283,h:40})")
+  await sleep(200)
+  const after = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"
+    )
+  )
+  // 无效矩形时狐狸必须待在原处，不能被摆到屏幕外
+  assert.ok(Math.abs(after.x - before.x) <= 1 && Math.abs(after.y - before.y) <= 1, JSON.stringify({ before, after }))
+})

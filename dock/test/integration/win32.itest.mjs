@@ -52,7 +52,8 @@ test('bridge: 排除自身 pid 后不再返回该进程的窗口', async () => {
 test('bridge: rect 与 snapshot 一致', async () => {
   const w = windows.find((x) => x.rect.w > 200 && x.rect.h > 200) || windows[0]
   const r = await bridge.rect(w.hwnd)
-  assert.deepEqual(r, w.rect)
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.rect, w.rect)
 })
 
 test('bridge: 连续 200 次命中 < 3s（拖拽采样预算）', async () => {
@@ -63,4 +64,19 @@ test('bridge: 连续 200 次命中 < 3s（拖拽采样预算）', async () => {
   for (let i = 0; i < 200; i++) await bridge.hit(cx, cy)
   const ms = Date.now() - t0
   assert.ok(ms < 3000, '200 hits took ' + ms + 'ms')
+})
+
+test('bridge: rect 对无效句柄返回结构化失败（不抛错）', async () => {
+  const r = await bridge.rect('fffff')
+  assert.equal(r.ok, false)
+  assert.equal(r.reason, 'rect-failed')
+})
+
+test('bridge: rect 对正常窗口返回可用矩形', async () => {
+  const w = windows[0]
+  const r = await bridge.rect(w.hwnd)
+  assert.equal(r.ok, true)
+  assert.ok(r.rect.w > 0 && r.rect.h > 0)
+  // 桥与 snapshot 必须看到同一个矩形（差 1px 容差）
+  assert.ok(Math.abs(r.rect.x - w.rect.x) <= 1 && Math.abs(r.rect.y - w.rect.y) <= 1)
 })
