@@ -2069,9 +2069,11 @@ try {
       'hasApiKey=' + diag.config.hasApiKey
     )
     check(
-      '关于 / 自检：带更新状态与浮层日志尾部（数组，最多 20 行）',
+      '关于 / 自检：带更新状态与浮层日志尾部（无任务时 phase 归 null）',
       !!diag.update &&
         typeof diag.update.current !== 'undefined' &&
+        diag.update.busy === false &&
+        diag.update.phase === null &&
         Array.isArray(diag.logs.overlayTail) &&
         diag.logs.overlayTail.length <= 20,
       JSON.stringify({ update: diag.update && diag.update.current, tail: diag.logs.overlayTail.length })
