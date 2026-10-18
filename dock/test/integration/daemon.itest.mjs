@@ -157,3 +157,71 @@ test('watchdog: daemon 被强杀后自动拉起，正常停止后一起退出', 
     } catch (err) {}
   }
 })
+
+test('watchdog: 连续 8 次强杀都能拉起，绑定不丢', async () => {
+  const wdir = tempDir('fox-dock-crash-')
+  const wd = spawn(process.execPath, [WATCHDOG, '--data-dir', wdir, '--port', '0', '--restart-delay', '150'], {
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+  try {
+    let cur = await waitHealth(wdir)
+    assert.ok(cur, 'watchdog did not start')
+
+    // 先写一条绑定，验证反复崩溃不丢数据
+    const key = 'c:/x/fake.exe|1|1700000000000|abc'
+    await fetch('http://127.0.0.1:' + cur.health.port + '/bind', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        exe: 'C://x//fake.exe',
+        pid: 1,
+        startMs: 1700000000000,
+        hwnd: 'abc',
+        title: 'crash-test',
+      }),
+    })
+
+    const pids = [cur.health.pid]
+    for (let i = 0; i < 8; i++) {
+      process.kill(cur.health.pid, 'SIGKILL')
+      const deadline = Date.now() + 15000
+      let next = null
+      while (Date.now() < deadline) {
+        const h = await waitHealth(wdir, 1200)
+        if (h && h.health.pid !== cur.health.pid) {
+          next = h
+          break
+        }
+        await sleep(120)
+      }
+      assert.ok(next, 'restart #' + (i + 1) + ' failed')
+      cur = next
+      pids.push(cur.health.pid)
+    }
+
+    assert.equal(new Set(pids).size, pids.length, 'pid should change on every restart')
+    const binds = await (await fetch('http://127.0.0.1:' + cur.health.port + '/bindings')).json()
+    assert.ok(
+      (binds.bindings || []).some((b) => b.key === key),
+      'binding should survive 8 crashes'
+    )
+
+    await fetch('http://127.0.0.1:' + cur.health.port + '/shutdown', {
+      method: 'POST',
+      headers: { 'x-fox-token': cur.lock.token },
+    })
+    const code = await new Promise((resolve) => {
+      wd.once('exit', (c) => resolve(c))
+      setTimeout(() => resolve('timeout'), 8000)
+    })
+    assert.equal(code, 0)
+  } finally {
+    try {
+      wd.kill()
+    } catch (err) {}
+    try {
+      fs.rmSync(wdir, { recursive: true, force: true })
+    } catch (err) {}
+  }
+})

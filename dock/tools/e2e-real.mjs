@@ -106,6 +106,10 @@ function check(name, ok, detail) {
   results.push({ name, ok })
   log((ok ? '✅ ' : '❌ ') + name + (detail && !ok ? '  ' + JSON.stringify(detail) : ''))
 }
+function skip(name, detail) {
+  results.push({ name, ok: true, skipped: true })
+  log('⏭ ' + name + '（跳过：' + detail + '）')
+}
 
 async function main() {
   const ELECTRON = electronBinary()
@@ -213,7 +217,15 @@ async function main() {
       return null
     }
 
+    async function topHitAt(t) {
+      const x = Math.round(t.rect.x + t.rect.w / 2)
+      const y = Math.round(t.rect.y + t.rect.h / 2)
+      const r = await (await fetch('http://127.0.0.1:' + port + '/hit?x=' + x + '&y=' + y + '&exclude=' + overlay.pid)).json()
+      return (r.hits || []).find((h) => !ignored.has(h.pid)) || null
+    }
+
     // 逐个目标：从狐狸当前位置拖到目标窗口的可见点
+    const boundUnits = new Set()
     let index = 0
     for (const target of targets) {
       index++
@@ -227,7 +239,10 @@ async function main() {
       const sy = Number(await cdp.eval('window.screenY')) || 0
       const spot = await pickVisiblePoint(target)
       if (!spot) {
-        check('真机拖拽 #' + index + '：找到 ' + path.basename(target.exe) + ' 的可见区域', false, '窗口被完全遮住')
+        // 用户可能正把别的窗口铺满屏幕。这不是 dock 的缺陷，别报成失败——
+        // 但也绝不假装通过：单独计成 skipped，并在结尾如实说明。
+        const top = await topHitAt(target)
+        skip('真机拖拽 #' + index + '：' + path.basename(target.exe), '窗口被遮挡' + (top ? '（最上层是 ' + (top.title || top.exe) + '）' : ''))
         continue
       }
       const toX = spot.x / dpr - sx
@@ -264,6 +279,7 @@ async function main() {
         continue
       }
       check('真机拖拽 #' + index + '：绑定到 ' + expected, true)
+      boundUnits.add(expected === 'zcode' ? 'money' : 'credit')
       vlog('binding', binding.key)
 
       // 数字：等到不是「读取中」
@@ -287,10 +303,15 @@ async function main() {
       }
     }
 
-    // 汇总接口：至少两个适配器进了账本
+    // 汇总接口：已绑定的适配器都要进账本（被遮挡跳过的不算）
     const summary = await (await fetch('http://127.0.0.1:' + port + '/summary')).json()
     const units = new Set((summary.today.groups || []).map((g) => g.unit))
-    check('汇总：同时包含金额与积分两种口径', units.has('money') && units.has('credit'), [...units])
+    const missing = [...boundUnits].filter((u) => !units.has(u))
+    check(
+      '汇总：包含已绑定适配器的口径（' + ([...boundUnits].join(' + ') || '无') + '）',
+      boundUnits.size > 0 && missing.length === 0,
+      { bound: [...boundUnits], got: [...units] }
+    )
   } finally {
     if (cdp) cdp.close()
     for (const p of [overlay, daemon]) {
@@ -309,9 +330,14 @@ async function main() {
   }
 
   const failed = results.filter((r) => !r.ok)
+  const skipped = results.filter((r) => r.skipped)
   log('')
-  log(failed.length ? '❌ ' + failed.length + '/' + results.length + ' 项失败' : '✅ ' + results.length + ' 项全过')
-  process.exit(failed.length ? 1 : 0)
+  if (failed.length) {
+    log('❌ ' + failed.length + '/' + results.length + ' 项失败' + (skipped.length ? '（另有 ' + skipped.length + ' 项跳过）' : ''))
+    process.exit(1)
+  }
+  log('✅ ' + (results.length - skipped.length) + '/' + results.length + ' 项全过' + (skipped.length ? '，' + skipped.length + ' 项因窗口被遮挡跳过' : ''))
+  process.exit(0)
 }
 
 main().catch((err) => {

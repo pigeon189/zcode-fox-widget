@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { safeRelPath, stripTopDir, untar } from '../../shared/tar.mjs'
+import { verifyManifest } from '../../shared/manifest.mjs'
 
 export const DEFAULT_CHANNEL = 'feat/dock'
 export const MAX_PACKAGE_BYTES = 32 * 1024 * 1024
@@ -72,13 +73,19 @@ export function extractPackage(gzBuffer) {
   return files
 }
 
-export async function fetchManifest(url, { timeoutMs = 8000 } = {}) {
+export async function fetchManifest(url, { timeoutMs = 8000, publicKeyPem = '', requireSignature = true } = {}) {
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), cache: 'no-store' })
   if (!res.ok) throw new Error('manifest http ' + res.status)
   const m = await res.json()
   if (!m || typeof m.version !== 'string') throw new Error('manifest: version required')
   if (typeof m.url !== 'string' || !/^https?:\/\//.test(m.url)) throw new Error('manifest: url required')
   if (typeof m.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(m.sha256)) throw new Error('manifest: sha256 required')
+
+  // 签名：默认必须验。sha256 只能证明「包与清单一致」，证明不了「清单是发布者写的」。
+  if (requireSignature) {
+    const v = verifyManifest(m, publicKeyPem)
+    if (!v.ok) throw new Error('manifest signature invalid: ' + v.reason)
+  }
   return m
 }
 
@@ -173,6 +180,29 @@ export function writeUpdateState(file, patch) {
   return next
 }
 
+// 备份目录只留最近几份：每次更新一份完整备份，长期不清理会吃掉几百 MB。
+export function pruneBackups(dir, keep = 3) {
+  let names = []
+  try {
+    names = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort()
+  } catch (err) {
+    return { removed: 0 }
+  }
+  const drop = names.slice(0, Math.max(0, names.length - keep))
+  let removed = 0
+  for (const name of drop) {
+    try {
+      fs.rmSync(path.join(dir, name), { recursive: true, force: true })
+      removed++
+    } catch (err) {}
+  }
+  return { removed }
+}
+
 export function appendHistory(file, entry) {
   const st = readUpdateState(file)
   const hist = (st.history || []).slice(-9)
@@ -225,6 +255,7 @@ export async function updateFromManifest(manifest, { root, dataDir, currentVersi
   }
 
   appendHistory(stateFile, { from: currentVersion, to: manifest.version, result: 'ok' })
+  pruneBackups(path.join(dataDir, 'backups'))
   writeUpdateState(stateFile, {
     current: currentVersion,
     latest: manifest.version,

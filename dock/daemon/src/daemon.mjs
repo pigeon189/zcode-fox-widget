@@ -12,6 +12,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { VERSION } from './main.mjs'
@@ -49,8 +50,22 @@ export function parseArgs(argv) {
   return out
 }
 
+// 内存里留最近 200 行日志：/diag.json 要能带出去，而常驻进程的 stdout 常常没人接
+const LOG_RING = []
 function log(...parts) {
-  console.log('[fox-dock] ' + parts.join(' '))
+  const line = '[fox-dock] ' + parts.join(' ')
+  LOG_RING.push(new Date().toISOString().slice(11, 19) + ' ' + parts.join(' '))
+  if (LOG_RING.length > 200) LOG_RING.shift()
+  console.log(line)
+}
+
+function redactHome(text) {
+  try {
+    const home = os.homedir()
+    return home ? String(text).split(home).join('~') : String(text)
+  } catch (err) {
+    return String(text)
+  }
 }
 
 function sendJson(res, code, obj) {
@@ -162,6 +177,16 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   const adapters = builtinAdapters
   const billing = createBillingService({ adapters })
 
+  // 更新状态文件由 CLI 写、daemon 只读；读不到就给空历史，不要把诊断接口弄挂
+  function readUpdateStateSafe() {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(paths.dir, 'update-state.json'), 'utf8'))
+      return { latest: raw.latest || null, appliedVersion: raw.appliedVersion || null, history: Array.isArray(raw.history) ? raw.history.slice(-5) : [] }
+    } catch (err) {
+      return { latest: null, appliedVersion: null, history: [] }
+    }
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1')
     const p = url.pathname
@@ -246,6 +271,40 @@ export async function runDaemon(argv = process.argv.slice(2)) {
         now: Date.now(),
       })
       sendJson(res, 200, { ok: true, bindingKey: binding.key, snapshot: snap })
+      return
+    }
+
+    if (p === '/diag.json' && req.method === 'GET') {
+      // 给人贴给维护者用的诊断包：不含密钥（dock 根本不存密钥），路径里的用户名脱敏
+      const binds = readBindings(paths.bindings)
+      sendJson(res, 200, {
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        app: 'fox-dock',
+        version: VERSION,
+        runtime: {
+          node: process.version,
+          platform: process.platform,
+          arch: process.arch,
+          pid: process.pid,
+          port: server.address() ? server.address().port : null,
+          uptimeSec: Math.round((Date.now() - startedAt) / 1000),
+        },
+        paths: { dataDir: redactHome(paths.dir), ledger: redactHome(paths.ledger) },
+        bridgeReady,
+        adapters: describeAdapters(adapters),
+        bindings: binds.slice(0, 20).map((b) => ({
+          adapterId: b.adapterId,
+          title: b.window ? b.window.title : '',
+          exe: redactHome(b.window ? b.window.exe : ''),
+          pid: b.window ? b.window.pid : 0,
+          at: b.at,
+        })),
+        bindingCount: binds.length,
+        summary: summarize(paths.ledger, { now: Date.now(), days: 7 }),
+        update: readUpdateStateSafe(),
+        logs: LOG_RING.slice(-60).map((l) => redactHome(l).slice(0, 300)),
+      })
       return
     }
 

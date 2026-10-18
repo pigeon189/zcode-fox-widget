@@ -1,0 +1,6 @@
+# 私钥永不入库（只提交 keys/update-pub.pem）
+*.pem
+!keys/update-pub.pem
+node_modules/
+dist/
+*.tgz

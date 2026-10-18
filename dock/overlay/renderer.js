@@ -183,10 +183,20 @@ function groupLabel(g) {
   return fmtNum(g.amount) + ' ' + g.unit
 }
 
-function renderPanel(summary) {
+function renderPanel(summary, bindings) {
   const name = (boundAdapter && boundAdapter.name) || '未绑定'
   panelTitle.textContent = name
   clearNode(panelBody)
+
+  // 多窗口歧义：同一个 agent 开了多个窗口时，标题是唯一能让人确认「绑对没绑对」的东西
+  const boundTitle = document.body.dataset.boundTitle || ''
+  if (boundKey && boundTitle) {
+    const sub = document.createElement('div')
+    sub.className = 'panel-sub'
+    sub.textContent = boundTitle
+    sub.title = boundTitle
+    panelBody.appendChild(sub)
+  }
 
   const snap = lastSnapshot
   const sec = document.createElement('div')
@@ -212,6 +222,22 @@ function renderPanel(summary) {
   }
   panelBody.appendChild(sec)
 
+  if (boundKey) {
+    const actions = document.createElement('div')
+    actions.className = 'panel-actions'
+    const un = document.createElement('button')
+    un.type = 'button'
+    un.textContent = '解绑这个窗口'
+    un.addEventListener('click', (e) => {
+      e.stopPropagation()
+      unbind().then(() => {
+        togglePanel(false)
+      })
+    })
+    actions.appendChild(un)
+    panelBody.appendChild(actions)
+  }
+
   if (summary && summary.today && summary.today.groups && summary.today.groups.length) {
     const h = document.createElement('h4')
     h.textContent = '全部 agent（今日）'
@@ -220,6 +246,35 @@ function renderPanel(summary) {
       for (const a of g.adapters) {
         panelBody.appendChild(row(a.name, groupLabel({ ...g, amount: a.amount })))
       }
+    }
+  }
+
+  // 其它绑定：换窗口时常常忘了旧的那条，这里能直接清掉
+  const others = (bindings || []).filter((b) => b.key !== boundKey).slice(0, 5)
+  if (others.length) {
+    const h = document.createElement('h4')
+    h.textContent = '其它绑定'
+    panelBody.appendChild(h)
+    for (const b of others) {
+      const title = (b.window && b.window.title) || (b.window && b.window.exe) || b.key
+      const r = document.createElement('div')
+      r.className = 'panel-row panel-binding'
+      const a = document.createElement('span')
+      a.className = 'label'
+      a.textContent = title.length > 18 ? title.slice(0, 18) + '…' : title
+      a.title = title
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.textContent = '解绑'
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        fetch(base + '/bind?key=' + encodeURIComponent(b.key), { method: 'DELETE' })
+          .then(() => refreshSummary())
+          .catch(() => {})
+      })
+      r.appendChild(a)
+      r.appendChild(btn)
+      panelBody.appendChild(r)
     }
   }
 
@@ -256,9 +311,13 @@ function positionPanel() {
 async function refreshSummary() {
   if (!base) return
   try {
-    const res = await fetch(base + '/summary?days=7', { cache: 'no-store' })
-    const data = await res.json()
-    if (data.ok && panelOpen) renderPanel(data)
+    const [sumRes, bindRes] = await Promise.all([
+      fetch(base + '/summary?days=7', { cache: 'no-store' }),
+      fetch(base + '/bindings', { cache: 'no-store' }),
+    ])
+    const data = await sumRes.json()
+    const binds = await bindRes.json()
+    if (data.ok && panelOpen) renderPanel(data, binds.ok ? binds.bindings : [])
   } catch (err) {}
 }
 
@@ -269,7 +328,7 @@ function togglePanel(open) {
   panel.hidden = !panelOpen
   document.body.dataset.panel = panelOpen ? 'open' : 'closed'
   if (panelOpen) {
-    renderPanel(null)
+    renderPanel(null, [])
     refreshSummary()
     summaryTimer = setInterval(refreshSummary, 5000)
     setInteractive(true)

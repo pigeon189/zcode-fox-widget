@@ -173,3 +173,65 @@ body {
 }
 
 
+
+/* 跟随系统深浅色：浮层是透明窗，不跟随的话夜里会是一块刺眼的白 */
+@media (prefers-color-scheme: dark) {
+  #fox {
+    background: rgba(42, 46, 54, 0.9);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+
+  #chip,
+  #panel {
+    background: rgba(32, 36, 43, 0.96);
+    color: #e8eaed;
+  }
+
+  #chip-adapter,
+  #panel .panel-row .label {
+    color: #9aa0a6;
+  }
+
+  #panel h4 {
+    color: #9aa0a6;
+  }
+
+  #panel-close {
+    color: #9aa0a6;
+  }
+
+  #panel-close:hover {
+    color: #fff;
+  }
+}
+
+#panel .panel-sub {
+  margin: -2px 0 6px;
+  color: #6b7280;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#panel .panel-actions {
+  margin-top: 8px;
+}
+
+#panel .panel-actions button,
+#panel .panel-binding button {
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#panel .panel-actions button:hover,
+#panel .panel-binding button:hover {
+  border-color: #4c8bf5;
+  color: #4c8bf5;
+}

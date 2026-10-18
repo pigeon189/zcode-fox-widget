@@ -111,3 +111,45 @@ export function safeRelPath(rel) {
   if (parts.some((p) => p === '..' || p === '')) return null
   return s
 }
+
+// ---------- 写 tar（打包发布用） ----------
+
+function octal(n, len) {
+  return n.toString(8).padStart(len - 1, '0') + '\0'
+}
+
+function headerFor(name, size, mtime, type = '0') {
+  const header = Buffer.alloc(BLOCK)
+  header.write(name.slice(0, 100), 0, 'utf8')
+  header.write(octal(0o644, 8), 100, 'ascii')
+  header.write(octal(0, 8), 108, 'ascii')
+  header.write(octal(0, 8), 116, 'ascii')
+  header.write(octal(size, 12), 124, 'ascii')
+  header.write(octal(mtime || Math.floor(Date.now() / 1000), 12), 136, 'ascii')
+  header.write('        ', 148, 'ascii') // checksum 先填空格
+  header.write(type, 156, 'ascii')
+  header.write('ustar\0', 257, 'ascii')
+  header.write('00', 263, 'ascii')
+  let sum = 0
+  for (const b of header) sum += b
+  // 校验和字段固定 8 字节：6 位八进制 + NUL + 空格（多写一位会挤进 typeflag）
+  header.write(sum.toString(8).padStart(6, '0').slice(-6) + '\0 ', 148, 'ascii')
+  return header
+}
+
+// files: Map<相对路径, Buffer>；超过 100 字节的名字用 GNU 'L' 扩展头。
+export function writeTar(files) {
+  const parts = []
+  for (const [name, data] of files) {
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data))
+    if (Buffer.byteLength(name, 'utf8') > 100) {
+      const nameBuf = Buffer.concat([Buffer.from(name, 'utf8'), Buffer.alloc(1)])
+      // typeflag 必须参与校验和，所以要在 headerFor 里一起定
+      const lh = headerFor('././@LongLink', nameBuf.length, 0, 'L')
+      parts.push(lh, nameBuf, Buffer.alloc((BLOCK - (nameBuf.length % BLOCK)) % BLOCK))
+    }
+    parts.push(headerFor(name, buf.length, 0), buf, Buffer.alloc((BLOCK - (buf.length % BLOCK)) % BLOCK))
+  }
+  parts.push(Buffer.alloc(BLOCK * 2))
+  return Buffer.concat(parts)
+}

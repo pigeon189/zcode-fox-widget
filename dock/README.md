@@ -65,7 +65,16 @@ npm run install-app  # 写登录启动项（默认到真实启动文件夹，可
 node tools/fox-dock.mjs update --check    # 检查更新（默认清单在 feat/dock 分支的 docs/dock/update.json）
 node tools/fox-dock.mjs update --apply    # 下载 + 校验 sha256 + 落盘（失败自动回滚）
 node tools/fox-dock.mjs update --history  # 最近的更新记录
+
+npm run keygen   # 生成发布密钥：私钥写到 %USERPROFILE%\fox-dock-release-key.pem，公钥入库
+npm run pack -- --version 0.2.0-pre.1 --url <下载地址> --sign --notes "…"
+                 # 打包 dist/dock-<version>.tar.gz 并生成、签名 docs/dock/update.json
+npm run sign -- --version 0.2.0-pre.1 --package dist/dock-0.2.0-pre.1.tar.gz --url <下载地址>
+                 # 只签名（包已经打好时用）
 ```
+
+更新清单必须带 Ed25519 签名（`keys/update-pub.pem` 是公钥，私钥只在发布机上）。
+`update --check` 默认验签，验不过直接拒绝；`--no-verify` 只给本地调试。
 
 浮层用法：**单击**狐狸打开明细面板（当前窗口数字 + 全部 agent 今日汇总 + 最近几天），
 **拖动**狐狸到宿主窗口上松开即绑定；绑定后每 500ms 跟随窗口位置。

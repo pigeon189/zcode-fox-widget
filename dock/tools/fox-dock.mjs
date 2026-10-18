@@ -118,6 +118,7 @@ function defaultManifestUrl() {
 }
 
 const DOCK_ROOT = path.join(HERE, '..')
+const UPDATE_PUBKEY = path.join(DOCK_ROOT, 'keys', 'update-pub.pem')
 
 async function updateCmd(args) {
   const dataDir = pathsFor(dataDirFrom(args)).dir
@@ -139,8 +140,16 @@ async function updateCmd(args) {
   }
 
   let manifest = null
+  // --pubkey 供测试与密钥轮换使用；默认仓库里的发布公钥
+  const pubkeyPath = argValue(args, '--pubkey') || UPDATE_PUBKEY
+  const publicKeyPem = fs.existsSync(pubkeyPath) ? fs.readFileSync(pubkeyPath, 'utf8') : ''
   try {
-    manifest = await fetchManifest(url)
+    manifest = await fetchManifest(url, {
+      publicKeyPem,
+      // 默认必须验签；--no-verify 只给本地调试用，会在输出里显式警告
+      requireSignature: !args.includes('--no-verify'),
+    })
+    if (args.includes('--no-verify')) console.warn('⚠ 已跳过清单签名校验（--no-verify），仅限本地调试')
   } catch (err) {
     console.error('检查失败：' + (err && err.message ? err.message : err))
     console.error('（清单地址：' + url + '；可用 --manifest 或 FOX_DOCK_MANIFEST 覆盖）')
@@ -186,6 +195,32 @@ function adapters() {
         pad(a.fallback ? 'yes' : '-', 10) +
         (m.length ? m.join(' & ') : '(兜底，不参与匹配)')
     )
+  }
+}
+
+async function diag(args) {
+  const paths = pathsFor(dataDirFrom(args))
+  const lock = readLock(paths.lock)
+  if (!lock || !lock.port) {
+    console.error('daemon 没在跑（先 fox-dock start）')
+    process.exitCode = 1
+    return
+  }
+  try {
+    const res = await fetch('http://127.0.0.1:' + lock.port + '/diag.json', { signal: AbortSignal.timeout(3000) })
+    const data = await res.json()
+    const out = argValue(args, '--out')
+    if (out) {
+      fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true })
+      fs.writeFileSync(out, JSON.stringify(data, null, 2))
+      console.log('诊断包已写入：' + path.resolve(out))
+      console.log('（不含密钥；路径里的用户名已替换成 ~）')
+      return
+    }
+    console.log(JSON.stringify(data, null, 2))
+  } catch (err) {
+    console.error('读取诊断失败：' + (err && err.message ? err.message : err))
+    process.exitCode = 1
   }
 }
 
@@ -317,6 +352,7 @@ try {
   if (cmd === 'doctor') await doctor(rest)
   else if (cmd === 'adapters') adapters()
   else if (cmd === 'update') await updateCmd(rest)
+  else if (cmd === 'diag') await diag(rest)
   else if (cmd === 'start') await start(rest)
   else if (cmd === 'stop') await stop(rest)
   else if (cmd === 'status') await status(rest)
@@ -324,7 +360,7 @@ try {
   else if (cmd === 'uninstall') await uninstall(rest)
   else if (cmd === 'version' || cmd === '--version' || cmd === '-v') console.log(VERSION)
   else {
-    console.log('usage: fox-dock <doctor|adapters|update|start|stop|status|install|uninstall|version> [--data-dir <dir>]')
+    console.log('usage: fox-dock <doctor|adapters|diag|update|start|stop|status|install|uninstall|version> [--data-dir <dir>]')
     process.exitCode = cmd ? 1 : 0
   }
 } catch (err) {

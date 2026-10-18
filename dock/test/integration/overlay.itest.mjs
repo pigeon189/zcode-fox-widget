@@ -219,6 +219,16 @@ test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口并吸附到右
   const targetX = fakeWin.rect.x + Math.floor(fakeWin.rect.w / 2) - geo.sx
   const targetY = fakeWin.rect.y + Math.floor(fakeWin.rect.h / 2) - geo.sy
 
+  // 先确认这个点确实命中的是假窗口：桌面上别的窗口盖住它时，后面会绑错对象，
+  // 失败信息会变成「binding created 超时」，看不出真正原因。
+  const hitAtCenter = await json(
+    'http://127.0.0.1:' + port + '/hit?x=' + (fakeWin.rect.x + Math.floor(fakeWin.rect.w / 2)) +
+      '&y=' + (fakeWin.rect.y + Math.floor(fakeWin.rect.h / 2)) + '&exclude=' + overlay.pid
+  )
+  const topHit = (hitAtCenter.hits || [])[0]
+  assert.ok(topHit, 'no window under fake agent center')
+  assert.equal(topHit.pid, fakeWin.pid, 'fake agent should be the topmost window at its center, got ' + JSON.stringify(topHit))
+
   await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: geo.x, y: geo.y, button: 'left', buttons: 1, clickCount: 1 })
   const steps = 6
   for (let i = 1; i <= steps; i++) {
@@ -227,7 +237,10 @@ test('drag: 从狐狸拖到宿主窗口中心 → 绑定该窗口并吸附到右
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 })
     await sleep(40)
   }
-  await sleep(120)
+  // 落点再补一次 move 并多等一会儿：最后一次命中采样是异步的，
+  // 机器忙时 120ms 可能还没回来，指针已经松开 → 绑到上一帧的窗口（实测偶发）。
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: targetX, y: targetY, button: 'left', buttons: 1 })
+  await sleep(250)
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: targetX, y: targetY, button: 'left', buttons: 0, clickCount: 1 })
 
   binding = await waitFor(async () => {
@@ -341,4 +354,40 @@ test('reanchor: 宿主窗口移动后狐狸跟随（500ms 轮询）', async (t) 
 
   assert.ok(fox)
   fakeWin = moved
+})
+
+test('panel: 「解绑这个窗口」清掉绑定并收起面板', async (t) => {
+  if (!ELECTRON) return t.skip('electron binary not found')
+
+  const before = await (await fetch('http://127.0.0.1:' + port + '/bindings')).json()
+  const mine = (before.bindings || []).find((b) => b.window && b.window.pid === fakeWin.pid)
+  assert.ok(mine, 'binding should exist before unbind')
+
+  const pos = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()"
+    )
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pos.x, y: pos.y, button: 'left', buttons: 1, clickCount: 1 })
+  await sleep(50)
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pos.x, y: pos.y, button: 'left', buttons: 0, clickCount: 1 })
+  await waitFor(async () => (await cdp.eval("document.body.dataset.panel || ''")) === 'open', 6000, 'panel open')
+
+  const clicked = await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('#panel button');" +
+      "for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('解绑这个窗口')!==-1){bs[i].click();return true}}return false})()"
+  )
+  assert.equal(clicked, true, 'unbind button should exist when bound')
+
+  const gone = await waitFor(
+    async () => {
+      const r = await (await fetch('http://127.0.0.1:' + port + '/bindings')).json()
+      return (r.bindings || []).some((b) => b.key === mine.key) ? null : true
+    },
+    6000,
+    'binding removed'
+  )
+  assert.ok(gone)
+  const closed = await waitFor(async () => (await cdp.eval("document.body.dataset.panel || ''")) === 'closed', 6000, 'panel closed')
+  assert.ok(closed)
 })

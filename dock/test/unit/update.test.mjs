@@ -10,10 +10,11 @@ import {
   applyFiles,
   compareVersions,
   extractPackage,
+  pruneBackups,
   sha256,
   updateFromManifest,
 } from '../../daemon/src/update.mjs'
-import { untar, stripTopDir, safeRelPath } from '../../shared/tar.mjs'
+import { untar, stripTopDir, safeRelPath, writeTar } from '../../shared/tar.mjs'
 
 function tarEntry(name, data) {
   const header = Buffer.alloc(512)
@@ -212,5 +213,88 @@ test('updateFromManifest: 正常更新写入文件并记历史（包有顶层前
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(dataDir, { recursive: true, force: true })
+  }
+})
+
+// ---------- 清单签名（D012） ----------
+
+test('manifest: 签名 / 验签往返，键顺序与空白不影响', async () => {
+  const { generateKeyPair, signManifest, verifyManifest, canonicalManifest } = await import('../../shared/manifest.mjs')
+  const { publicKeyPem, privateKeyPem } = generateKeyPair()
+  const signed = signManifest({ version: '0.2.0-pre.1', url: 'https://x/y.tgz', sha256: 'a'.repeat(64), notes: 'hi' }, privateKeyPem)
+  assert.equal(verifyManifest(signed, publicKeyPem).ok, true)
+
+  // 重新排字段顺序、加空格后仍应验签通过（规范串只认字段值）
+  const reordered = { notes: 'hi', sha256: 'a'.repeat(64), url: 'https://x/y.tgz', version: '0.2.0-pre.1', signature: signed.signature }
+  assert.equal(verifyManifest(reordered, publicKeyPem).ok, true)
+  assert.equal(canonicalManifest(reordered), canonicalManifest(signed))
+})
+
+test('manifest: 改任何受保护字段都验不过', async () => {
+  const { generateKeyPair, signManifest, verifyManifest } = await import('../../shared/manifest.mjs')
+  const { publicKeyPem, privateKeyPem } = generateKeyPair()
+  const base = { version: '0.2.0', url: 'https://x/y.tgz', sha256: 'b'.repeat(64), notes: '' }
+  const signed = signManifest(base, privateKeyPem)
+  for (const patch of [{ version: '0.3.0' }, { url: 'https://evil/x.tgz' }, { sha256: 'c'.repeat(64) }, { notes: 'x' }]) {
+    const v = verifyManifest({ ...signed, ...patch }, publicKeyPem)
+    assert.equal(v.ok, false, JSON.stringify(patch))
+    assert.equal(v.reason, 'bad-signature')
+  }
+})
+
+test('manifest: 缺签名 / 换公钥 / 坏 base64 都被拒绝', async () => {
+  const { generateKeyPair, signManifest, verifyManifest } = await import('../../shared/manifest.mjs')
+  const a = generateKeyPair()
+  const b = generateKeyPair()
+  const signed = signManifest({ version: '1.0.0', url: 'https://x/y', sha256: 'd'.repeat(64) }, a.privateKeyPem)
+  assert.equal(verifyManifest({ ...signed, signature: '' }, a.publicKeyPem).reason, 'missing-signature')
+  assert.equal(verifyManifest(signed, b.publicKeyPem).reason, 'bad-signature')
+  assert.equal(verifyManifest({ ...signed, signature: '!!!' }, a.publicKeyPem).ok, false)
+  assert.equal(verifyManifest(signed, '').reason, 'no-public-key')
+})
+
+test('fetchManifest: 未签名清单默认拒绝，签名后放行', async () => {
+  const { generateKeyPair, signManifest } = await import('../../shared/manifest.mjs')
+  const { fetchManifest } = await import('../../daemon/src/update.mjs')
+  const { publicKeyPem, privateKeyPem } = generateKeyPair()
+  const base = { version: '0.2.0-pre.2', url: 'https://x/y.tgz', sha256: 'e'.repeat(64), notes: '' }
+
+  await withServer(
+    { '/unsigned.json': JSON.stringify(base), '/signed.json': JSON.stringify(signManifest(base, privateKeyPem)) },
+    async (origin) => {
+      await assert.rejects(() => fetchManifest(origin + '/unsigned.json', { publicKeyPem }), /signature/)
+      const ok = await fetchManifest(origin + '/signed.json', { publicKeyPem })
+      assert.equal(ok.version, '0.2.0-pre.2')
+      // 显式关闭校验时未签名也放行（仅本地调试）
+      const loose = await fetchManifest(origin + '/unsigned.json', { requireSignature: false })
+      assert.equal(loose.version, '0.2.0-pre.2')
+    }
+  )
+})
+
+test('tar: writeTar 与 untar 往返（含超过 100 字节的长路径）', () => {
+  const long = 'dock/adapters/' + 'x'.repeat(120) + '/index.mjs'
+  const files = new Map([
+    ['dock/package.json', Buffer.from('{"name":"fox-dock"}')],
+    ['dock/lib/a.mjs', Buffer.from('export const a = 1')],
+    [long, Buffer.from('long-name')],
+  ])
+  const back = untar(writeTar(files))
+  assert.equal(back.size, 3)
+  assert.equal(back.get('dock/package.json').toString(), '{"name":"fox-dock"}')
+  assert.equal(back.get(long).toString(), 'long-name')
+})
+
+test('update: 备份目录只保留最近 3 份', () => {
+  const dir = tempDir('fox-up-prune-')
+  try {
+    for (const name of ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05']) {
+      fs.mkdirSync(path.join(dir, name), { recursive: true })
+    }
+    const r = pruneBackups(dir, 3)
+    assert.equal(r.removed, 2)
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['2026-01-03', '2026-01-04', '2026-01-05'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
   }
 })
