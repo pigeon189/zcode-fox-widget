@@ -295,9 +295,12 @@ try {
   const booted = await pollEval(
     cdp,
     "(document.readyState === 'complete' && document.querySelector('.zcwv-hint')) ? true : false",
-    12000
+    // CI runner 冷启动 Edge + 首帧明显更慢：实测 12s 不够，但页面随后即正常
+    // （2026-10-18 WB 的 CI 就是这一条挂的，后续用例全过）。放宽到 30s，
+    // 本地仍是 <1s，只有真失败时才多等。
+    30000
   )
-  check('挂件前端完成初始化', !!booted)
+  check('挂件前端完成初始化', !!booted, booted ? '' : '等待 30s 仍无 .zcwv-hint')
 
   // ① 每轮消耗气泡（WorkBuddy 主口径 = 订阅积分）：一轮 credit=12 → 标题
   //    「上一轮消耗:」，主数字「12.00 积分」，小字补调用次数 / 等价金额 / 上下文
