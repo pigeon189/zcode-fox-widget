@@ -1,4 +1,5 @@
-// 登录自启：在启动文件夹放一个隐藏启动器（VBS），由它拉起 watchdog。
+// 登录自启：在启动文件夹放一个隐藏启动器（VBS），由它执行 `fox-dock start`
+// （start 会拉起 watchdog + 浮层；只想要后台服务就传 command: 'start --no-overlay'）。
 //
 // 为什么不写注册表 Run：启动文件夹可被用户直接看到/删除，卸载干净，
 // 也不会被安全软件当成「隐藏自启」重点关照。
@@ -25,12 +26,21 @@ function assertPlain(value, what) {
   return s
 }
 
+// 子命令只允许字母和连字符：启动器内容会进 VBS 字符串，不能留注入面
+function assertCommand(value) {
+  const s = String(value || '').trim()
+  if (!s) return ''
+  if (!/^[a-z0-9 -]{0,80}$/.test(s)) throw new Error('command contains illegal characters')
+  return s
+}
+
 // VBS 字符串里用两个双引号表示一个双引号
-export function buildVbs({ nodePath, watchdogPath, dataDir }) {
+export function buildVbs({ nodePath, scriptPath, watchdogPath, dataDir, command }) {
   const node = assertPlain(nodePath, 'nodePath')
-  const script = assertPlain(watchdogPath, 'watchdogPath')
+  const script = assertPlain(scriptPath || watchdogPath, 'scriptPath')
   const dir = assertPlain(dataDir, 'dataDir')
-  const cmd = '"' + node + '" "' + script + '" --data-dir "' + dir + '"'
+  const cmd0 = assertCommand(command)
+  const cmd = '"' + node + '" "' + script + '"' + (cmd0 ? ' ' + cmd0 : '') + ' --data-dir "' + dir + '"'
   const literal = '"' + cmd.replace(/"/g, '""') + '"'
   return [
     "' fox-dock launcher (generated)",
@@ -40,11 +50,16 @@ export function buildVbs({ nodePath, watchdogPath, dataDir }) {
   ].join('\r\n')
 }
 
-export function buildCmd({ nodePath, watchdogPath, dataDir }) {
+export function buildCmd({ nodePath, scriptPath, watchdogPath, dataDir, command }) {
   const node = assertPlain(nodePath, 'nodePath')
-  const script = assertPlain(watchdogPath, 'watchdogPath')
+  const script = assertPlain(scriptPath || watchdogPath, 'scriptPath')
   const dir = assertPlain(dataDir, 'dataDir')
-  return ['@echo off', 'start "" "' + node + '" "' + script + '" --data-dir "' + dir + '"', ''].join('\r\n')
+  const cmd0 = assertCommand(command)
+  return [
+    '@echo off',
+    'start "" "' + node + '" "' + script + '"' + (cmd0 ? ' ' + cmd0 : '') + ' --data-dir "' + dir + '"',
+    '',
+  ].join('\r\n')
 }
 
 export function launcherPaths(dir) {
@@ -60,10 +75,14 @@ export function installLauncher(options) {
   fs.mkdirSync(dir, { recursive: true })
   const paths = launcherPaths(dir)
   const format = options.format === 'cmd' ? 'cmd' : 'vbs'
-  const text =
-    format === 'cmd'
-      ? buildCmd({ nodePath: options.nodePath, watchdogPath: options.watchdogPath, dataDir: options.dataDir })
-      : buildVbs({ nodePath: options.nodePath, watchdogPath: options.watchdogPath, dataDir: options.dataDir })
+  const args = {
+    nodePath: options.nodePath,
+    scriptPath: options.scriptPath,
+    watchdogPath: options.watchdogPath,
+    dataDir: options.dataDir,
+    command: options.command,
+  }
+  const text = format === 'cmd' ? buildCmd(args) : buildVbs(args)
   // 只留一种启动器，避免登录时起两个
   try {
     fs.unlinkSync(format === 'vbs' ? paths.cmd : paths.vbs)

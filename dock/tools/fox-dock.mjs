@@ -12,10 +12,13 @@ import { isProcessAlive, readLock } from '../daemon/src/lock.mjs'
 import { pathsFor } from '../daemon/src/paths.mjs'
 import { installLauncher, uninstallLauncher } from '../daemon/src/install.mjs'
 import { describeAdapters, resolveAdapter } from '../adapters/registry.mjs'
+import { overlayPidsOf, resolveElectron } from '../daemon/src/electron.mjs'
 import { DEFAULT_CHANNEL, compareVersions, fetchManifest, readUpdateState, updateFromManifest } from '../daemon/src/update.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WATCHDOG = path.join(HERE, '..', 'daemon', 'src', 'watchdog.mjs')
+const OVERLAY_DIR = path.join(HERE, '..', 'overlay')
+const CLI_PATH = fileURLToPath(import.meta.url)
 
 function pad(s, n) {
   s = String(s == null ? '' : s)
@@ -224,6 +227,139 @@ async function diag(args) {
   }
 }
 
+// ---------- 浮层进程管理 ----------
+// 浮层是独立进程（Electron），pid 记在数据目录里，stop 时一并收掉；
+// 它自己也会在 daemon 消失后退出（overlay/main.cjs 里有健康轮询）。
+
+function overlayPidFile(paths) {
+  return path.join(paths.dir, 'overlay.pid')
+}
+
+function readOverlayInfo(paths) {
+  try {
+    const j = JSON.parse(fs.readFileSync(overlayPidFile(paths), 'utf8'))
+    return Number.isInteger(j.pid) && j.pid > 0 ? j : null
+  } catch (err) {
+    return null
+  }
+}
+
+function writeOverlayInfo(paths, info) {
+  try {
+    fs.writeFileSync(overlayPidFile(paths), JSON.stringify(info))
+  } catch (err) {}
+}
+
+function clearOverlayInfo(paths) {
+  try {
+    fs.unlinkSync(overlayPidFile(paths))
+  } catch (err) {}
+}
+
+function buildOverlayArgs(port, ignore, args) {
+  // 透明窗 + 2D 界面用不到 GPU；关掉能避开一批驱动的合成问题。
+  // --no-sandbox 只给受限环境（agent 会话/容器）用：那里 GPU 子进程起不来会直接
+  // 崩在 "GPU process isn't usable"，而正常桌面双击启动不需要也不应该关沙箱。
+  const argv = [OVERLAY_DIR, '--disable-gpu', '--daemon-port=' + port, '--ignore-pids=' + ignore.join(',')]
+  if (process.env.FOX_DOCK_NO_SANDBOX === '1') argv.push('--no-sandbox')
+  const display = argValue(args, '--display')
+  if (display) argv.push('--display=' + display)
+  const dbg = argValue(args, '--debug-port')
+  if (dbg) argv.push('--remote-debugging-port=' + dbg)
+  return argv
+}
+
+function electronEnv() {
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.NODE_OPTIONS
+  return env
+}
+
+async function collectIgnorePids(port) {
+  try {
+    const res = await fetch('http://127.0.0.1:' + port + '/windows', { signal: AbortSignal.timeout(2000) })
+    const w = await res.json()
+    return overlayPidsOf(w.windows)
+  } catch (err) {
+    return []
+  }
+}
+
+async function startOverlay(paths, port, args) {
+  const electron = resolveElectron()
+  if (!electron) {
+    console.error('找不到 Electron 运行时。设置 FOX_DOCK_ELECTRON 指向 electron.exe，或先装一个挂件运行时。')
+    return { ok: false }
+  }
+  const running = readOverlayInfo(paths)
+  if (running && isProcessAlive(running.pid)) {
+    console.log('overlay 已在运行 pid=' + running.pid)
+    return { ok: true, pid: running.pid, already: true }
+  }
+  const ignore = await collectIgnorePids(port)
+  const child = spawn(electron, buildOverlayArgs(port, ignore, args), {
+    detached: true,
+    stdio: 'ignore',
+    env: electronEnv(),
+  })
+  child.unref()
+  writeOverlayInfo(paths, { pid: child.pid, at: Date.now(), port })
+  await new Promise((r) => setTimeout(r, 900))
+  if (!isProcessAlive(child.pid)) {
+    clearOverlayInfo(paths)
+    console.error('overlay 启动后立刻退出；用 `fox-dock overlay` 前台跑一次看报错')
+    return { ok: false }
+  }
+  console.log('overlay pid=' + child.pid + (ignore.length ? '（忽略浮层 ' + ignore.join(',') + '）' : ''))
+  return { ok: true, pid: child.pid }
+}
+
+async function stopOverlay(paths) {
+  const info = readOverlayInfo(paths)
+  if (!info) return false
+  if (!isProcessAlive(info.pid)) {
+    clearOverlayInfo(paths)
+    return false
+  }
+  try {
+    process.kill(info.pid)
+  } catch (err) {}
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(info.pid)) {
+      clearOverlayInfo(paths)
+      return true
+    }
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  try {
+    process.kill(info.pid, 'SIGKILL')
+  } catch (err) {}
+  clearOverlayInfo(paths)
+  return true
+}
+
+async function overlayForeground(args) {
+  const paths = pathsFor(dataDirFrom(args))
+  const lock = readLock(paths.lock)
+  if (!lock || !lock.port) {
+    console.error('daemon 没在跑（先 fox-dock start --no-overlay）')
+    process.exitCode = 1
+    return
+  }
+  const electron = resolveElectron()
+  if (!electron) {
+    console.error('找不到 Electron 运行时')
+    process.exitCode = 1
+    return
+  }
+  const ignore = await collectIgnorePids(lock.port)
+  const child = spawn(electron, buildOverlayArgs(lock.port, ignore, args), { stdio: 'inherit', env: electronEnv() })
+  console.log('overlay 前台运行 pid=' + child.pid + '（Ctrl+C 结束）')
+  await new Promise((resolve) => child.on('exit', resolve))
+}
+
 async function start(args) {
   const dataDir = dataDirFrom(args)
   const paths = pathsFor(dataDir)
@@ -232,6 +368,7 @@ async function start(args) {
     const h = lock.port ? await healthOf(lock.port) : null
     if (h && h.ok) {
       console.log('already running pid=' + h.pid + ' port=' + h.port)
+      if (!args.includes('--no-overlay')) await startOverlay(paths, h.port, args)
       return
     }
   }
@@ -248,14 +385,19 @@ async function start(args) {
     return
   }
   console.log('started pid=' + h.pid + ' port=' + h.port + ' version=' + h.version)
+  if (!args.includes('--no-overlay')) {
+    const r = await startOverlay(paths, h.port, args)
+    if (!r.ok) process.exitCode = 1
+  }
 }
 
 async function stop(args) {
   const dataDir = dataDirFrom(args)
   const paths = pathsFor(dataDir)
+  const hadOverlay = await stopOverlay(paths)
   const lock = readLock(paths.lock)
   if (!lock) {
-    console.log('not running')
+    console.log(hadOverlay ? 'overlay stopped（daemon 本来就没跑）' : 'not running')
     return
   }
   if (!isProcessAlive(lock.pid)) {
@@ -282,7 +424,7 @@ async function stop(args) {
   const deadline = Date.now() + 5000
   while (Date.now() < deadline) {
     if (!isProcessAlive(lock.pid)) {
-      console.log('stopped')
+      console.log('stopped' + (hadOverlay ? '（含 overlay）' : ''))
       return
     }
     await new Promise((r) => setTimeout(r, 200))
@@ -305,9 +447,12 @@ async function status(args) {
     process.exitCode = 1
     return
   }
+  const ov = readOverlayInfo(paths)
+  const ovAlive = ov && isProcessAlive(ov.pid)
   console.log(
     'running pid=' + h.pid + ' port=' + h.port + ' version=' + h.version + ' uptime=' + h.uptimeSec + 's bridge=' + h.bridgeReady
   )
+  console.log('overlay ' + (ovAlive ? 'pid=' + ov.pid : '未运行'))
 }
 
 function argValue(args, name) {
@@ -324,7 +469,9 @@ async function install(args) {
     dataDir,
     startupDir: startupOverride || undefined,
     nodePath: process.execPath,
-    watchdogPath: WATCHDOG,
+    // 登录时走 CLI 的 start：watchdog + 浮层一起起来，才是「打开电脑就有狐狸」
+    scriptPath: CLI_PATH,
+    command: args.includes('--no-overlay') ? 'start --no-overlay' : 'start',
     format: args.includes('--cmd') ? 'cmd' : 'vbs',
   })
   console.log('launcher written: ' + r.file)
@@ -353,6 +500,7 @@ try {
   else if (cmd === 'adapters') adapters()
   else if (cmd === 'update') await updateCmd(rest)
   else if (cmd === 'diag') await diag(rest)
+  else if (cmd === 'overlay') await overlayForeground(rest)
   else if (cmd === 'start') await start(rest)
   else if (cmd === 'stop') await stop(rest)
   else if (cmd === 'status') await status(rest)
@@ -360,7 +508,7 @@ try {
   else if (cmd === 'uninstall') await uninstall(rest)
   else if (cmd === 'version' || cmd === '--version' || cmd === '-v') console.log(VERSION)
   else {
-    console.log('usage: fox-dock <doctor|adapters|diag|update|start|stop|status|install|uninstall|version> [--data-dir <dir>]')
+    console.log('usage: fox-dock <doctor|adapters|diag|update|start|stop|status|overlay|install|uninstall|version> [--data-dir <dir>]')
     process.exitCode = cmd ? 1 : 0
   }
 } catch (err) {

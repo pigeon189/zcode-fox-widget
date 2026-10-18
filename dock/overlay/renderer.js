@@ -541,5 +541,44 @@ setInterval(async () => {
   } catch (err) {}
 }, 500)
 
+// 重建上次的绑定：重启浮层（或更新后）不用再拖一次。
+// 只认「窗口还在」的那条——进程重启后 hwnd 失效，就不要恢复，免得狐狸挂在空处。
+async function restoreBinding() {
+  if (!base) return
+  try {
+    const r = await (await fetch(base + '/bindings', { cache: 'no-store' })).json()
+    const list = (r.bindings || []).filter((b) => b.window && b.window.hwnd)
+    for (const b of list) {
+      const rectRes = await fetch(base + '/rect?hwnd=' + encodeURIComponent(b.window.hwnd), { cache: 'no-store' })
+      const rect = await rectRes.json()
+      if (!rect.ok || !rect.rect) continue
+      const det = await (
+        await fetch(
+          base +
+            '/resolve?exe=' + encodeURIComponent(b.window.exe || '') +
+            '&title=' + encodeURIComponent(b.window.title || ''),
+          { cache: 'no-store' }
+        )
+      ).json()
+      boundKey = b.key
+      boundHwnd = b.window.hwnd
+      boundAdapter = det.ok ? det.adapter : { id: b.adapterId, name: b.adapterId }
+      document.body.dataset.boundKey = boundKey
+      document.body.dataset.boundTitle = b.window.title || ''
+      document.body.dataset.adapterId = boundAdapter.id
+      document.body.dataset.restored = '1'
+      fox.title = '已恢复绑定：' + (b.window.title || b.window.exe) + '（' + boundAdapter.name + '）'
+      chip.hidden = false
+      renderChip(null)
+      startBilling()
+      placeChip()
+      place((rect.rect.x + rect.rect.w) / DPR - window.screenX - foxSize() - 12, rect.rect.y / DPR - window.screenY + 12)
+      return true
+    }
+  } catch (err) {}
+  return false
+}
+
 // 初始位置：右下角
 place(window.innerWidth - foxSize() - 28, window.innerHeight - foxSize() - 96)
+restoreBinding()

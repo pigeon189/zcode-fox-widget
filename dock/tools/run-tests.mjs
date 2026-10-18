@@ -50,5 +50,10 @@ if (!files.length) {
   process.exit(1)
 }
 
-const child = spawn(process.execPath, ['--test', ...files], { stdio: 'inherit', cwd: ROOT })
+// 必须串行：集成测试会开真窗口和全屏浮层，并行时互相遮挡，
+// 命中测试会随机绑到别的测试进程上（实测就是这样翻车的）。
+const child = spawn(process.execPath, ['--test', '--test-concurrency=1', ...files], {
+  stdio: 'inherit',
+  cwd: ROOT,
+})
 child.on('exit', (code) => process.exit(code == null ? 1 : code))

@@ -6,6 +6,14 @@
 
 第一版：从零到「拖到 agent 窗口上就能看到今日消耗」。
 
+### 启动与生命周期
+
+- `launch/启动 fox-dock.vbs` / `停止 fox-dock.vbs`：双击即可，不闪黑框；失败弹框并留日志
+- `fox-dock start` 现在同时拉起后台服务**和浮层**（`--no-overlay` 只起服务），`stop` 一起收掉
+- 浮层在 daemon 失联约 12 秒后自己退出，不会在桌面上留一只点不动的狐狸
+- 浮层重启后自动恢复上次绑定（窗口还在的话），不用重新拖
+- 登录自启也改走 `start`，开机就有狐狸
+
 ### 核心
 
 - 常驻服务（`daemon/`）：单实例锁、令牌停止、只监听 127.0.0.1、数据目录 `%LOCALAPPDATA%\fox-dock`
@@ -40,7 +48,8 @@
 - `GET /diag.json` + `fox-dock diag --out`：版本/适配器/绑定/账本/更新历史/最近日志，家目录脱敏
 - 更新：清单 Ed25519 签名 + 包 sha256 + 逐文件备份 + 失败整批回滚；`update --check/--apply/--history`
 - 打包：`npm run pack` 产出 `dist/dock-<version>.tar.gz` 并签名清单
-- 测试：116 条（单测 86 + 集成 30）；真机 e2e 可把狐狸拖到真正的 ZCode / WorkBuddy 窗口上
+- 测试：121 条（单测 88 + 集成 33）；集成测试串行执行（并行时多个全屏浮层互相遮挡）
+- 真机 e2e：可把狐狸拖到真正的 ZCode / WorkBuddy 窗口上；CLI 启停、绑定恢复都有真 Electron 用例
 
 ### 已知限制
 

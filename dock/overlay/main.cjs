@@ -55,6 +55,28 @@ app.whenReady().then(() => {
   })
   win.once('ready-to-show', () => win.showInactive())
 
+  // daemon 没了就退出：否则桌面上会留一只「点不动的狐狸」，而用户根本不知道
+  // 后台已经挂了。8 次 × 1.5s ≈ 12s，足够跨过 watchdog 的重启窗口。
+  if (daemonPort) {
+    let fails = 0
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:' + daemonPort + '/health', { signal: AbortSignal.timeout(1500) })
+        if (res.ok) {
+          fails = 0
+          return
+        }
+      } catch (err) {}
+      fails++
+      if (fails >= 8) {
+        clearInterval(timer)
+        console.log('[fox-dock] daemon unreachable, overlay quits')
+        app.quit()
+      }
+    }, 1500)
+    if (timer.unref) timer.unref()
+  }
+
   ipcMain.on('set-interactive', (_e, on) => {
     try {
       win.setIgnoreMouseEvents(!on, { forward: true })

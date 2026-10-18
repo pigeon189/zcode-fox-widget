@@ -2,7 +2,7 @@
 
 桌面常驻的多 agent 成本看板：把挂件拖到 agent 窗口上，自动识别、吸附、切到对应计费口径。
 
-**状态：R8 完成。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog、登录启动器、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、适配器框架（声明式匹配，不跑第三方 JS）、ZCode（元）与 WorkBuddy（积分）两个真实计费适配器、统一账本与跨 agent 汇总、点狐狸打开明细面板。
+**状态：R10（第一版可人工测试）。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、watchdog、登录启动器、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、适配器框架（声明式匹配，不跑第三方 JS）、ZCode（元）与 WorkBuddy（积分）两个真实计费适配器、统一账本与跨 agent 汇总、点狐狸打开明细面板。
 
 ## 适配器
 
@@ -24,6 +24,29 @@
 - 同一个 git 仓库，独立分支 `feat/dock` 与独立 worktree（`E:\WorkSpace\fox-dock`）。
 - 现有 `lib/`、`desktop/`、`hooks/` 在本分支上**不改动**；新代码全部在 `dock/`。
 - 发布通道独立：tag `dock-v*`，1.0 之前全部是 pre-release。
+
+## 直接试（不用命令行）
+
+打开 `dock\launch\`：
+
+| 文件 | 作用 |
+|---|---|
+| **启动 fox-dock.vbs** | 双击：后台服务 + 浮层一起起来，不闪黑框 |
+| **停止 fox-dock.vbs** | 双击：两个一起收掉 |
+| status.cmd | 看是否在跑（端口、浮层 pid） |
+
+启动失败会弹一个框，日志在 `launch\last-start.log`。
+
+刚开始的 10 秒可以这么试：
+
+1. 桌面上出现一只 🦊（默认在右下角）
+2. 把它拖到 WorkBuddy 窗口上松手 → 它吸到右上角，下面出现「今日 xxx 积分」
+3. 拖到 ZCode 窗口上 → 变成「今日 ¥x.xx」
+4. 单击狐狸 → 明细面板（当前窗口 / 全部 agent 今日 / 最近几天 / 解绑）
+5. 关掉再启动 → 狐狸自己回到上次绑定的窗口（窗口还在的话）
+6. 双击「停止」→ 狐狸消失，任务管理器里没有残留
+
+> 只支持一块屏（默认光标所在那块）。跨屏拖动还没做，见 D011。
 
 ## 目录
 
@@ -57,7 +80,7 @@ npm run e2e:real          # 真机端到端：把狐狸拖到真正的 ZCode / W
 
 npm run doctor   # 打印当前桌面窗口、命中的窗口与识别到的适配器（不启动服务）
 npm run adapters # 列出内置适配器与匹配规则
-npm start        # 启动 watchdog（后台常驻）
+npm start        # 启动 watchdog + 浮层（加 --no-overlay 只起后台服务）
 npm run status
 npm run stop
 npm run install-app  # 写登录启动项（默认到真实启动文件夹，可用 --startup-dir 覆盖）

@@ -67,3 +67,20 @@ test('uninstall: 删除两种启动器；目录为空时不报错', () => {
   assert.deepEqual(again.removed, [])
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test('launcher: command 会写进命令行（登录时跑 start）', () => {
+  const vbs = buildVbs({
+    nodePath: 'C:////node////node.exe',
+    scriptPath: 'C:////dock////tools////fox-dock.mjs',
+    command: 'start',
+    dataDir: 'C:////data',
+  })
+  assert.match(vbs, /fox-dock\.mjs"" start --data-dir/)
+})
+
+test('launcher: command 里出现奇怪字符 → 拒绝', () => {
+  assert.throws(
+    () => buildVbs({ nodePath: 'n', scriptPath: 's', command: 'start & calc', dataDir: 'd' }),
+    /illegal characters/
+  )
+})
