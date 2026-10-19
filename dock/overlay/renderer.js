@@ -1394,8 +1394,11 @@ function vendorCard(v) {
         plan: v.planName,
         account: v.account,
         windows,
-        // 单账号直连不叫「账号池」；只有多账号时才显示池状态。
-        note: v.pool && v.pool.total > 1 ? '账号池 ' + (v.pool.available || 0) + '/' + v.pool.total + ' 可用 · ' + (v.note || '') : v.note,
+        // 官方 API 单账号（kind='single'）不叫「账号池」；真池即使只有一个账号也显示。
+        note:
+          v.pool && (v.pool.kind === 'pool' || (v.pool.kind !== 'single' && v.pool.total > 1))
+            ? '账号池 ' + (v.pool.available || 0) + '/' + v.pool.total + ' 可用 · ' + (v.note || '')
+            : v.note,
       },
       false
     )

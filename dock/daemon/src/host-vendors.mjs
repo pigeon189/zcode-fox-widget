@@ -83,6 +83,7 @@ function sanitizeVendor(v) {
       available: num(v.pool.available),
       total: num(v.pool.total),
       cooldownFree: num(v.pool.cooldownFree),
+      kind: typeof v.pool.kind === 'string' ? v.pool.kind.slice(0, 12) : '',
     }
   }
   return out
