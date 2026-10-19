@@ -85,7 +85,7 @@ test('host-vendors：识别 zcode 服务并收敛字段，去掉 keySource', asy
     assert.equal(cc.planName, 'GOAT')
     assert.equal(cc.monthly.remaining, 39.8)
     assert.equal(cc.fiveHour.exceeded, false)
-    assert.deepEqual(cc.pool, { available: 1, total: 2, cooldownFree: 2 })
+    assert.deepEqual(cc.pool, { available: 1, total: 2, cooldownFree: 2, kind: '' })
     const glm = r.vendors.find((v) => v.id === 'glm')
     assert.equal(glm.percentRemaining, 0.0675)
   } finally {
