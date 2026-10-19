@@ -175,12 +175,11 @@ function roleForAgent(agentId) {
   return settings.roleId || 'fox'
 }
 
-// 深色强调色上用白字，其余用深色字；避免主按钮文字低于 4.5:1。
-const WHITE_TEXT_ACCENTS = new Set(['#4d6bfe'])
+// 所有内置强调色上纯黑文字的对比度都 ≥4.8:1（dsh #4d6bfe 为 4.85:1）。
 function applyAccent(accent) {
   const a = accent || '#f0a04b'
   document.documentElement.style.setProperty('--pet-accent', a)
-  document.documentElement.style.setProperty('--on-accent', WHITE_TEXT_ACCENTS.has(a.toLowerCase()) ? '#ffffff' : '#111111')
+  document.documentElement.style.setProperty('--on-accent', '#000000')
 }
 
 function applyRole(id) {
@@ -571,9 +570,6 @@ function positionQuick() {
   if (x < 8) x = pos.x + s + 12
   if (x + w > window.innerWidth - 8) x = pos.x - w - 12
   x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
-  // 气泡被钳到角色左侧时，保证箭头仍能落在角色中心附近
-  const center = pos.x + s / 2
-  if (center > x + w - 14) x = Math.max(8, Math.min(window.innerWidth - w - 8, center - w + 20))
   const y = Math.max(8, Math.min(window.innerHeight - h - 8, pos.y + s / 2 - h / 2))
   quick.style.left = Math.round(x) + 'px'
   quick.style.top = Math.round(y) + 'px'

@@ -105,8 +105,17 @@ async function main() {
               const r = el.getBoundingClientRect()
               return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
             }
-            return { width: innerWidth, height: innerHeight, fox: box('fox'), quick: box('quick'), menu: box('menu') }
+            return { width: innerWidth, height: innerHeight, fox: box('fox'), chip: box('chip'), quick: box('quick'), menu: box('menu') }
           })
+          if (geom.quick) {
+            for (const key of ['fox', 'chip']) {
+              const r = geom[key]
+              if (!r) continue
+              const ox = Math.min(r.right, geom.quick.right) - Math.max(r.left, geom.quick.left)
+              const oy = Math.min(r.bottom, geom.quick.bottom) - Math.max(r.top, geom.quick.top)
+              if (ox > 0 && oy > 0) throw new Error(st.id + ' 快览卡遮挡 ' + key + '：' + JSON.stringify({ quick: geom.quick, [key]: r }))
+            }
+          }
           for (const key of ['fox', 'quick', 'menu']) {
             const r = geom[key]
             if (!r) continue
