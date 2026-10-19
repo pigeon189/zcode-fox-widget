@@ -103,6 +103,22 @@ export function pctTone(pct) {
   return 'ok'
 }
 
+// 厂商窗口的 percent 有两种口径：cmdgo/真实接口是 0–1，中转站快照是 0–100。
+// 大于 1 一律按百分比理解；正好 1 视为 100%。
+export function usedPctOf(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return n > 1 ? n : n * 100
+}
+
+// 「剩余」文案：超额时直接说超额多少，不显示负数。
+export function remainText(usedPct) {
+  const n = Number(usedPct)
+  if (!Number.isFinite(n)) return '—'
+  if (n > 100) return '已超额 ' + fmtPct(n - 100)
+  return fmtPct(100 - n) + ' 剩余'
+}
+
 export function dayKey(ms) {
   const d = new Date(ms)
   const p = (n) => String(n).padStart(2, '0')
@@ -151,9 +167,10 @@ export function mainMetric(snapshot, displayMode = 'auto', agentId = '') {
   const card = snapshot.quotaCard || {}
   let mode = displayMode
   if (!mode || mode === 'auto') {
+    // 「按宿主」：预付/套餐型宿主优先显示余额或剩余额度，按量型才显示今日已用。
     if (agentId === 'workbuddy') mode = 'today'
-    else if (agentId === 'dsh' && snapshot.balance) mode = 'balance'
-    else if (agentId === 'kimi' && snapshot.quota) mode = 'quota'
+    else if (snapshot.balance && (agentId === 'dsh' || card.preferBalance || card.kind === 'balance')) mode = 'balance'
+    else if (snapshot.quota && (agentId === 'kimi' || card.kind === 'plan' || card.kind === 'windows')) mode = 'quota'
     else mode = 'today'
   }
   if (mode === 'balance' && snapshot.balance) {

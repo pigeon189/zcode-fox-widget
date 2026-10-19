@@ -10,6 +10,9 @@ import { zcodeAdapter } from '../../adapters/zcode/index.mjs'
 import { resolveAdapter } from '../../adapters/registry.mjs'
 import { createBillingService } from '../../daemon/src/billing.mjs'
 
+// 单测不读开发机上的厂商凭据，也不出网；快照只验证用量库聚合。
+process.env.FOX_DOCK_VENDOR_BALANCES = '0'
+
 const require = createRequire(import.meta.url)
 const { DatabaseSync } = require('node:sqlite')
 

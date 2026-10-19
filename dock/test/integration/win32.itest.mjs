@@ -46,7 +46,7 @@ test('bridge: 排除自身 pid 后不再返回该进程的窗口', async () => {
   const cy = top.rect.y + Math.floor(top.rect.h / 2)
   const hits = await bridge.hit(cx, cy, top.pid)
   assert.ok(hits.every((h) => h.pid !== top.pid))
-  assert.ok(hits.length <= 5)
+  assert.ok(hits.length <= 12)
 })
 
 test('bridge: rect 与 snapshot 一致', async () => {

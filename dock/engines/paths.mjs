@@ -61,9 +61,38 @@ export const DB_FILE = path.join(ZCODE_HOME, 'cli', 'db', 'db.sqlite')
 export const ROLLOUT_DIR = path.join(ZCODE_HOME, 'cli', 'rollout')
 export const ZCODE_CLIENT_CONFIG = path.join(ZCODE_HOME, 'v2', 'config.json')
 
+function readRuntimeEnv(file) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+    const value = raw && typeof raw.ZCODE_DATA_BASE_DIR === 'string' ? raw.ZCODE_DATA_BASE_DIR.trim() : ''
+    return value
+  } catch (err) {
+    return ''
+  }
+}
+
+// ZCode 数据目录迁移后，只有 ZCode 进程内拉起的插件才拿得到
+// ZCODE_DATA_BASE_DIR；开机自启/普通终端拉起的 daemon 没有这个变量。
+// 旧挂件会把实际值写进 ~/.zcode/whale/runtime-env.json，dock 自己也
+// 持久化一份，按顺序现读——否则 CommandCode / GLM Plan 等由 provider
+// 配置发现的凭据会整体消失（表现为「用着 CommandCode 却没有余额」）。
+export function zcodeDataBase(env = process.env) {
+  const direct = String(env.ZCODE_DATA_BASE_DIR || '').trim()
+  if (direct) return direct
+  for (const file of [
+    path.join(DATA_DIR, 'runtime-env.json'),
+    path.join(ZCODE_HOME, 'whale', 'runtime-env.json'),
+    path.join(ZCODE_HOME, 'v2', 'runtime-env.json'),
+  ]) {
+    const value = readRuntimeEnv(file)
+    if (value) return value
+  }
+  return ''
+}
+
 export function v2DataDirCandidates() {
   const dirs = []
-  const base = String(process.env.ZCODE_DATA_BASE_DIR || '').trim()
+  const base = zcodeDataBase()
   if (base) dirs.push(path.join(base, '.zcode', 'v2'))
   dirs.push(path.join(ZCODE_HOME, 'v2'))
   return dirs

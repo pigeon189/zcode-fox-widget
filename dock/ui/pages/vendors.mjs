@@ -1,7 +1,7 @@
 import { h } from '../vendor/preact.module.js'
 import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
-import { Badge, Button, Card, Dialog, EmptyState, Field, IconButton, Input, SearchBox, Segmented } from '../components/base.mjs'
+import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, IconButton, Input, SearchBox, Segmented } from '../components/base.mjs'
 
 const html = htm.bind(h)
 
@@ -202,13 +202,15 @@ export function VendorsPage({ app }) {
             ? html`<${EmptyState} title="没有发现可导入的凭据" hint="先在 ZCode 里配置 provider，或使用环境变量" />`
             : html`<div style=${{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 ${candidates.map(
-                  (c) => html`<label class="row" style=${{ gap: 10, cursor: 'pointer' }}>
-                    <input type="checkbox" checked=${selected.includes(c.templateId)}
-                      onChange=${(e) => setSelected(e.currentTarget.checked ? [...selected, c.templateId] : selected.filter((id) => id !== c.templateId))} />
-                    <span style=${{ flex: 1 }}>${c.name}</span>
+                  (c) => html`<div class="row" style=${{ gap: 10 }}>
+                    <${Checkbox} checked=${selected.includes(c.templateId)}
+                      onChange=${(v) => setSelected(v ? [...selected, c.templateId] : selected.filter((id) => id !== c.templateId))}>
+                      <span>${c.name}</span>
+                    </${Checkbox}>
+                    <span class="spacer"></span>
                     <span class="mono small">${c.masked}</span>
                     <${Badge} tone="neutral">${c.source}</${Badge}>
-                  </label>`
+                  </div>`
                 )}
               </div>`}
         </${Dialog}>`

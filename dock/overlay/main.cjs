@@ -84,13 +84,27 @@ const maskCache = new Map()
 function rolePath(roleId) {
   const id = String(roleId || '')
   if (!/^[a-z0-9-]{2,24}$/i.test(id)) return ''
-  const builtin = path.join(__dirname, 'assets', 'roles', id + '.png')
-  if (fs.existsSync(builtin)) return builtin
-  if (dataDir) {
-    const imported = path.join(dataDir, 'roles', id + '.png')
-    if (fs.existsSync(imported)) return imported
+  const dirs = [path.join(__dirname, 'assets', 'roles')]
+  if (dataDir) dirs.push(path.join(dataDir, 'roles'))
+  for (const dir of dirs) {
+    for (const ext of ['png', 'gif', 'jpg', 'jpeg', 'webp']) {
+      const file = path.join(dir, id + '.' + ext)
+      if (fs.existsSync(file)) return file
+    }
   }
   return ''
+}
+
+function roleImageData(roleId) {
+  const file = rolePath(roleId)
+  if (!file) return ''
+  const mime = { png: 'image/png', gif: 'image/gif', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+  const ext = path.extname(file).slice(1).toLowerCase()
+  try {
+    return 'data:' + (mime[ext] || 'image/png') + ';base64,' + fs.readFileSync(file).toString('base64')
+  } catch (err) {
+    return ''
+  }
 }
 
 function alphaMask(roleId) {
@@ -208,10 +222,10 @@ function buildMenu() {
     { label: win && win.isVisible() ? '隐藏角色' : '显示角色', accelerator: 'Ctrl+Alt+F', click: toggleVisible },
     { type: 'separator' },
     {
-      label: '桌宠模式',
+      label: '吸附到 agent 窗口',
       type: 'checkbox',
-      checked: !!s.petMode,
-      click: (item) => patchSettings({ petMode: item.checked }).then(refreshTray),
+      checked: !s.petMode,
+      click: (item) => patchSettings({ petMode: !item.checked }).then(refreshTray),
     },
     {
       label: '隐藏金额',
@@ -402,6 +416,7 @@ app.whenReady().then(() => {
     }
   })
   ipcMain.handle('alpha-mask', (_e, roleId) => alphaMask(roleId))
+  ipcMain.handle('role-image', (_e, roleId) => roleImageData(roleId))
 
   // 拖拽期间渲染进程的网络会被整体挂起（实测所有 fetch 卡到松手后才返回），
   // 命中采样改成主进程代发：主进程是 Node，不受这个限制。

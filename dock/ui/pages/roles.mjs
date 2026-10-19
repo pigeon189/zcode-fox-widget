@@ -59,6 +59,7 @@ export function RolesPage({ app }) {
   async function pick(id) {
     await save({ roleId: id })
     await app.reloadState()
+    app.refresh()
   }
 
   async function saveTemplates() {
@@ -90,24 +91,39 @@ export function RolesPage({ app }) {
     e.currentTarget.value = ''
     if (!file) return
     if (file.size > 3 * 1024 * 1024) return app.toast('图片超过 3MB', 'bad')
-    if (!/\.png$/i.test(file.name)) return app.toast('只支持 PNG 图片', 'bad')
+    const isGif = /^image\/gif$/i.test(file.type) || /\.gif$/i.test(file.name)
+    if (!isGif && !/^image\/(png|jpeg|webp)$/i.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name)) {
+      return app.toast('只支持 PNG / JPEG / WebP / GIF 图片', 'bad')
+    }
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => resolve(String(reader.result || ''))
       reader.onerror = () => reject(new Error('读取文件失败'))
       reader.readAsDataURL(file)
     })
-    const base64 = dataUrl.split(',')[1] || ''
     const dims = await new Promise((resolve) => {
       const img = new Image()
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight, img })
       img.onerror = () => resolve(null)
       img.src = dataUrl
     })
-    if (!dims) return app.toast('PNG 解码失败', 'bad')
+    if (!dims) return app.toast('图片解码失败', 'bad')
     if (dims.width > 2048 || dims.height > 2048) return app.toast('图片尺寸超过 2048×2048', 'bad')
-    const name = file.name.replace(/\.png$/i, '').slice(0, 24)
-    setPending({ dataUrl, base64, width: dims.width, height: dims.height })
+    // GIF 原样保留动画；其余格式统一转成 PNG（daemon 不引入图片解码依赖）。
+    let payloadUrl = dataUrl
+    if (!isGif) {
+      const canvas = document.createElement('canvas')
+      canvas.width = dims.width
+      canvas.height = dims.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return app.toast('浏览器无法处理这张图片', 'bad')
+      ctx.drawImage(dims.img, 0, 0)
+      payloadUrl = canvas.toDataURL('image/png')
+    }
+    const base64 = payloadUrl.split(',')[1] || ''
+    if (base64.length * 0.75 > 3 * 1024 * 1024) return app.toast('转换后的图片超过 3MB', 'bad')
+    const name = file.name.replace(/\.[a-z0-9]+$/i, '').slice(0, 24)
+    setPending({ dataUrl, base64, width: dims.width, height: dims.height, format: isGif ? 'gif' : 'png' })
     setRoleName(name)
     setRoleId(slugOf(name))
     setImportOpen(true)
@@ -182,7 +198,7 @@ export function RolesPage({ app }) {
               <span class="small muted">导入角色</span>
             </button>
           </div>
-          <input ref=${fileRef} type="file" accept="image/png" hidden onChange=${onFile} aria-label="选择角色 PNG" />
+          <input ref=${fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" hidden onChange=${onFile} aria-label="选择角色图片（PNG/JPEG/WebP/GIF）" />
         </${Card}>
       </div>
       <div class="col-5">
@@ -261,7 +277,7 @@ export function RolesPage({ app }) {
               <${Field} label="角色 id" hint="小写字母/数字/连字符，2–24 位；用作文件名">
                 <${Input} value=${roleId} onInput=${setRoleId} aria-label="角色 id" />
               </${Field}>
-              <div class="small muted">${pending.width} × ${pending.height} · ${(pending.base64.length * 0.75 / 1024).toFixed(0)} KB</div>
+              <div class="small muted">${pending.width} × ${pending.height} · ${pending.format === 'gif' ? 'GIF 动画' : 'PNG'} · ${(pending.base64.length * 0.75 / 1024).toFixed(0)} KB</div>
             </div>
           </div>
         </${Dialog}>`

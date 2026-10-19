@@ -10,6 +10,8 @@ import {
   MAX_ROLE_BYTES,
   deleteRole,
   importRole,
+  inspectGif,
+  inspectImage,
   inspectPng,
   listRoleLibrary,
   renameRole,
@@ -36,6 +38,15 @@ function makePng(width = 2, height = 2) {
   const raw = Buffer.alloc((width * 4 + 1) * height)
   const idat = zlib.deflateSync(raw)
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))])
+}
+
+function makeGif(width = 4, height = 6) {
+  const buf = Buffer.alloc(14)
+  buf.write('GIF89a', 0, 'ascii')
+  buf.writeUInt16LE(width, 6)
+  buf.writeUInt16LE(height, 8)
+  buf[13] = 0x3b
+  return buf
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-roles-'))
@@ -87,6 +98,22 @@ test('roles: 导入 / 列表 / 改名 / 删除', () => {
   assert.throws(() => deleteRole({ rolesDir, indexFile, id: 'fox' }), /内置/)
   assert.deepEqual(deleteRole({ rolesDir, indexFile, id: 'my-role' }), { removed: true })
   assert.equal(fs.existsSync(path.join(rolesDir, 'my-role.png')), false)
+})
+
+test('roles: GIF 导入保留动画格式，列表/删除按扩展名找到', () => {
+  const gif = makeGif(32, 48)
+  assert.deepEqual(inspectGif(gif), { ok: true, format: 'gif', width: 32, height: 48 })
+  assert.equal(inspectImage(gif).format, 'gif')
+  assert.equal(inspectImage(makePng()).format, 'png')
+  assert.throws(() => inspectImage(Buffer.from('RIFF....WEBP')), /PNG \/ GIF/)
+  const r = importRole({ rolesDir, indexFile, id: 'my-gif', name: '动图角色', buffer: gif })
+  assert.equal(r.format, 'gif')
+  assert.ok(fs.existsSync(path.join(rolesDir, 'my-gif.gif')))
+  const listed = listRoleLibrary({ rolesDir, indexFile }).find((x) => x.id === 'my-gif')
+  assert.equal(listed.image, 'roles/my-gif.gif')
+  assert.equal(renameRole({ rolesDir, indexFile, id: 'my-gif', name: '新动图' }).name, '新动图')
+  assert.deepEqual(deleteRole({ rolesDir, indexFile, id: 'my-gif' }), { removed: true })
+  assert.equal(fs.existsSync(path.join(rolesDir, 'my-gif.gif')), false)
 })
 
 test('roles: 文件名由 id 决定，路径穿越 id 直接拒绝', () => {

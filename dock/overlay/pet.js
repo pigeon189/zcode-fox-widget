@@ -47,9 +47,7 @@ const quickCtxBar = document.getElementById('quick-ctx-bar')
 const quickCtxPct = document.getElementById('quick-ctx-pct')
 const quickCtxAbs = document.getElementById('quick-ctx-abs')
 const quickWindows = document.getElementById('quick-windows')
-const quickConsole = document.getElementById('quick-console')
 const quickRefresh = document.getElementById('quick-refresh')
-const quickReset = document.getElementById('quick-reset')
 const quickMore = document.getElementById('quick-more')
 const menu = document.getElementById('menu')
 const dragHint = document.getElementById('drag-hint')
@@ -58,6 +56,7 @@ let settings = {
   theme: 'auto',
   scale: 1,
   scrollGap: 17,
+  scrollGapOn: false,
   followMs: 500,
   roleId: 'fox',
   rolesByAdapter: {},
@@ -68,20 +67,26 @@ let settings = {
   showChip: true,
   turnBubble: true,
   turnBubbleMs: 5000,
-  soundEnabled: false,
   soundVolume: 0.5,
 }
 let state = { pet: { mode: 'idle', agentId: '', profileOf: '', lastAgentId: '', hwnd: '', rect: null }, agents: [] }
 let snapshot = null
 let context = null
 let bound = { agentId: '', hwnd: '', title: '', exe: '', pid: 0, startMs: 0, rect: null }
-let corner = { h: 'right', v: 'bottom' }
+// 吸附锚点：h/v 为 null 表示「窗口内自由位置」，用 hOff/vOff 记相对窗口左上角的偏移。
+// 与旧挂件一致：只有拖到窗口外侧四分之一时才吸边，中间区域保持自由摆放。
+let anchor = { h: 'right', v: 'bottom', hOff: 0, vOff: 0 }
 let pos = { x: 0, y: 0 }
 let origin = null
 let dragging = false
 let pressing = null
+let pointer = null
 let currentTarget = null
+let hitSeq = 0
+let lastHintText = ''
 let roleId = settings.roleId
+let roleCatalog = { ...FOX_ROLES }
+let appliedRoleSrc = ''
 let quickOpen = false
 let menuOpen = false
 let bubbleTimer = null
@@ -98,6 +103,7 @@ let chatterTimer = null
 let lastChatterMs = -1
 let petModeFloating = false
 let lastInteractive = null
+let lastAttach = null
 let hitBusy = false
 let lastHitAt = 0
 let startSnapshotSeen = false
@@ -106,10 +112,23 @@ const sounds = {
   press: new Audio('../assets/sounds/Ya1.mp3'),
   release: new Audio('../assets/sounds/Ya2.mp3'),
 }
+let soundAt = 0
 function playSound(kind) {
-  if (!settings.soundEnabled) return
+  if (settings.dnd) return
   const a = sounds[kind]
   if (!a) return
+  const now = performance.now()
+  if (now - soundAt < 20) return
+  soundAt = now
+  // 快速连击时先停掉另一个音轨：按压音与松开音各用独立 Audio，
+  // 不打断的话两次点击会叠在一起。
+  for (const other of Object.values(sounds)) {
+    if (other === a) continue
+    try {
+      other.pause()
+      other.currentTime = 0
+    } catch (err) {}
+  }
   try {
     a.currentTime = 0
     a.volume = Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
@@ -160,19 +179,21 @@ function patchSettings(patch) {
 // ---------- 角色 / 主题 / 尺寸 ----------
 
 function foxSize() {
-  const base = Math.min(250, Math.min(window.innerWidth, window.innerHeight) * 0.28)
+  // 100% = 旧挂件默认档（scale 1.5）。旧挂件把角色画在 59.45% 的根框里，
+  // 换算到新版整框显示约 0.892；这样 100% 与旧版默认大小一致，其余档位等比。
+  const base = Math.min(250, Math.min(window.innerWidth, window.innerHeight) * 0.28) * 0.892
   return Math.max(122, Math.min(625, base * (Number(settings.scale) || 1)))
 }
 
 function roleForAgent(agentId) {
   const map = settings.rolesByAdapter || {}
   const profile = (settings.profiles || {})[agentId]
-  if (profile && profile.roleId) return profile.roleId
-  if (agentId && map[agentId] && FOX_ROLES[map[agentId]]) return map[agentId]
+  if (profile && profile.roleId && roleCatalog[profile.roleId]) return profile.roleId
+  if (agentId && map[agentId] && roleCatalog[map[agentId]]) return map[agentId]
   const agent = (state.agents || []).find((a) => a.id === agentId)
-  if (agent && agent.roleDefault && FOX_ROLES[agent.roleDefault]) return agent.roleDefault
-  if (agentId && ADAPTER_ROLES[agentId]) return ADAPTER_ROLES[agentId]
-  return settings.roleId || 'fox'
+  if (agent && agent.roleDefault && roleCatalog[agent.roleDefault]) return agent.roleDefault
+  if (agentId && ADAPTER_ROLES[agentId] && roleCatalog[ADAPTER_ROLES[agentId]]) return ADAPTER_ROLES[agentId]
+  return settings.roleId && roleCatalog[settings.roleId] ? settings.roleId : 'fox'
 }
 
 // 所有内置强调色上纯黑文字的对比度都 ≥4.8:1（dsh #4d6bfe 为 4.85:1）。
@@ -183,15 +204,58 @@ function applyAccent(accent) {
 }
 
 function applyRole(id) {
-  const role = FOX_ROLES[id] || FOX_ROLES.fox
-  const changed = roleId !== role.id || foxImg.getAttribute('src') !== role.image
+  const role = roleCatalog[id] || roleCatalog.fox || FOX_ROLES.fox
+  const changed = roleId !== role.id || appliedRoleSrc !== role.image
   roleId = role.id
-  if (changed) {
+  if (changed && role.image) {
     foxImg.src = role.image
     foxImg.alt = role.name
+    appliedRoleSrc = role.image
+    // 同一 id 重新导入（换图/GIF）时也要重建命中掩码。
+    loadAlphaMask(role.id)
   }
-  if (alphaRole !== role.id) loadAlphaMask(role.id)
   applyAccent(role.accent || '#f0a04b')
+}
+
+// 导入角色（含 GIF）由主进程读成 data URL；内置角色继续走相对路径。
+async function loadRoleCatalog() {
+  const r = await read('/v1/roles')
+  if (!r || !r.ok || !Array.isArray(r.roles)) return
+  const next = { ...FOX_ROLES }
+  const api = window.foxOverlay
+  for (const role of r.roles) {
+    if (!role || !role.id || FOX_ROLES[role.id]) continue
+    let image = role.image || ''
+    if (api && typeof api.getRoleImage === 'function') {
+      try {
+        const data = await api.getRoleImage(role.id)
+        if (data) image = data
+      } catch (err) {}
+    }
+    if (!image) continue
+    next[role.id] = {
+      id: role.id,
+      name: role.name || role.id,
+      image,
+      accent: role.accent || '#f0a04b',
+      pick: FOX_ROLES.fox.pick,
+      lines: FOX_ROLES.whale.lines,
+    }
+  }
+  roleCatalog = next
+  syncRole()
+}
+
+function syncRole() {
+  const agentId = bound.agentId || state.pet.profileOf || state.pet.lastAgentId || ''
+  const next = roleForAgent(agentId)
+  const role = roleCatalog[next] || roleCatalog.fox || FOX_ROLES.fox
+  // 不能只比 roleId：refreshState 曾在没换图时改过 roleId，导致这里误判「已应用」。
+  if (next !== roleId || appliedRoleSrc !== role.image) {
+    applyRole(next)
+    renderChip()
+    if (quickOpen) renderQuick()
+  }
 }
 
 function applySettings() {
@@ -202,7 +266,8 @@ function applySettings() {
   if (theme) document.documentElement.dataset.theme = theme
   else delete document.documentElement.dataset.theme
   document.documentElement.style.colorScheme = theme || 'light dark'
-  applyRole(roleId || settings.roleId || 'fox')
+  syncRole()
+  if (hideMoney) hideBubble()
   if (Number(settings.followMs) !== followEvery) restartFollowTimer()
   if (Number(settings.chatterMs) !== lastChatterMs) restartChatter()
   if (settings.petMode && state.pet.mode === 'attached' && !petModeFloating) {
@@ -273,10 +338,15 @@ function resetText(v) {
 function mainMetric(snap, agentId) {
   if (!snap || snap.supported !== true) return { value: '—', label: '暂无数据' }
   const mode = settings.displayMode || 'auto'
-  if ((mode === 'balance' || (mode === 'auto' && agentId === 'dsh')) && snap.balance) {
+  const card = snap.quotaCard || {}
+  const preferBalance =
+    mode === 'balance' || (mode === 'auto' && (agentId === 'dsh' || card.preferBalance || card.kind === 'balance'))
+  if (preferBalance && snap.balance) {
     return { value: moneyText(snap.balance, snap.unit), label: '余额' }
   }
-  if ((mode === 'quota' || (mode === 'auto' && snap.quota)) && snap.quota) {
+  const preferQuota =
+    mode === 'quota' || (mode === 'auto' && (agentId === 'kimi' || card.kind === 'plan' || card.kind === 'windows'))
+  if (preferQuota && snap.quota) {
     return { value: pctText(snap.quota.remainingPct), label: '剩余额度' }
   }
   if (snap.today) return { value: moneyText(snap.today, snap.unit), label: '今日已用' }
@@ -323,17 +393,34 @@ function place(x, y) {
   placeAll()
 }
 
+function screenHalf() {
+  const s = foxSize()
+  return {
+    h: pos.x + s / 2 < window.innerWidth / 2 ? 'left' : 'right',
+    v: pos.y + s / 2 < window.innerHeight / 2 ? 'top' : 'bottom',
+  }
+}
+
+function shouldMirror(box) {
+  if (state.pet.mode !== 'attached') return pos.x + foxSize() / 2 < window.innerWidth / 2
+  if (anchor.h === 'left') return true
+  if (anchor.h === 'right') return false
+  const b = box || (bound.rect ? rectLocal(bound.rect) : null)
+  if (b) return pos.x + foxSize() / 2 < b.x + b.w / 2
+  return pos.x + foxSize() / 2 < window.innerWidth / 2
+}
+
 function placeAll() {
   const s = foxSize()
-  const gap = Math.max(0, Number(settings.scrollGap) || 0)
-  document.body.dataset.cornerH = corner.h
-  document.body.dataset.cornerV = corner.v
-  fox.classList.toggle('mirror', corner.h === 'left')
+  const half = screenHalf()
+  document.body.dataset.cornerH = half.h
+  document.body.dataset.cornerV = half.v
+  fox.classList.toggle('mirror', shouldMirror())
   // 胶囊贴角色，靠近屏幕边缘时向内收
   const chipW = chip.offsetWidth || 180
-  let cx = corner.h === 'left' ? pos.x + 6 : pos.x + s - chipW - 6
+  let cx = half.h === 'left' ? pos.x + 6 : pos.x + s - chipW - 6
   cx = Math.max(6, Math.min(window.innerWidth - chipW - 6, cx))
-  let cy = corner.v === 'bottom' ? pos.y + s - 44 : pos.y + 8
+  let cy = half.v === 'bottom' ? pos.y + s - 44 : pos.y + 8
   cy = Math.max(6, Math.min(window.innerHeight - 40, cy))
   chip.style.left = cx + 'px'
   chip.style.top = cy + 'px'
@@ -341,23 +428,68 @@ function placeAll() {
   if (menuOpen) positionMenu()
   positionBubble()
   positionSay()
-  dragHint.style.left = Math.max(8, Math.min(window.innerWidth - dragHint.offsetWidth - 8, (pressing ? pressing.x : pos.x) + 16)) + 'px'
-  dragHint.style.top = Math.max(8, Math.min(window.innerHeight - 40, (pressing ? pressing.y : pos.y) + 16)) + 'px'
+  const at = pointer || pos
+  dragHint.style.left = Math.max(8, Math.min(window.innerWidth - dragHint.offsetWidth - 8, at.x + 16)) + 'px'
+  dragHint.style.top = Math.max(8, Math.min(window.innerHeight - 40, at.y + 16)) + 'px'
 }
 
-function anchorFromRect(rectLocalBox, px, py) {
-  const h = px < rectLocalBox.x + rectLocalBox.w / 2 ? 'left' : 'right'
-  const v = py < rectLocalBox.y + rectLocalBox.h / 2 ? 'top' : 'bottom'
-  return { h, v }
+// 旧挂件式吸附：窗口横向四分之一、纵向四分之一以内才吸边；
+// 中间区域保持自由位置（相对窗口左上角的偏移），窗口移动/缩放时跟着走。
+function anchorFromDrop(box) {
+  const s = foxSize()
+  const cx = pos.x - box.x + s / 2
+  const cy = pos.y - box.y + s / 2
+  const h = cx < box.w / 4 ? 'left' : cx > (box.w * 3) / 4 ? 'right' : null
+  const v = cy < box.h / 4 ? 'top' : cy > (box.h * 3) / 4 ? 'bottom' : null
+  return {
+    h,
+    v,
+    hOff: h ? 0 : Math.max(0, Math.min(Math.max(0, box.w - s), pos.x - box.x)),
+    vOff: v ? 0 : Math.max(0, Math.min(Math.max(0, box.h - s), pos.y - box.y)),
+  }
+}
+
+function normalizeAnchor(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const h = raw.h === 'left' || raw.h === 'right' ? raw.h : null
+  const v = raw.v === 'top' || raw.v === 'bottom' ? raw.v : null
+  return {
+    h,
+    v,
+    hOff: Math.max(0, Number(raw.hOff) || 0),
+    vOff: Math.max(0, Number(raw.vOff) || 0),
+  }
+}
+
+function loadAnchor(hwnd) {
+  for (const key of ['fox-dock:anchor:' + hwnd, 'fox-dock:corner:' + hwnd]) {
+    try {
+      const raw = JSON.parse(localStorage.getItem(key) || 'null')
+      const next = normalizeAnchor(raw)
+      if (next) return next
+    } catch (err) {}
+  }
+  return { h: 'right', v: 'bottom', hOff: 0, vOff: 0 }
 }
 
 function placeAnchored(rect) {
   const box = rectLocal(rect)
   if (!box) return
   const s = foxSize()
-  const gap = Math.max(0, Number(settings.scrollGap) || 0)
-  const x = corner.h === 'left' ? box.x + gap : box.x + box.w - s - gap
-  const y = corner.v === 'top' ? box.y + gap : box.y + box.h - s - gap
+  // 只有右侧/下侧需要避让滚动条；左侧/上侧与旧挂件一样紧贴窗口边缘。
+  const gap = settings.scrollGapOn ? Math.max(0, Number(settings.scrollGap) || 0) : 0
+  const x =
+    anchor.h === 'left'
+      ? box.x
+      : anchor.h === 'right'
+        ? box.x + box.w - s - gap
+        : box.x + anchor.hOff
+  const y =
+    anchor.v === 'top'
+      ? box.y
+      : anchor.v === 'bottom'
+        ? box.y + box.h - s - gap
+        : box.y + anchor.vOff
   place(x, y)
 }
 
@@ -405,14 +537,7 @@ async function refreshState() {
         startMs: 0,
         rect: null,
       }
-      roleId = roleForAgent(p.agentId)
-      const saved = localStorage.getItem('fox-dock:corner:' + p.hwnd)
-      if (saved) {
-        try {
-          const c = JSON.parse(saved)
-          if ((c.h === 'left' || c.h === 'right') && (c.v === 'top' || c.v === 'bottom')) corner = c
-        } catch (err) {}
-      }
+      anchor = loadAnchor(p.hwnd)
       place(0, 0) // 先夹住，rect 回来再贴边
     }
     markRestored(p.hwnd)
@@ -421,14 +546,11 @@ async function refreshState() {
     bound = { ...bound, agentId: '', hwnd: '' }
     delete document.body.dataset.restored
     delete document.body.dataset.boundKey
-    corner = { h: corner.h, v: corner.v }
-    roleId = roleForAgent(p.profileOf || p.lastAgentId || '')
     if (p.rect && Number.isFinite(p.rect.x)) place(p.rect.x, p.rect.y)
   } else {
     bound = { agentId: '', hwnd: '', title: '', exe: '', pid: 0, startMs: 0, rect: null }
     delete document.body.dataset.restored
     delete document.body.dataset.boundKey
-    roleId = roleForAgent('')
     if (!startSnapshotSeen) {
       place(window.innerWidth - foxSize() - 24, window.innerHeight - foxSize() - 24)
       startSnapshotSeen = true
@@ -523,9 +645,13 @@ function renderQuick() {
   const metric = mainMetric(snapshot, agentId)
   quickAgent.textContent = agentId ? agentName(agentId) : '未绑定'
   quickStatus.textContent =
-    state.pet.mode === 'attached' ? '已吸附' + (bound.title ? ' · ' + bound.title : '') :
-    state.pet.mode === 'floating' ? '悬浮中 · 沿用 ' + agentName(state.pet.profileOf) :
-    '拖我到 agent 窗口上'
+    state.pet.mode === 'attached'
+      ? bound.title || agentName(agentId)
+      : state.pet.mode === 'floating'
+        ? '桌面 · 沿用 ' + agentName(state.pet.profileOf)
+        : settings.petMode
+          ? '未吸附'
+          : '拖到宿主窗口可吸附'
   quickDot.className = 'quick-dot ' + (!snapshot || !snapshot.ok ? 'bad' : '')
   quickValue.textContent = metric.value
   quickSub.textContent = metric.label + (snapshot && snapshot.turn ? ' · 上一轮 ' + moneyText(snapshot.turn, snapshot.unit) : '')
@@ -534,7 +660,6 @@ function renderQuick() {
   quickCtxBar.style.background = pct == null ? 'var(--surface-2)' : pct >= 92 ? 'var(--bad)' : pct >= 80 ? 'var(--warn)' : 'var(--pet-accent)'
   quickCtxPct.textContent = pct == null ? '—' : pctText(pct)
   quickCtxAbs.textContent = context && context.supported ? tokensText(context.used) + (context.limit ? ' / ' + tokensText(context.limit) : '') : '暂无'
-  quickReset.hidden = state.pet.mode === 'idle'
   quickWindows.replaceChildren()
   const windows = snapshot && snapshot.quotaCard && Array.isArray(snapshot.quotaCard.windows) ? snapshot.quotaCard.windows.slice(0, 2) : []
   for (const w of windows) {
@@ -564,9 +689,10 @@ function renderQuick() {
 function positionQuick() {
   if (quick.hidden) return
   const s = foxSize()
+  const half = screenHalf()
   const w = quick.offsetWidth || 320
   const h = quick.offsetHeight || 300
-  let x = corner.h === 'right' ? pos.x - w - 12 : pos.x + s + 12
+  let x = half.h === 'right' ? pos.x - w - 12 : pos.x + s + 12
   if (x < 8) x = pos.x + s + 12
   if (x + w > window.innerWidth - 8) x = pos.x - w - 12
   x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
@@ -594,14 +720,58 @@ function speak() {
   showSay(lines[Math.floor(Math.random() * lines.length)])
 }
 
+// 气泡定位：先算可用空间，一次性放到「优先上方、放不下就下方」的最终位置，
+// 再在视口内夹住；箭头单独指向角色中心。不做「先居中、发现撞边再跳到另一侧」
+// 的二次移动，所以第一帧就是最终位置。
+function positionPopover(el) {
+  if (!el || el.hidden) return
+  const s = foxSize()
+  const margin = 8
+  const w = el.offsetWidth || 200
+  const h = el.offsetHeight || 50
+  const center = pos.x + s / 2
+  const aboveRoom = pos.y - 10 - margin
+  const belowRoom = window.innerHeight - (pos.y + s) - 10 - margin
+  let below
+  if (h <= aboveRoom) below = false
+  else if (h <= belowRoom) below = true
+  else below = belowRoom > aboveRoom
+  let y = below ? pos.y + s + 10 : pos.y - h - 10
+  y = Math.max(margin, Math.min(window.innerHeight - h - margin, y))
+  const x = Math.max(margin, Math.min(window.innerWidth - w - margin, center - w / 2))
+  const arrow = Math.max(18, Math.min(w - 18, center - x))
+  el.style.left = Math.round(x) + 'px'
+  el.style.top = Math.round(y) + 'px'
+  el.classList.toggle('below', below)
+  el.style.setProperty('--arrow-left', Math.round(arrow) + 'px')
+}
+
+function positionSay() {
+  positionPopover(sayEl)
+}
+
+function positionBubble() {
+  positionPopover(bubble)
+}
+
 function showSay(text) {
   if (!text || settings.dnd) return
-  sayText.textContent = text
-  sayEl.hidden = false
-  requestAnimationFrame(() => sayEl.classList.add('open'))
   if (sayTimer) clearTimeout(sayTimer)
-  sayTimer = setTimeout(hideSay, 5200)
+  const wasOpen = !sayEl.hidden && sayEl.classList.contains('open')
+  sayText.textContent = text
+  if (!wasOpen) {
+    sayEl.classList.remove('open')
+    sayEl.style.visibility = 'hidden'
+  }
+  sayEl.hidden = false
   positionSay()
+  if (!wasOpen) {
+    sayEl.style.visibility = ''
+    requestAnimationFrame(() => {
+      if (!sayEl.hidden) sayEl.classList.add('open')
+    })
+  }
+  sayTimer = setTimeout(hideSay, 5200)
 }
 
 function hideSay() {
@@ -613,40 +783,28 @@ function hideSay() {
   }, 160)
 }
 
-function positionSay() {
-  if (sayEl.hidden) return
-  const s = foxSize()
-  const w = sayEl.offsetWidth || 200
-  const h = sayEl.offsetHeight || 48
-  let x = pos.x + s / 2 - w / 2
-  let y = pos.y - h - 10
-  let below = false
-  if (y < 8) {
-    y = pos.y + s + 10
-    below = true
-  }
-  if (x < 8) x = pos.x + s + 8
-  else if (x + w > window.innerWidth - 8) x = pos.x - w - 8
-  x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
-  // 气泡被钳到角色左侧时，保证箭头仍能落在角色中心附近
-  const center = pos.x + s / 2
-  if (center > x + w - 14) x = Math.max(8, Math.min(window.innerWidth - w - 8, center - w + 20))
-  sayEl.style.left = Math.round(x) + 'px'
-  sayEl.style.top = Math.round(y) + 'px'
-  sayEl.classList.toggle('below', below)
-  sayEl.style.setProperty('--arrow-left', Math.round(Math.max(14, Math.min(w - 14, pos.x + s / 2 - x))) + 'px')
-}
-
 function showBubble(text, sub, opts = {}) {
   if (settings.dnd) return
+  // 隐藏金额 = 不弹消耗/余额气泡；金额本身在胶囊里也保持掩码。
+  if (hideMoney) return
   if (!text || !text.trim()) return
+  if (bubbleTimer) clearTimeout(bubbleTimer)
+  const wasOpen = !bubble.hidden && bubble.classList.contains('open')
   bubbleText.textContent = text
   bubbleSub.textContent = sub || ''
   bubbleSub.hidden = !sub
+  if (!wasOpen) {
+    bubble.classList.remove('open')
+    bubble.style.visibility = 'hidden'
+  }
   bubble.hidden = false
-  requestAnimationFrame(() => bubble.classList.add('open'))
   positionBubble()
-  if (bubbleTimer) clearTimeout(bubbleTimer)
+  if (!wasOpen) {
+    bubble.style.visibility = ''
+    requestAnimationFrame(() => {
+      if (!bubble.hidden) bubble.classList.add('open')
+    })
+  }
   const ms = opts.ms == null ? settings.turnBubbleMs : opts.ms
   if (ms > 0) bubbleTimer = setTimeout(hideBubble, Math.max(1500, ms))
 }
@@ -658,30 +816,6 @@ function hideBubble() {
   setTimeout(() => {
     if (!bubble.classList.contains('open')) bubble.hidden = true
   }, 160)
-}
-
-function positionBubble() {
-  if (bubble.hidden) return
-  const s = foxSize()
-  const w = bubble.offsetWidth || 200
-  const h = bubble.offsetHeight || 50
-  let x = pos.x + s / 2 - w / 2
-  let y = pos.y - h - 10
-  let below = false
-  if (y < 8) {
-    y = pos.y + s + 10
-    below = true
-  }
-  if (x < 8) x = pos.x + s + 8
-  else if (x + w > window.innerWidth - 8) x = pos.x - w - 8
-  x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
-  // 气泡被钳到角色左侧时，保证箭头仍能落在角色中心附近
-  const center = pos.x + s / 2
-  if (center > x + w - 14) x = Math.max(8, Math.min(window.innerWidth - w - 8, center - w + 20))
-  bubble.style.left = Math.round(x) + 'px'
-  bubble.style.top = Math.round(y) + 'px'
-  bubble.classList.toggle('below', below)
-  bubble.style.setProperty('--arrow-left', Math.round(Math.max(14, Math.min(w - 14, pos.x + s / 2 - x))) + 'px')
 }
 
 function playQueueBubble() {
@@ -727,21 +861,17 @@ function openMenu(x, y) {
   const sep = document.createElement('div')
   sep.className = 'menu-sep'
   menu.appendChild(sep)
-  const modeText =
-    state.pet.mode === 'attached' ? '已吸附 ' + agentName(bound.agentId) :
-    state.pet.mode === 'floating' ? '悬浮中（沿用 ' + agentName(state.pet.profileOf) + '）' : '未绑定'
-  menu.appendChild(menuTitle(modeText))
-  if (state.pet.mode !== 'idle') menu.appendChild(menuItem('解除吸附并重置', resetPet))
-  menu.appendChild(menuItem((settings.petMode ? '✓ ' : '') + '桌宠模式', () => patchSettings({ petMode: !settings.petMode })))
+  // 吸附只有一个总开关：关闭后角色不吸附、不跟随，留在桌面上。
+  menu.appendChild(menuItem((settings.petMode ? '' : '✓ ') + '吸附到 agent 窗口', () => patchSettings({ petMode: !settings.petMode })))
   menu.appendChild(menuItem((settings.hideMoney ? '✓ ' : '') + '隐藏金额', () => patchSettings({ hideMoney: !settings.hideMoney })))
-  menu.appendChild(menuItem((settings.dnd ? '✓ ' : '') + '勿扰（静音气泡）', () => patchSettings({ dnd: !settings.dnd })))
+  menu.appendChild(menuItem((settings.dnd ? '✓ ' : '') + '勿扰（静音气泡与音效）', () => patchSettings({ dnd: !settings.dnd })))
   const sep2 = document.createElement('div')
   sep2.className = 'menu-sep'
   menu.appendChild(sep2)
   menu.appendChild(menuTitle('角色'))
   const roles = document.createElement('div')
   roles.className = 'menu-sub'
-  for (const r of Object.values(FOX_ROLES)) {
+  for (const r of Object.values(roleCatalog)) {
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'menu-role' + (roleId === r.id ? ' active' : '')
@@ -778,7 +908,6 @@ function openMenu(x, y) {
   const sep3 = document.createElement('div')
   sep3.className = 'menu-sep'
   menu.appendChild(sep3)
-  menu.appendChild(menuItem('设置…', () => window.foxOverlay && window.foxOverlay.openConsole && window.foxOverlay.openConsole()))
   menu.appendChild(menuItem('隐藏角色', () => window.foxOverlay && window.foxOverlay.hideOverlay && window.foxOverlay.hideOverlay()))
   menu.appendChild(menuItem('退出 fox-dock', () => window.foxOverlay && window.foxOverlay.quitDock && window.foxOverlay.quitDock(), { danger: true }))
 
@@ -849,7 +978,9 @@ async function hitAt(clientX, clientY, force = false) {
   }
 }
 
-async function bindTo(win, atX, atY) {
+async function bindTo(win) {
+  const box = rectLocal(win.rect)
+  const nextAnchor = box ? anchorFromDrop(box) : anchor
   const data = await write('/v1/pet/attach', 'POST', {
     exe: win.exe,
     title: win.title,
@@ -858,13 +989,13 @@ async function bindTo(win, atX, atY) {
     startMs: win.startMs,
     hwnd: win.hwnd,
     rect: win.rect,
-    anchor: corner,
-  })
+    anchor: nextAnchor,
+  }).catch((err) => ({ ok: false, error: String((err && err.message) || err) }))
+  lastAttach = data
   if (!data || !data.ok) return false
   bound = { agentId: data.pet.agentId, hwnd: win.hwnd, title: win.title, exe: win.exe, pid: win.pid, startMs: win.startMs, rect: win.rect }
-  const box = rectLocal(win.rect)
-  if (box) corner = anchorFromRect(box, atX, atY)
-  localStorage.setItem('fox-dock:corner:' + win.hwnd, JSON.stringify(corner))
+  anchor = nextAnchor
+  localStorage.setItem('fox-dock:anchor:' + win.hwnd, JSON.stringify(anchor))
   state.pet = data.pet
   roleId = roleForAgent(data.pet.agentId)
   applyRole(roleId)
@@ -885,18 +1016,6 @@ async function floatAt() {
   applyRole(roleId)
   renderChip()
   return data
-}
-
-async function resetPet() {
-  await write('/v1/pet/reset', 'POST', {})
-  state.pet = { mode: 'idle', agentId: '', profileOf: '', lastAgentId: '', hwnd: '', rect: null }
-  bound = { agentId: '', hwnd: '', title: '', exe: '', pid: 0, startMs: 0, rect: null }
-  snapshot = null
-  context = null
-  roleId = settings.roleId || 'fox'
-  applyRole(roleId)
-  renderChip()
-  place(window.innerWidth - foxSize() - 24, window.innerHeight - foxSize() - 24)
 }
 
 // ---------- 指针交互 ----------
@@ -962,7 +1081,16 @@ fox.addEventListener('pointerdown', (e) => {
   setInteractive(true)
 })
 
+function setDragHint(text, armed) {
+  if (lastHintText !== text) {
+    lastHintText = text
+    dragHint.textContent = text
+  }
+  dragHint.classList.toggle('armed', !!armed)
+}
+
 window.addEventListener('pointermove', (e) => {
+  pointer = { x: e.clientX, y: e.clientY }
   if (!pressing) {
     if (!CLICK_THROUGH) return
     setInteractive(isOverUI(e.clientX, e.clientY))
@@ -978,25 +1106,24 @@ window.addEventListener('pointermove', (e) => {
     closeMenu()
     fox.classList.add('dragging')
     dragHint.hidden = false
+    lastHintText = ''
   }
   if (!dragging) return
   place(e.clientX - foxSize() / 2, e.clientY - foxSize() / 2)
   if (settings.petMode) {
     currentTarget = null
     fox.classList.remove('armed')
-    dragHint.textContent = '松手放在桌面'
-    dragHint.classList.remove('armed')
-    placeAll()
+    setDragHint('松手放在桌面', false)
     return
   }
+  const seq = ++hitSeq
   hitAt(e.clientX, e.clientY).then((win) => {
-    if (!dragging) return
+    // 只认最新一次命中结果：旧的异步返回晚到会把提示文字改回去。
+    if (!dragging || seq !== hitSeq) return
     currentTarget = win
     fox.classList.toggle('armed', !!win)
-    dragHint.textContent = win ? '松手吸附到 ' + (win.title || win.exe) : '松手悬浮在桌面（保留 ' + agentName(bound.agentId || state.pet.profileOf) + ' 设置）'
-    dragHint.classList.toggle('armed', !!win)
-    dragHint.style.left = Math.max(8, Math.min(window.innerWidth - dragHint.offsetWidth - 8, e.clientX + 16)) + 'px'
-    dragHint.style.top = Math.max(8, Math.min(window.innerHeight - 40, e.clientY + 16)) + 'px'
+    const name = agentName(bound.agentId || state.pet.profileOf)
+    setDragHint(win ? '松手吸附到 ' + (win.title || win.exe) : '松手放在桌面（保留 ' + name + ' 设置）', !!win)
   })
 })
 
@@ -1008,10 +1135,13 @@ window.addEventListener('pointerup', async (e) => {
   pressing = null
   dragging = false
   currentTarget = null
+  pointer = null
+  hitSeq++
   fox.classList.remove('dragging', 'armed')
   dragHint.hidden = true
   if (!wasDragging) {
-    toggleQuick()
+    // 再次点击角色只更新台词，不把已经打开的快览卡关掉。
+    if (!quickOpen) toggleQuick(true)
     speak()
     return
   }
@@ -1019,8 +1149,7 @@ window.addEventListener('pointerup', async (e) => {
   if (settings.petMode) {
     await floatAt()
   } else if (target) {
-    const o = await ensureOrigin()
-    const ok = await bindTo(target, e.clientX, e.clientY)
+    const ok = await bindTo(target)
     if (!ok) await floatAt()
   } else {
     await floatAt()
@@ -1048,12 +1177,7 @@ bubble.addEventListener('click', async (e) => {
   if (playQueueBubble()) return
   hideBubble()
 })
-quickConsole.addEventListener('click', () => window.foxOverlay && window.foxOverlay.openConsole && window.foxOverlay.openConsole())
 quickRefresh.addEventListener('click', () => refreshAgentData(true))
-quickReset.addEventListener('click', async () => {
-  toggleQuick(false)
-  await resetPet()
-})
 quickMore.addEventListener('click', (e) => {
   e.stopPropagation()
   const r = quickMore.getBoundingClientRect()
@@ -1091,6 +1215,7 @@ async function boot() {
   await ensureOrigin()
   const s = await read('/v1/settings')
   if (s && s.ok && s.settings) settings = { ...settings, ...s.settings }
+  await loadRoleCatalog()
   applySettings()
   await refreshState()
   await loadQueue()
@@ -1098,6 +1223,8 @@ async function boot() {
   setInterval(refreshState, 1500)
   setInterval(() => (quickOpen ? 0 : refreshSettings()), 2000)
   setInterval(() => (quickOpen ? 0 : refreshAgentData(false)), 3000)
+  setInterval(loadRoleCatalog, 30000)
+  setInterval(loadRoleCatalog, 30000)
   restartFollowTimer()
   setInterval(loadQueue, 15000)
   if (BASE) {
@@ -1125,17 +1252,23 @@ window.__pet = {
   get currentTarget() { return currentTarget },
   get snapshot() { return snapshot },
   get context() { return context },
+  get anchor() { return anchor },
+  get lastAttach() { return lastAttach },
+  get roleCatalog() { return Object.keys(roleCatalog) },
+  roleFor: (id) => roleForAgent(id),
+  get currentRole() { return roleId },
+  syncRole: () => syncRole(),
   alphaMaskLoaded: () => !!alphaMask,
   get followEvery() { return followEvery },
   debugAttach(agentId, hwnd, rect, c) {
     bound = { agentId, hwnd, title: 'debug', exe: 'debug.exe', pid: 1, startMs: 1, rect }
     state.pet = { mode: 'attached', agentId, hwnd, profileOf: agentId, lastAgentId: agentId }
-    corner = c || { h: 'right', v: 'bottom' }
+    anchor = normalizeAnchor(c) || { h: 'right', v: 'bottom', hOff: 0, vOff: 0 }
     roleId = roleForAgent(agentId)
     applyRole(roleId)
     placeAnchored(rect)
     renderChip()
-    return { pos, corner }
+    return { pos, anchor }
   },
   debugFloat(agentId, x, y) {
     state.pet = { mode: 'floating', agentId: '', profileOf: agentId, lastAgentId: agentId }

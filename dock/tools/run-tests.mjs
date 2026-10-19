@@ -50,10 +50,14 @@ if (!files.length) {
   process.exit(1)
 }
 
+// 测试进程不读开发机上的厂商凭据、也不出网；厂商余额由专门 fixtures 覆盖。
+process.env.FOX_DOCK_VENDOR_BALANCES = '0'
+
 // 必须串行：集成测试会开真窗口和全屏浮层，并行时互相遮挡，
 // 命中测试会随机绑到别的测试进程上（实测就是这样翻车的）。
 const child = spawn(process.execPath, ['--test', '--test-concurrency=1', ...files], {
   stdio: 'inherit',
   cwd: ROOT,
+  env: process.env,
 })
 child.on('exit', (code) => process.exit(code == null ? 1 : code))

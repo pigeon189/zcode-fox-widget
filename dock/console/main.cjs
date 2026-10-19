@@ -12,6 +12,23 @@ function arg(name, fallback = '') {
 const dataDir = arg('--data-dir', process.env.FOX_DOCK_DATA || '')
 const daemonPort = arg('--daemon-port', process.env.FOX_DOCK_PORT || '')
 const UI_DIR = path.join(__dirname, '..', 'ui')
+const APP_ICON = path.join(__dirname, '..', 'assets', 'app-icon.png')
+
+// 透明/置顶窗口的同类问题（挂件线 issue #2）：Chromium 的原生遮挡计算会把
+// 长时间被盖住的控制台判定为「不需要出帧」，再显示时只剩一块白底。
+// 控制台是普通窗口，但关闭按钮只是 hide()，重新打开走的是同一个渲染进程，
+// 一旦画面被冻结就会一直白屏。这里把三条后台化/节流开关全部关掉，并在
+// 渲染进程崩溃/无响应时自动重载。
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+
+if (process.platform === 'win32') {
+  try {
+    app.setAppUserModelId('com.foxdock.console')
+  } catch (err) {}
+}
 
 // 每个数据目录一个 userData：测试实例与正式实例的缓存/单实例锁互不干扰。
 if (dataDir) {
@@ -54,6 +71,17 @@ let win = null
 let sseTimer = null
 let sseAbort = null
 let streamFails = 0
+let lastRecoveryAt = 0
+
+// 渲染进程崩溃/无响应时自动重载；10 秒内只做一次，避免持续故障时刷新循环。
+function recoverRenderer() {
+  const now = Date.now()
+  if (now - lastRecoveryAt < 10000) return
+  lastRecoveryAt = now
+  try {
+    if (win && !win.isDestroyed()) win.reload()
+  } catch (err) {}
+}
 
 async function apiRequest(pathname, options = {}) {
   const lock = lockInfo()
@@ -154,6 +182,7 @@ function createWindow() {
     titleBarStyle: 'hidden',
     titleBarOverlay: { height: 40, color: '#F6F7F9', symbolColor: '#172033' },
     backgroundColor: '#F6F7F9',
+    icon: fs.existsSync(APP_ICON) ? APP_ICON : undefined,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -166,6 +195,17 @@ function createWindow() {
     if (!String(url).startsWith('file://')) event.preventDefault()
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  try {
+    if (fs.existsSync(APP_ICON)) win.setIcon(APP_ICON)
+  } catch (err) {}
+  // 渲染进程崩了/卡死：自动重载，别把白屏留给用户。
+  win.webContents.on('render-process-gone', () => recoverRenderer())
+  win.webContents.on('unresponsive', () => recoverRenderer())
+  win.on('show', () => {
+    try {
+      win.webContents.invalidate()
+    } catch (err) {}
+  })
   win.loadFile(path.join(UI_DIR, 'console.html'), {
     query: { port: String(daemonPort || ''), dataDirPresent: dataDir ? '1' : '0' },
   })
@@ -219,15 +259,15 @@ function createWindow() {
   ipcMain.handle('read-role-image', (_e, roleId) => {
     const id = String(roleId || '')
     if (!/^[a-z0-9-]{2,24}$/i.test(id)) return ''
-    const candidates = [
-      path.join(dataDir || '', 'roles', id + '.png'),
-      path.join(UI_DIR, '..', 'overlay', 'assets', 'roles', id + '.png'),
-    ]
-    for (const file of candidates) {
-      try {
-        const buf = fs.readFileSync(file)
-        return 'data:image/png;base64,' + buf.toString('base64')
-      } catch (err) {}
+    const MIME = { png: 'image/png', gif: 'image/gif', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+    const dirs = [path.join(dataDir || '', 'roles'), path.join(UI_DIR, '..', 'overlay', 'assets', 'roles')]
+    for (const dir of dirs) {
+      for (const ext of ['png', 'gif', 'jpg', 'jpeg', 'webp']) {
+        try {
+          const buf = fs.readFileSync(path.join(dir, id + '.' + ext))
+          return 'data:' + MIME[ext] + ';base64,' + buf.toString('base64')
+        } catch (err) {}
+      }
     }
     return ''
   })
@@ -241,6 +281,9 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     if (win) {
+      try {
+        if (win.webContents.isCrashed()) win.reload()
+      } catch (err) {}
       if (!win.isVisible()) win.show()
       if (win.isMinimized()) win.restore()
       win.focus()

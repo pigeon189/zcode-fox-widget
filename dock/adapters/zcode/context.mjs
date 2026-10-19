@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { contextPct } from '../contracts.mjs'
+import { zcodeDataBase } from '../../engines/paths.mjs'
 
 const require = createRequire(import.meta.url)
 let sqliteModule = null
@@ -45,7 +46,9 @@ let limitCache = { at: 0, key: '', value: null }
 
 function dataRoots(env = process.env) {
   const roots = []
-  const base = String(env.ZCODE_DATA_BASE_DIR || '').trim()
+  // 测试会传入自己的 env 对象；只有真实进程环境才回退到 ~/.zcode/whale 的
+  // runtime-env.json，避免测试误读开发机上的数据目录。
+  const base = String(env.ZCODE_DATA_BASE_DIR || '').trim() || (env === process.env ? zcodeDataBase(env) : '')
   if (base) {
     roots.push(path.join(base, '.zcode'))
     roots.push(base)

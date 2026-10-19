@@ -168,6 +168,7 @@ a {
 .content {
   flex: 1;
   overflow: auto;
+  overflow-x: hidden;
   padding: 8px 24px 24px;
 }
 .grid {
@@ -366,6 +367,131 @@ a {
 }
 .input.error {
   border-color: var(--bad);
+}
+
+/* 自绘下拉 */
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.select-trigger {
+  height: 32px;
+  min-width: 120px;
+  max-width: 260px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.select-trigger:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.select-trigger:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+}
+.select-trigger[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+.select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-trigger svg {
+  flex: 0 0 14px;
+  color: var(--text-3);
+}
+.select-pop {
+  position: fixed;
+  z-index: 1200;
+  max-height: 300px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+.select-pop:focus {
+  outline: none;
+}
+.select-option {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.select-option.active,
+.select-option:hover {
+  background: var(--surface-2);
+}
+.select-option.selected {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+/* 自绘复选框 */
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  cursor: pointer;
+  user-select: none;
+}
+.check-row.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.check-row input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.check-box {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: transparent;
+  transition: background 120ms ease-out, border-color 120ms ease-out;
+}
+.check-row input:checked + .check-box {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.check-row input:focus-visible + .check-box {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.check-label {
+  min-width: 0;
 }
 .field {
   display: flex;
@@ -674,8 +800,11 @@ a {
 /* ---------- 设置 ---------- */
 .settings-layout {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: 160px minmax(0, 1fr);
   gap: 16px;
+}
+.settings-layout > div {
+  min-width: 0;
 }
 .settings-nav {
   position: sticky;
@@ -728,9 +857,11 @@ a {
   color: var(--text-3);
 }
 .setting-row .control {
-  flex: 0 0 auto;
-  max-width: 260px;
+  flex: 0 1 auto;
+  max-width: min(420px, 60%);
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
 }
@@ -743,6 +874,84 @@ a {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+/* ---------- 多厂商余额（总览） ---------- */
+.vendor-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.vendor-mini {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.vendor-mini-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.vendor-mini-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.vendor-mini-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vendor-mini-value {
+  margin-top: 6px;
+  font: 700 18px/1.2 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vendor-mini-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vendor-mini-bar {
+  margin-top: 8px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.vendor-mini-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ok);
+}
+.link-btn {
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font-size: 12px;
+  padding: 0;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+@media (max-width: 1020px) {
+  .vendor-mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .vendor-card {
   display: flex;

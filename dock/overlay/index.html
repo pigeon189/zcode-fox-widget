@@ -36,6 +36,7 @@
         <span id="quick-agent" class="quick-agent"></span>
         <span id="quick-status" class="quick-status"></span>
         <span class="spacer"></span>
+        <button id="quick-refresh" type="button" class="icon-btn" aria-label="刷新">↻</button>
         <button id="quick-more" type="button" class="icon-btn" aria-label="更多">⋯</button>
       </div>
       <div id="quick-value" class="quick-value"></div>
@@ -47,17 +48,12 @@
         <span id="quick-ctx-abs" class="quick-abs"></span>
       </div>
       <div id="quick-windows"></div>
-      <div class="quick-actions">
-        <button id="quick-console" type="button" class="btn primary">打开控制台</button>
-        <button id="quick-refresh" type="button" class="icon-btn" aria-label="刷新">↻</button>
-        <button id="quick-reset" type="button" class="btn ghost">解除吸附</button>
-      </div>
     </div>
 
     <div id="menu" role="group" aria-label="宠物菜单" hidden></div>
     <div id="drag-hint" hidden></div>
 
-    <div id="fox" title="拖到 agent 窗口上吸附；单击打开快览">
+    <div id="fox" title="拖动可吸附到宿主窗口；单击打开快览">
       <img id="fox-img" src="assets/roles/fox.png" alt="角色" draggable="false" />
       <span id="fox-badge" hidden></span>
       <button id="pet-menu" type="button" title="打开菜单" aria-label="打开菜单">⋯</button>

@@ -48,8 +48,10 @@ test('settings: 数值越界夹回，布尔接受字符串', () => {
     quotaWarnPct: 130,
     showChip: 'false',
     alertBubble: 'true',
+    scrollGapOn: 'true',
   })
   assert.equal(s.scrollGap, 0)
+  assert.equal(s.scrollGapOn, true)
   assert.equal(s.turnBubbleMs, 15000)
   assert.equal(s.budgetMoney, 0)
   assert.equal(s.quotaWarnPct, 100)

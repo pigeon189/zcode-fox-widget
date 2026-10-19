@@ -194,7 +194,10 @@ public static class FoxWin32
 
     public static string Hit(int x, int y, int excludePid)
     {
-        return ListJson(Walk(5, x, y, excludePid, true), "hits");
+        // 12 layers: host + two product-line overlays + topmost tool windows can
+        // sit above an agent window. Keep this comment ASCII (PS 5.1 reads
+        // BOM-less scripts in the system ANSI code page).
+        return ListJson(Walk(12, x, y, excludePid, true), "hits");
     }
 
     public static string Cursor()

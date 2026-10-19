@@ -203,6 +203,10 @@ export function normalizeQuotaCard(raw, ctx = {}) {
     windows,
     balance: normalizeMoney(raw.balance, 'money'),
     message: text(raw.message, 200),
+    // 预付/套餐宿主（如 CommandCode）即使同时有窗口，也优先显示余额；
+    // source 让 UI 能区分同形状的套餐（cmdgo / plan / relay）。
+    preferBalance: raw.preferBalance === true,
+    source: text(raw.source, 60),
   }
   // 没有窗口的 windows 卡没有意义：降级成 plan（有套餐名）或丢掉
   if (kind === 'windows' && !windows.length) {

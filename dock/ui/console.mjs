@@ -89,6 +89,7 @@ function App() {
   const [state, setState] = useState(null)
   const [settings, setSettings] = useState(null)
   const [roles, setRoles] = useState([])
+  const [vendors, setVendors] = useState(null)
   const [snapshots, setSnapshots] = useState({})
   const [contexts, setContexts] = useState({})
   const [sessions, setSessions] = useState([])
@@ -128,6 +129,11 @@ function App() {
     setRoles(r.roles || [])
     return r.roles || []
   }
+  async function reloadVendors(force = false) {
+    const d = await api('/v1/vendors' + (force ? '?force=1' : ''))
+    setVendors(d.vendors || [])
+    return d.vendors || []
+  }
   function refresh() {
     setRefreshAt(Date.now())
   }
@@ -150,6 +156,21 @@ function App() {
     })()
     return () => {
       alive = false
+    }
+  }, [])
+
+  // 厂商余额：总览与额度页共用一份；60 秒刷新一次（各引擎自身还有 TTL）。
+  useEffect(() => {
+    let alive = true
+    const load = () =>
+      api('/v1/vendors')
+        .then((d) => alive && setVendors(d.vendors || []))
+        .catch(() => {})
+    load()
+    const timer = setInterval(load, 60000)
+    return () => {
+      alive = false
+      clearInterval(timer)
     }
   }, [])
 
@@ -375,9 +396,9 @@ function App() {
 
   function bindLabel() {
     const pet = (state && state.pet) || {}
-    if (pet.mode === 'attached') return { text: '已吸附 · ' + agentName(pet.agentId), tone: 'ok' }
-    if (pet.mode === 'floating') return { text: '悬浮中 · 沿用 ' + agentName(pet.profileOf), tone: 'info' }
-    return { text: '未绑定', tone: 'neutral' }
+    if (pet.mode === 'attached') return { text: '跟随中 · ' + agentName(pet.agentId), tone: 'ok' }
+    if (pet.mode === 'floating') return { text: '桌面 · 沿用 ' + agentName(pet.profileOf), tone: 'info' }
+    return { text: '未吸附', tone: 'neutral' }
   }
 
   const Page = PAGE_COMPONENTS[page] || OverviewPage
@@ -386,6 +407,7 @@ function App() {
     state,
     settings,
     roles,
+    vendors,
     snapshots,
     contexts,
     sessions,
@@ -396,8 +418,10 @@ function App() {
     api,
     toast,
     refresh,
+    navigate,
     reloadState,
     reloadRoles,
+    reloadVendors,
     saveSettings,
     copyDiagnostics,
     resetSettings,
@@ -414,7 +438,7 @@ function App() {
 
   const agents = (state && state.agents) || []
   const viewOptions = [
-    { value: 'follow', label: '跟随吸附', dot: connected ? 'ok' : 'bad' },
+    { value: 'follow', label: '跟随角色', dot: connected ? 'ok' : 'bad' },
     ...agents.map((a) => ({ value: a.id, label: a.name, dot: a.running ? 'ok' : 'bad' })),
   ]
   const groups = ['监控', '管理']

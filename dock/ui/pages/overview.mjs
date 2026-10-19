@@ -3,9 +3,92 @@ import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Badge, Card, EmptyState, ProgressBar } from '../components/base.mjs'
 import { Gauge, ColumnChart, MiniBar } from '../charts/svg.mjs'
-import { agentName, fmtCredit, fmtMoney, fmtNum, fmtPct, fmtTokens, mainMetric, pctTone, shortDay } from '../lib/format.mjs'
+import { agentName, fmtCredit, fmtMoney, fmtNum, fmtPct, fmtTokens, mainMetric, pctTone, remainText, shortDay, usedPctOf } from '../lib/format.mjs'
 
 const html = htm.bind(h)
+
+function vendorPercent(v) {
+  if (v.kind === 'cmdgo') {
+    const w = v.weekly || v.fiveHour || v.monthly
+    return w && Number.isFinite(Number(w.percent)) ? Number(w.percent) * 100 : null
+  }
+  if (v.percentRemaining != null) return 100 - Number(v.percentRemaining)
+  const w = Array.isArray(v.windows) && v.windows.length ? v.windows[v.windows.length - 1] : null
+  if (!w) return null
+  const used = w.percentUsed != null ? Number(w.percentUsed) : w.percent != null ? Number(w.percent) : null
+  if (used == null) return null
+  return w.percentUsed != null ? used : usedPctOf(used)
+}
+
+function vendorValue(v) {
+  if (v.kind === 'cmdgo' && v.monthly && v.monthly.remaining != null) {
+    return fmtMoney(v.monthly.remaining, v.currency || 'USD')
+  }
+  if (v.kind === 'cmdgo' && v.monthly) return remainText(Number(v.monthly.percent) * 100)
+  if (v.balance != null) return fmtMoney(v.balance, v.currency || 'CNY')
+  if (v.percentRemaining != null) return fmtPct(v.percentRemaining) + ' 剩余'
+  const w = Array.isArray(v.windows) && v.windows.length ? v.windows[0] : null
+  if (w) {
+    const used = w.percentUsed != null ? Number(w.percentUsed) : w.percent != null ? Number(w.percent) : null
+    const usedPct = used == null ? null : w.percentUsed != null ? used : usedPctOf(used)
+    if (usedPct != null) return remainText(usedPct)
+  }
+  return v.available ? '接口可用' : '—'
+}
+
+function vendorSub(v) {
+  if (v.kind === 'cmdgo' && v.planName) return v.planName + (v.account ? ' · ' + v.account : '')
+  if (v.kind === 'relay') return '中转站' + (v.windows && v.windows.length ? ' · ' + v.windows[0].label : '')
+  if (v.kind === 'local-log') return '订阅套餐'
+  if (v.kind === 'cmdgo') return 'CommandCode'
+  return v.available ? '接口可用' : v.reason || '暂无数据'
+}
+
+function VendorBalanceCard({ vendors, app }) {
+  const list = (vendors || [])
+    .filter(
+      (v) =>
+        v.configured &&
+        (v.balance != null ||
+          v.percentRemaining != null ||
+          (v.windows && v.windows.length) ||
+          (v.kind === 'cmdgo' && v.monthly))
+    )
+    .sort((a, b) => {
+      if (!!b.available !== !!a.available) return b.available ? 1 : -1
+      if (a.id === 'commandcode') return -1
+      if (b.id === 'commandcode') return 1
+      return String(a.name).localeCompare(String(b.name), 'zh-CN')
+    })
+  return html`<div class="col-12">
+    <${Card} title="厂商余额" testid="overview.vendors"
+      actions=${html`<span class="row" style=${{ gap: 8 }}>
+        <span class="small muted">已配置 ${list.length} 家</span>
+        <button type="button" class="link-btn" onClick=${() => app.navigate && app.navigate('quota')}>查看全部</button>
+      </span>`}>
+      ${!vendors
+        ? html`<div class="skeleton" style=${{ height: 80 }}></div>`
+        : list.length
+          ? html`<div class="vendor-mini-grid">
+              ${list.slice(0, 8).map((v) => {
+                const used = vendorPercent(v)
+                return html`<div class="vendor-mini" title=${v.reason || ''}>
+                  <div class="vendor-mini-head">
+                    <span class=${'vendor-mini-dot' + (v.available ? '' : ' offline')} style=${v.available ? null : { background: 'var(--text-3)' }}></span>
+                    <span class="vendor-mini-name">${v.name}</span>
+                  </div>
+                  <div class="vendor-mini-value">${vendorValue(v)}</div>
+                  <div class="vendor-mini-sub">${vendorSub(v)}</div>
+                  ${used != null
+                    ? html`<div class="vendor-mini-bar"><i style=${{ width: Math.max(0, Math.min(100, used)) + '%', background: used >= 92 ? 'var(--bad)' : used >= 80 ? 'var(--warn)' : 'var(--ok)' }}></i></div>`
+                    : null}
+                </div>`
+              })}
+            </div>`
+          : html`<${EmptyState} icon="wallet" title="还没有可读的厂商余额" hint="在「厂商与密钥」里配置 API Key，或直接从宿主导入凭据" />`}
+    </${Card}>
+  </div>`
+}
 
 function groupTotal(groups, unit, currency, metric = 'money') {
   if (!Array.isArray(groups)) return 0
@@ -109,6 +192,7 @@ export function OverviewPage({ app }) {
   const windows = card && card.windows ? card.windows.slice(0, 3) : []
   const agents = (app.state && app.state.agents) || []
   const todayGroups = (usage && usage.today && usage.today.groups) || []
+  const cardSub = card ? [card.plan, card.account].filter(Boolean).join(' · ') : ''
 
   return html`<div class="grid" data-testid="page.overview">
     ${alerts.map((a) => html`<div class="col-12"><div class=${'alert-bar ' + (a.tone === 'bad' ? 'bad' : '')}>${a.text}</div></div>`)}
@@ -163,8 +247,10 @@ export function OverviewPage({ app }) {
     <div class="col-4"><${Card} class="stat">
       <div class="stat-label">${snap && snap.balance ? '余额' : '额度'}</div>
       <div class="stat-value">${snap && snap.balance ? fmtMoney(snap.balance.amount, snap.balance.currency) : snap && snap.quota ? fmtPct(snap.quota.remainingPct) + ' 剩余' : '不可得'}</div>
-      <div class="stat-sub">${snap && (snap.error || (card && card.note)) ? (snap.error || card.note) : '宿主未提供额度'}</div>
+      <div class="stat-sub">${snap && snap.error ? snap.error : cardSub || (card && card.note) || '宿主未提供额度'}</div>
     </${Card}></div>
+
+    <${VendorBalanceCard} vendors=${app.vendors} app=${app} />
 
     <div class="col-7">
       <${Card} title="近 7 天用量" testid="overview.week" actions=${html`<span class="small muted">${series.length ? series[series.length - 1].currency : ''}</span>`}>
@@ -177,7 +263,7 @@ export function OverviewPage({ app }) {
         ${windows.length
           ? windows.map((w) => html`<div style=${{ marginBottom: 12 }}>
               <div class="row"><span class="small">${w.label}</span><span class="spacer"></span><span class="small num">${fmtPct(w.remainingPct)}</span></div>
-              <${ProgressBar} pct=${w.usedPct} tone=${pctTone(w.usedPct)} />
+              <${ProgressBar} pct=${w.usedPct} tone=${pctTone(w.usedPct)} label=${w.label + ' 已用'} />
               ${w.resetAt ? html`<div class="small muted">${app.fmtReset(w.resetAt)}重置</div>` : null}
             </div>`)
           : html`<${EmptyState} icon="gauge" title="没有可读的额度窗口" hint=${card && card.note ? card.note : '该宿主没有提供额度窗口'} />`}

@@ -151,8 +151,15 @@ export function createV1Router(deps) {
         return {
           ...v,
           balance,
-          // 前端只消费稳定字段；keySource/keyMasked 也保留（掩码，不是密钥）
-          configured: !!(v.keyMasked || (v.keySource && v.keySource !== 'none')),
+          // 前端只消费稳定字段；keySource/keyMasked 也保留（掩码，不是密钥）。
+          // cmdgo 的凭据是宿主 provider / 本地池，不一定有 keyMasked；
+          // 池里有账号就算已配置。local-log 同理（套餐日志/接口可用即已配置）。
+          configured: !!(
+            v.keyMasked ||
+            (v.keySource && v.keySource !== 'none') ||
+            (v.kind === 'cmdgo' && Number(v.pool && v.pool.total) > 0) ||
+            (v.kind === 'local-log' && v.available)
+          ),
           status: v.available ? 'ok' : 'unavailable',
           corrections: summary,
         }

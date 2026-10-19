@@ -117,7 +117,7 @@
   "vendors": [
     { "id": "deepseek", "name": "DeepSeek", "kind": "balance", "currency": "CNY", "available": true, "balance": 63.2, "todayUsage": 1.08, "configured": true, "status": "ok", "keyMasked": "sk-••••8c5", "keySource": "zcode-provider" },
     { "id": "zcode-plan", "name": "GLM Plan 配额", "kind": "local-log", "currency": "CNY", "available": true, "percentRemaining": 72, "remaining": 720, "total": 1000, "configured": true, "status": "ok" },
-    { "id": "commandcode", "name": "CommandCode", "kind": "cmdgo", "currency": "USD", "available": true, "monthly": { "percent": 42 }, "fiveHour": { "percent": 18 }, "weekly": { "percent": 30 }, "configured": true, "status": "ok" },
+    { "id": "commandcode", "name": "CommandCode", "kind": "cmdgo", "currency": "USD", "available": true, "planName": "GOAT", "account": "fixture", "pool": { "available": 1, "total": 1 }, "monthly": { "remaining": 40.6, "total": 70, "percent": 0.42, "resetAt": null }, "fiveHour": { "used": 2.52, "cap": 14, "percent": 0.18, "resetAt": null }, "weekly": { "used": 10.5, "cap": 35, "percent": 0.3, "resetAt": null }, "configured": true, "status": "ok" },
     { "id": "moonshot-kimi", "name": "Kimi", "kind": "balance", "currency": "CNY", "available": true, "balance": 21.5, "configured": true, "status": "ok", "keyMasked": "sk-••••YtN" },
     { "id": "relay-packycode", "name": "PackyCode", "kind": "relay", "currency": "USD", "available": false, "reason": "未配置凭据", "configured": false, "status": "unavailable" },
     { "id": "openai", "name": "OpenAI", "kind": "balance", "currency": "USD", "available": false, "reason": "未配置凭据", "configured": false, "status": "unavailable" }
@@ -132,7 +132,7 @@
   ],
   "settings": {
     "schema": 2, "roleId": "fox", "chatterMs": 300000, "scale": 1, "showChip": true, "showStyle": "chip", "menuButton": "hover",
-    "followMs": 500, "scrollGap": 17, "turnBubble": true, "turnBubbleMs": 5000, "budgetMoney": 20, "weeklyBudget": 100, "monthlyBudget": 300,
+    "followMs": 500, "scrollGap": 17, "scrollGapOn": false, "turnBubble": true, "turnBubbleMs": 5000, "budgetMoney": 20, "weeklyBudget": 100, "monthlyBudget": 300,
     "quotaWarnPct": 20, "balanceWarnMoney": 10, "contextWarnPct": 80, "costAnomalyX": 2, "alertBubble": true,
     "theme": "auto", "displayMode": "auto", "autoRole": true, "rolesByAdapter": {}, "showWeek": true, "petMode": false,
     "autoAttachNewAgent": false, "reattachOnRestart": true, "floatingData": "last", "hideMoney": false, "dnd": false,

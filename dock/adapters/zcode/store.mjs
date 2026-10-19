@@ -106,9 +106,12 @@ export function startOfLocalDay(nowMs) {
 function priceRows(rows) {
   const byCurrency = {}
   const byVendor = {}
+  const byProvider = {}
   let tokens = 0
   let calls = 0
   let lastTs = 0
+  let lastProvider = ''
+  let lastModel = ''
   for (const r of rows) {
     const c = costOfUsage(
       r.model_id,
@@ -133,11 +136,21 @@ function priceRows(rows) {
     v.byCurrency[cur] = (v.byCurrency[cur] || 0) + amount
     v.tokens += c.tokens
     v.calls += 1
+    // provider 是「用户实际在用哪家」的权威线索（如 commandcode / deepseek），
+    // 厂商余额与主数字口径据此选择；rows 按 started_at 升序，最后一行即最近一次。
+    const pid = String(r.provider_id || '')
+    if (pid) {
+      const p = byProvider[pid] || (byProvider[pid] = { calls: 0, tokens: 0 })
+      p.calls += 1
+      p.tokens += c.tokens
+      lastProvider = pid
+      lastModel = String(r.model_id || '')
+    }
     tokens += c.tokens
     calls += 1
     lastTs = Math.max(lastTs, Number(r.started_at) || 0)
   }
-  return { byCurrency, byVendor, tokens, calls, lastTs }
+  return { byCurrency, byVendor, byProvider, tokens, calls, lastTs, lastProvider, lastModel }
 }
 
 export function dominantCurrency(byCurrency) {
@@ -182,6 +195,10 @@ export function readUsage(opts = {}) {
           tokens: tr.tokens,
           calls: tr.calls,
           at: Number(t.ts) || 0,
+          // 上一轮实际走的 provider（CommandCode / DeepSeek …），气泡与面板
+          // 据此决定显示哪家的余额。
+          provider: tr.lastProvider || '',
+          model: tr.lastModel || '',
         }
       }
     }
@@ -191,7 +208,16 @@ export function readUsage(opts = {}) {
     lastTurn = null
   }
 
-  return { ok: true, today, lastTurn, dbFile: file }
+  return {
+    ok: true,
+    today,
+    lastTurn,
+    // 当前正在使用的 provider：优先用上一轮（最新一次真实调用），
+    // 没有上一轮时退回今日最后一行。
+    lastProvider: (lastTurn && lastTurn.provider) || today.lastProvider || '',
+    lastModel: (lastTurn && lastTurn.model) || today.lastModel || '',
+    dbFile: file,
+  }
 }
 
 // 测试用：断掉连接（临时库被删/替换后重新打开）

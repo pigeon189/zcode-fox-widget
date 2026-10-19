@@ -1,7 +1,7 @@
 import { h } from '../vendor/preact.module.js'
 import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
-import { Button, Card, Dialog, EmptyState, Input, SearchBox, Segmented, Select, Toggle } from '../components/base.mjs'
+import { Button, Card, Checkbox, Dialog, EmptyState, Input, SearchBox, Segmented, Select, Toggle } from '../components/base.mjs'
 import { fmtNum } from '../lib/format.mjs'
 
 const html = htm.bind(h)
@@ -29,7 +29,7 @@ export function SettingsPage({ app }) {
     for (const row of document.querySelectorAll('.setting-row')) {
       const label = (row.querySelector('.label') || {}).textContent || ''
       if (!label.trim()) continue
-      for (const control of row.querySelectorAll('input, select, textarea')) {
+      for (const control of row.querySelectorAll('input, select, textarea, .select-trigger')) {
         const labelText = control.labels && control.labels[0] ? String(control.labels[0].textContent || '').trim() : ''
         if (!control.getAttribute('aria-label') && !labelText) control.setAttribute('aria-label', label.trim())
       }
@@ -83,12 +83,12 @@ export function SettingsPage({ app }) {
     </div>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="设置分组">
-        <button type="button" onClick=${() => document.getElementById("appearance")?.scrollIntoView({ block: "start" })}>外观</button>
-        <button type="button" onClick=${() => document.getElementById("attach")?.scrollIntoView({ block: "start" })}>吸附与位置</button>
-        <button type="button" onClick=${() => document.getElementById("bubbles")?.scrollIntoView({ block: "start" })}>气泡与提醒</button>
-        <button type="button" onClick=${() => document.getElementById("main")?.scrollIntoView({ block: "start" })}>主数字与口径</button>
-        <button type="button" onClick=${() => document.getElementById("startup")?.scrollIntoView({ block: "start" })}>启动与更新</button>
-        <button type="button" onClick=${() => document.getElementById("privacy")?.scrollIntoView({ block: "start" })}>数据与隐私</button>
+        <button type="button" onClick=${() => document.getElementById("appearance")?.scrollIntoView({ block: "start", inline: "nearest" })}>外观</button>
+        <button type="button" onClick=${() => document.getElementById("attach")?.scrollIntoView({ block: "start", inline: "nearest" })}>吸附与位置</button>
+        <button type="button" onClick=${() => document.getElementById("bubbles")?.scrollIntoView({ block: "start", inline: "nearest" })}>气泡与提醒</button>
+        <button type="button" onClick=${() => document.getElementById("main")?.scrollIntoView({ block: "start", inline: "nearest" })}>主数字与口径</button>
+        <button type="button" onClick=${() => document.getElementById("startup")?.scrollIntoView({ block: "start", inline: "nearest" })}>启动与更新</button>
+        <button type="button" onClick=${() => document.getElementById("privacy")?.scrollIntoView({ block: "start", inline: "nearest" })}>数据与隐私</button>
       </nav>
       <div>
         ${groupVisible(['主题', '语言', '角色大小', '显示样式', '菜单按钮', '隐藏金额']) ? html`<div class="group" id="appearance">
@@ -113,33 +113,36 @@ export function SettingsPage({ app }) {
                 { value: 'hidden', label: '隐藏（右键仍可打开）' },
               ]} onChange=${(v) => save({ menuButton: v })} />
             </${Row}>
-            <${Row} label="隐藏金额" hint="录屏/共享屏幕时把所有金额显示为 •••" hidden=${!has('隐藏金额')}>
+            <${Row} label="隐藏金额" hint="录屏/共享屏幕时隐藏金额，并且不再弹出消耗气泡" hidden=${!has('隐藏金额')}>
               <${Toggle} checked=${s.hideMoney} onChange=${(v) => save({ hideMoney: v })} />
             </${Row}>
           </${Card}>
         </div>` : null}
 
-        ${groupVisible(['桌宠模式', '自动吸附新启动的 agent', '窗口重现时自动重新吸附', '悬浮时的数据', '跟随间隔', '避让滚动条']) ? html`<div class="group" id="attach">
+        ${groupVisible(['吸附到 agent 窗口', '自动吸附新启动的 agent', '窗口重现时自动重新吸附', '跟随间隔', '避让滚动条']) ? html`<div class="group" id="attach">
           <${Card} title="吸附与位置">
-            <${Row} label="桌宠模式" hint="不吸附、不跟随，角色固定在屏幕上" hidden=${!has('桌宠模式')}>
-              <${Toggle} checked=${s.petMode} onChange=${(v) => save({ petMode: v })} />
+            <${Row} label="吸附到 agent 窗口" hint="开启后拖到宿主窗口上会贴边跟随；关闭后不吸附、不跟随，角色留在桌面上" hidden=${!has('吸附到 agent 窗口')}>
+              <${Toggle} ariaLabel="吸附到 agent 窗口" checked=${!s.petMode} onChange=${(v) => save({ petMode: !v })} />
             </${Row}>
-            <${Row} label="自动吸附新启动的 agent" hidden=${!has('自动吸附新启动的 agent')}>
+            <${Row} label="自动吸附新启动的 agent" hidden=${!has('自动吸附新启动的 agent') || !!s.petMode}>
               <${Toggle} checked=${s.autoAttachNewAgent} onChange=${(v) => save({ autoAttachNewAgent: v })} />
             </${Row}>
-            <${Row} label="窗口重现时自动重新吸附" hidden=${!has('窗口重现时自动重新吸附')}>
+            <${Row} label="窗口重现时自动重新吸附" hidden=${!has('窗口重现时自动重新吸附') || !!s.petMode}>
               <${Toggle} checked=${s.reattachOnRestart} onChange=${(v) => save({ reattachOnRestart: v })} />
             </${Row}>
-            <${Row} label="跟随间隔" hidden=${!has('跟随间隔')}>
+            <${Row} label="跟随间隔" hidden=${!has('跟随间隔') || !!s.petMode}>
               <${Segmented} value=${s.followMs || 500} options=${[250, 500, 1000].map((v) => ({ value: v, label: v + ' ms' }))} onChange=${(v) => save({ followMs: Number(v) })} />
             </${Row}>
-            <${Row} label="避让滚动条宽度" hint="贴右/下边时给滚动条留的像素" hidden=${!has('避让滚动条')}>
-              <${Input} type="number" value=${s.scrollGap} onInput=${(v) => save({ scrollGap: Number(v) })} style=${{ width: 90 }} />
+            <${Row} label="避让滚动条" hint="开启后贴右/下边时留出滚动条宽度；关闭则紧贴窗口边缘" hidden=${!has('避让滚动条')}>
+              <${Toggle} checked=${s.scrollGapOn} onChange=${(v) => save({ scrollGapOn: v })} />
+              <${Input} type="number" aria-label="避让滚动条宽度" value=${s.scrollGap} disabled=${!s.scrollGapOn}
+                onInput=${(v) => save({ scrollGap: Number(v) })} style=${{ width: 80, opacity: s.scrollGapOn ? 1 : 0.5 }} />
+              <span class="small muted">px</span>
             </${Row}>
           </${Card}>
         </div>` : null}
 
-        ${groupVisible(['每轮消耗气泡', '随机台词', '勿扰', '今日预算', '周预算', '月预算', '额度预警', '余额预警', '上下文预警', '成本异常', '按压音效', '等确认提醒']) ? html`<div class="group" id="bubbles">
+        ${groupVisible(['每轮消耗气泡', '随机台词', '勿扰', '今日预算', '周预算', '月预算', '额度预警', '余额预警', '上下文预警', '成本异常', '等确认提醒']) ? html`<div class="group" id="bubbles">
           <${Card} title="气泡与提醒">
             <${Row} label="每轮消耗气泡" hidden=${!has('每轮消耗气泡')}>
               <${Toggle} ariaLabel="每轮消耗气泡" checked=${s.turnBubble} onChange=${(v) => save({ turnBubble: v })} />
@@ -154,7 +157,7 @@ export function SettingsPage({ app }) {
                 { value: 600000, label: '10 分钟' },
               ]} onChange=${(v) => save({ chatterMs: Number(v) })} />
             </${Row}>
-            <${Row} label="勿扰（静音气泡）" hidden=${!has('勿扰')}>
+            <${Row} label="勿扰（静音气泡与音效）" hint="关闭气泡与角色音效；不是单独的开关，开启后一并静音" hidden=${!has('勿扰')}>
               <${Toggle} checked=${s.dnd} onChange=${(v) => save({ dnd: v })} />
             </${Row}>
             <${Row} label="今日预算" hint="留空或 0 = 关闭" hidden=${!has('今日预算')}>
@@ -175,10 +178,6 @@ export function SettingsPage({ app }) {
             </${Row}>
             <${Row} label="成本异常提醒（今日 > 7 日均值 ×）" hint="0 = 关闭" hidden=${!has('成本异常')}>
               <${Input} type="number" value=${s.costAnomalyX || ''} onInput=${(v) => save({ costAnomalyX: Number(v) || 0 })} style=${{ width: 90 }} />
-            </${Row}>
-            <${Row} label="按压音效" hint="默认关；音量 0–100%" hidden=${!has('按压音效')}>
-              <${Toggle} checked=${s.soundEnabled} onChange=${(v) => save({ soundEnabled: v })} />
-              <${Input} type="range" aria-label="音效音量" min="0" max="100" value=${Math.round((s.soundVolume || 0.5) * 100)} onInput=${(v) => save({ soundVolume: Number(v) / 100 })} style=${{ width: 110 }} />
             </${Row}>
             <${Row} label="等确认提醒" hint="仅 ZCode 有 PermissionRequest 钩子；WorkBuddy 档案下不生效" hidden=${!has('等确认提醒')}>
               <${Toggle} checked=${s.confirmAlert} onChange=${(v) => save({ confirmAlert: v })} />
@@ -266,13 +265,12 @@ export function SettingsPage({ app }) {
                   ${(importData.categories || []).map((c) => {
                     const src = importData.sources.find((x) => x.id === importSource)
                     const available = src && src.categories && src.categories[c.id]
-                    return html`<label class="row" style=${{ gap: 8, opacity: available ? 1 : 0.5 }}>
-                      <input type="checkbox" checked=${importCats.includes(c.id)} disabled=${!available}
-                        onChange=${(e) => setImportCats(e.currentTarget.checked ? [...importCats, c.id] : importCats.filter((x) => x !== c.id))} />
-                      <span>${c.label}</span>
+                    return html`<div class="row" style=${{ gap: 8, opacity: available ? 1 : 0.5 }}>
+                      <${Checkbox} checked=${importCats.includes(c.id)} disabled=${!available}
+                        onChange=${(v) => setImportCats(v ? [...importCats, c.id] : importCats.filter((x) => x !== c.id))}>${c.label}</${Checkbox}>
                       <span class="spacer"></span>
                       <span class="small muted">${available ? (typeof available === 'number' ? available + ' 个' : '可导入') : '源里没有'}</span>
-                    </label>`
+                    </div>`
                   })}
                 </div>
                 <div class="small muted">只读源目录，不会修改旧挂件数据；厂商 API Key 不在本导入范围内，请用「厂商与密钥」导入保险库。</div>

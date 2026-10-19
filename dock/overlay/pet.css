@@ -53,19 +53,9 @@ button {
   display: block;
   pointer-events: none;
   -webkit-user-drag: none;
-  animation: fox-idle 4s ease-in-out infinite;
 }
 #fox.mirror img {
   transform: scaleX(-1);
-  animation-name: fox-idle-mirror;
-}
-@keyframes fox-idle {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.015); }
-}
-@keyframes fox-idle-mirror {
-  0%, 100% { transform: scaleX(-1) scale(1); }
-  50% { transform: scaleX(-1) scale(1.015); }
 }
 #fox.armed img {
   filter: drop-shadow(0 0 10px var(--pet-accent));
@@ -192,7 +182,7 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   position: absolute;
   z-index: 22;
   width: fit-content;
-  max-width: 260px;
+  max-width: min(260px, calc(100vw - 16px));
   padding: 10px 14px;
   border-radius: 14px;
   border: 1px solid var(--border);
@@ -225,25 +215,32 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
 #say {
   font-size: 20px;
   font-weight: 600;
-  max-width: 300px;
+  max-width: min(300px, calc(100vw - 16px));
 }
 #bubble::after,
 #say::after {
   content: "";
   position: absolute;
   left: var(--arrow-left, 50%);
-  bottom: -6px;
-  margin-left: -6px;
-  border: 6px solid transparent;
-  border-top-color: var(--surface);
-  border-bottom: 0;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-bottom-right-radius: 2px;
+  transform: rotate(45deg);
 }
 #bubble.below::after,
 #say.below::after {
-  top: -6px;
+  top: -5px;
   bottom: auto;
-  border-top: 0;
-  border-bottom: 6px solid var(--surface);
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  border-bottom-right-radius: 0;
+  border-top-left-radius: 2px;
 }
 
 /* ---------- 快览卡 ---------- */
@@ -278,10 +275,16 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
 .quick-agent {
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .quick-status {
   font-size: 12px;
   color: var(--text-3);
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .quick-value {
   margin-top: 12px;

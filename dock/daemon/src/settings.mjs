@@ -51,8 +51,10 @@ export const DEFAULTS = {
   menuButton: 'hover',
   // 绑定窗口的跟随间隔（ms）
   followMs: 500,
-  // 贴右/下边时给滚动条留的宽度（0 = 紧贴）
+  // 贴右/下边时给滚动条留的宽度（0 = 紧贴）。scrollGapOn 是总开关：
+  // 旧挂件默认不避让；只有显式打开才留这条缝。
   scrollGap: 17,
+  scrollGapOn: false,
   // 每轮消耗气泡
   turnBubble: true,
   turnBubbleMs: 5000,
@@ -259,6 +261,7 @@ export function normalizeSettings(raw) {
     menuButton: pickEnum(r.menuButton, MENU_BUTTON, DEFAULTS.menuButton),
     followMs,
     scrollGap: Math.round(clampNum(r.scrollGap, 0, 60, DEFAULTS.scrollGap)),
+    scrollGapOn: bool(r.scrollGapOn, DEFAULTS.scrollGapOn),
     turnBubble: bool(r.turnBubble, DEFAULTS.turnBubble),
     turnBubbleMs: Math.round(clampNum(r.turnBubbleMs, 2000, 15000, DEFAULTS.turnBubbleMs)),
     budgetMoney: Math.round(clampNum(r.budgetMoney, 0, 1000000, DEFAULTS.budgetMoney) * 100) / 100,

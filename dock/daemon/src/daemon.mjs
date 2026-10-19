@@ -180,6 +180,17 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   const paths = pathsFor(opts.dataDir)
   fs.mkdirSync(paths.dir, { recursive: true })
   fs.mkdirSync(paths.logs, { recursive: true })
+  // 把本轮拿到的 ZCode 数据目录落一份：从 ZCode 里启动时环境变量齐全，
+  // 之后开机自启/普通终端拉起 daemon 时没有它，靠这份文件兜底。
+  try {
+    const base = String(process.env.ZCODE_DATA_BASE_DIR || '').trim()
+    if (base) {
+      const file = path.join(paths.dir, 'runtime-env.json')
+      const tmp = file + '.' + process.pid + '.tmp'
+      fs.writeFileSync(tmp, JSON.stringify({ ZCODE_DATA_BASE_DIR: base }, null, 2))
+      fs.renameSync(tmp, file)
+    }
+  } catch (err) {}
   // engines/paths.mjs 在首次动态 import 时求值；先把它指到实际数据目录。
   process.env.FOX_DOCK_DATA = paths.dir
 

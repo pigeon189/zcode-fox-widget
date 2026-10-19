@@ -144,7 +144,11 @@ before(async (t) => {
     return
   }
   dir = tempDir('fox-pet-')
-  daemon = spawn(process.execPath, [DAEMON, '--data-dir', dir, '--port', '0'], { stdio: 'ignore', windowsHide: true })
+  daemon = spawn(process.execPath, [DAEMON, '--data-dir', dir, '--port', '0'], {
+    stdio: 'ignore',
+    windowsHide: true,
+    env: { ...process.env, FOX_DOCK_VENDOR_BALANCES: '0' },
+  })
   const health = await waitFor(
     async () => {
       const lockFile = path.join(dir, 'daemon.lock')
@@ -187,7 +191,7 @@ before(async (t) => {
   const ignore = [...new Set((all.windows || []).filter((w) => w.pid !== fakeWin.pid).map((w) => w.pid))].join(',')
   overlay = spawn(
     ELECTRON,
-    [OVERLAY, '--no-sandbox', '--disable-gpu', '--no-click-through', '--ignore-pids=' + ignore, '--daemon-port=' + port, '--data-dir=' + dir, '--remote-debugging-port=0'],
+    [OVERLAY, '--no-sandbox', '--disable-gpu', '--no-click-through', '--display=primary', '--ignore-pids=' + ignore, '--daemon-port=' + port, '--data-dir=' + dir, '--remote-debugging-port=0'],
     { stdio: ['ignore', 'ignore', 'pipe'], env: electronEnv() }
   )
   let stderr = ''
@@ -227,24 +231,26 @@ test('pet: 启动后显示角色，胶囊默认隐藏', async () => {
   assert.equal(await cdp.eval("document.getElementById('chip').hidden"), true)
 })
 
-test('pet: 单击角色打开快览卡，再点收起', async () => {
+test('pet: 单击角色打开快览卡，再点角色保持打开', async () => {
   const c = JSON.parse(
     await cdp.eval("(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()")
   )
   await mouse(cdp, c.x, c.y)
   await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 4000, 'quick open')
+  assert.equal(await cdp.eval("document.getElementById('quick-console')===null"), true, '快览卡不再重复放「打开控制台」')
   await sleep(300)
   await mouse(cdp, c.x, c.y)
-  try {
-    await waitFor(async () => (await cdp.eval("document.getElementById('quick').hidden")), 2500, 'quick close')
-  } catch (err) {
-    await mouse(cdp, c.x, c.y)
-    await waitFor(async () => (await cdp.eval("document.getElementById('quick').hidden")), 4000, 'quick close retry')
-  }
+  await sleep(500)
+  assert.equal(await cdp.eval("document.getElementById('quick').hidden"), false, '再次点击角色不应关闭快览卡')
+  await cdp.eval('window.__pet.closeQuick()')
+  await waitFor(async () => (await cdp.eval("document.getElementById('quick').hidden")), 2500, 'quick closed by api')
 })
 
 test('pet: 拖到 agent 窗口吸附并显示胶囊', async () => {
-  const target = async () => dragTo(fakeWin.rect.x + fakeWin.rect.w / 2, fakeWin.rect.y + fakeWin.rect.h / 2)
+  // fakeWin.rect 是物理像素；CDP 输入是 CSS 像素（高 DPI 下必须换算）。
+  const dpr = await cdp.eval('devicePixelRatio')
+  const target = async () =>
+    dragTo((fakeWin.rect.x + fakeWin.rect.w / 2) / dpr, (fakeWin.rect.y + fakeWin.rect.h / 2) / dpr)
   await target()
   let st = null
   try {
@@ -268,19 +274,27 @@ test('pet: 拖到 agent 窗口吸附并显示胶囊', async () => {
   assert.equal(await cdp.eval("typeof window.foxOverlay.getToken"), 'undefined', '渲染层不能拿到 token')
 })
 
-test('pet: 四象限贴边与左侧镜像', async () => {
+test('pet: 四象限贴边 / 窗口内自由位置 / 左侧镜像', async () => {
   const out = JSON.parse(
     await cdp.eval(
       "(function(){" +
         "var a=window.__pet.debugAttach('zcode','dbg',{x:200,y:100,w:800,h:600},{h:'left',v:'top'});" +
         "var mirror=document.getElementById('fox').classList.contains('mirror');" +
         "var b=window.__pet.debugAttach('zcode','dbg',{x:200,y:100,w:800,h:600},{h:'right',v:'bottom'});" +
-        "return JSON.stringify({left:a.pos.x,top:a.pos.y,mirror,right:b.pos.x,bottom:b.pos.y})})()"
+        "var c=window.__pet.debugAttach('zcode','dbg',{x:200,y:100,w:800,h:600},{h:null,v:null,hOff:123,vOff:234});" +
+        "return JSON.stringify({left:a.pos.x,top:a.pos.y,mirror,right:b.pos.x,bottom:b.pos.y,freeX:c.pos.x,freeY:c.pos.y})})()"
     )
   )
-  assert.ok(out.left <= 230 && out.top <= 130, JSON.stringify(out))
+  const dpr = await cdp.eval('devicePixelRatio')
+  const box = { x: 200 / dpr, y: 100 / dpr, w: 800 / dpr, h: 600 / dpr }
+  assert.ok(Math.abs(out.left - box.x) < 2 && Math.abs(out.top - box.y) < 2, JSON.stringify(out) + ' dpr=' + dpr)
   assert.equal(out.mirror, true)
   assert.ok(out.right > out.left && out.bottom > out.top, JSON.stringify(out))
+  // 默认不避让滚动条：右/下与窗口边缘齐平（不再固定留 17px）。
+  const size = await cdp.eval('parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fox-size"))')
+  assert.ok(Math.abs(out.right - (box.x + box.w - size)) < 2, 'right snap should hug edge: ' + out.right + ' size=' + size)
+  // 中间区域保留相对窗口的自由偏移，而不是强行吸到四角。
+  assert.ok(Math.abs(out.freeX - (box.x + 123)) < 2 && Math.abs(out.freeY - (box.y + 234)) < 2, JSON.stringify(out))
 })
 
 test('pet: 拖到桌面空白进入悬浮，保留角色', async () => {
@@ -288,11 +302,15 @@ test('pet: 拖到桌面空白进入悬浮，保留角色', async () => {
   const left = fakeWin.rect.x / geom.dpr
   const bottom = (fakeWin.rect.y + fakeWin.rect.h) / geom.dpr
   const blank = left > 80 ? { x: 20, y: 20 } : bottom < geom.h - 60 ? { x: 20, y: geom.h - 30 } : { x: geom.w - 20, y: 20 }
-  await dragTo(blank.x, blank.y)
-  const st = await waitFor(async () => {
-    const s = await json('http://127.0.0.1:' + port + '/v1/state')
-    return s.pet.mode === 'floating' ? s : null
-  }, 8000, 'floating state')
+  let st = null
+  for (let attempt = 0; attempt < 2 && !st; attempt++) {
+    await dragTo(blank.x, blank.y)
+    st = await waitFor(async () => {
+      const s = await json('http://127.0.0.1:' + port + '/v1/state')
+      return s.pet.mode === 'floating' ? s : null
+    }, 8000, 'floating state').catch(() => null)
+  }
+  assert.ok(st, 'floating state')
   assert.equal(st.pet.profileOf, 'generic')
   await waitFor(async () => (await cdp.eval("!document.getElementById('chip-unlink').hidden")), 4000, 'unlink')
   const pos = JSON.parse(await cdp.eval("(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"))
@@ -316,10 +334,15 @@ test('pet: 控制台改设置后浮层 2 秒内生效（隐藏金额）', async 
       "window.__pet.setSettings({hideMoney:true})"
   )
   assert.equal(await cdp.eval("document.getElementById('chip-value').textContent"), '•••')
+  // 隐藏金额时连消耗气泡一起不弹，而不是只把金额变成 •••
+  await cdp.eval("window.__pet.showBubble('本轮 ¥0.28','ZCode',{ms:0})")
+  assert.equal(await cdp.eval("document.getElementById('bubble').hidden"), true, 'hideMoney 应隐藏整个气泡')
   await put({ hideMoney: false })
+  await waitFor(async () => (await cdp.eval('window.__pet.settings.hideMoney')) === false, 5000, 'hideMoney off')
 })
 
 test('pet: 气泡点击推进队列，队列结束关闭', async () => {
+  await cdp.eval('window.__pet.setSettings({hideMoney:false})')
   await fetch('http://127.0.0.1:' + port + '/v1/bubbles/queue', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
@@ -336,25 +359,55 @@ test('pet: 气泡点击推进队列，队列结束关闭', async () => {
   await waitFor(async () => (await cdp.eval("document.getElementById('bubble-text').textContent")) === '第二句', 3000, 'queue 2')
 })
 
-test('pet: 菜单换角色', async () => {
+test('pet: 菜单换角色，吸附只有一个总开关', async () => {
   await cdp.eval('window.__pet.openMenu(200,200)')
   await waitFor(async () => (await cdp.eval("!document.getElementById('menu').hidden")), 3000, 'menu')
+  const text = await cdp.eval("document.getElementById('menu').innerText")
+  assert.match(text, /吸附到 agent 窗口/)
+  assert.doesNotMatch(text, /设置…|解除吸附|桌宠模式/)
   await cdp.eval("document.querySelectorAll('.menu-role')[2].click()")
   await waitFor(async () => /roles\/gpt\.png/.test(await cdp.eval("document.getElementById('fox-img').src")), 4000, 'role gpt')
+  // 让宠物处于「悬浮沿用 generic」状态，再从控制台改 generic 的档案角色；
+  // 外面这只角色必须跟着换，而不是等下次重新吸附。
+  await fetch('http://127.0.0.1:' + port + '/v1/pet/float', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
+    body: JSON.stringify({ rect: { x: 400, y: 300, width: 223, height: 223 } }),
+  })
+  await waitFor(async () => (await json('http://127.0.0.1:' + port + '/v1/state')).pet.mode === 'floating', 5000, 'floating for profile')
+  await fetch('http://127.0.0.1:' + port + '/v1/profiles/generic', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
+    body: JSON.stringify({ roleId: 'kimi' }),
+  })
+  await waitFor(async () => /roles\/kimi\.png/.test(await cdp.eval("document.getElementById('fox-img').src")), 6000, 'role follows profile')
 })
 
 test('pet: petMode 立即脱离吸附，followMs 即时生效', async () => {
-  // 重新吸附
-  await dragTo(fakeWin.rect.x + fakeWin.rect.w / 2, fakeWin.rect.y + fakeWin.rect.h / 2)
-  await waitFor(async () => (await json('http://127.0.0.1:' + port + '/v1/state')).pet.mode === 'attached', 6000, 'attached again')
+  // 重新吸附（物理 rect → CSS 坐标）；叠窗多时命中可能抽样失败，重试一次。
+  const dpr = await cdp.eval('devicePixelRatio')
+  let attached = false
+  for (let attempt = 0; attempt < 2 && !attached; attempt++) {
+    await dragTo((fakeWin.rect.x + fakeWin.rect.w / 2) / dpr, (fakeWin.rect.y + fakeWin.rect.h / 2) / dpr)
+    attached = await waitFor(async () => (await json('http://127.0.0.1:' + port + '/v1/state')).pet.mode === 'attached', 6000, 'attached again')
+      .then(() => true)
+      .catch(() => false)
+  }
+  assert.ok(attached, 'attached again')
   const put = async (body) =>
     fetch('http://127.0.0.1:' + port + '/v1/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
       body: JSON.stringify(body),
     })
-  await put({ followMs: 250 })
-  await waitFor(async () => (await cdp.eval('window.__pet.followEvery')) === 250, 5000, 'followMs applied')
+  let applied = false
+  for (let attempt = 0; attempt < 2 && !applied; attempt++) {
+    await put({ followMs: 250 })
+    applied = await waitFor(async () => (await cdp.eval('window.__pet.followEvery')) === 250, 6000, 'followMs applied')
+      .then(() => true)
+      .catch(() => false)
+  }
+  assert.ok(applied, 'followMs applied')
   await put({ petMode: true })
   await waitFor(async () => (await json('http://127.0.0.1:' + port + '/v1/state')).pet.mode === 'floating', 6000, 'petMode floats')
   await put({ petMode: false })

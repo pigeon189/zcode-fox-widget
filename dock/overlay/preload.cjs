@@ -32,4 +32,8 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   getAlphaMask(roleId) {
     return ipcRenderer.invoke('alpha-mask', roleId)
   },
+  // 导入角色（PNG/GIF）读成 data URL；内置角色仍走相对路径。
+  getRoleImage(roleId) {
+    return ipcRenderer.invoke('role-image', roleId)
+  },
 })
