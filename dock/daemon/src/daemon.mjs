@@ -679,7 +679,10 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       if (settings.pet.mode === 'attached') {
         const wins = await bridge.snapshot()
         const alive = (wins || []).some((w) => String(w.hwnd) === settings.pet.hwnd)
-        if (!alive) {
+        // 2.0 早期允许吸附到任意窗口（generic），现在只认四个宿主；旧状态
+        // 即使窗口还活着也转悬浮，避免继续显示「其它 · Windows 输入体验」。
+        const legacyGeneric = settings.pet.agentId === 'generic'
+        if (legacyGeneric || !alive) {
           const pet = transition(settings.pet, { type: 'agent-window-gone' })
           writePet(paths.settings, pet)
           log('pet restored to ' + pet.mode + ' (profile=' + (pet.profileOf || '-') + ')')
@@ -716,14 +719,14 @@ export async function runDaemon(argv = process.argv.slice(2)) {
         const settings = readSettings(paths.settings)
         let pet = settings.pet
         // 悬浮态且等的是这个 agent → 自动重新吸附（设置默认开）
-        if (pet.mode === 'floating' && pet.profileOf === e.agentId && settings.reattachOnRestart) {
+        if (e.agentId !== 'generic' && pet.mode === 'floating' && pet.profileOf === e.agentId && settings.reattachOnRestart) {
           pet = transition(pet, { type: 'agent-window-back', agentId: e.agentId, hwnd: e.window.hwnd }, { reattach: true })
           writePet(paths.settings, pet)
           v1.broadcastState()
           return
         }
-        // 未绑定且开启「自动吸附新启动的 agent」→ 吸附
-        if (pet.mode === 'idle' && settings.autoAttachNewAgent && !settings.petMode) {
+        // 未绑定且开启「自动吸附新启动的 agent」→ 吸附（非宿主窗口不参与）
+        if (e.agentId !== 'generic' && pet.mode === 'idle' && settings.autoAttachNewAgent && !settings.petMode) {
           pet = transition(pet, { type: 'auto-attach', agentId: e.agentId, hwnd: e.window.hwnd })
           writePet(paths.settings, pet)
           v1.broadcastState()

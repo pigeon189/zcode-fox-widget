@@ -191,7 +191,7 @@ before(async (t) => {
   const ignore = [...new Set((all.windows || []).filter((w) => w.pid !== fakeWin.pid).map((w) => w.pid))].join(',')
   overlay = spawn(
     ELECTRON,
-    [OVERLAY, '--no-sandbox', '--disable-gpu', '--no-click-through', '--display=primary', '--ignore-pids=' + ignore, '--daemon-port=' + port, '--data-dir=' + dir, '--remote-debugging-port=0'],
+    [OVERLAY, '--no-sandbox', '--disable-gpu', '--no-click-through', '--display=primary', '--allow-generic', '--ignore-pids=' + ignore, '--daemon-port=' + port, '--data-dir=' + dir, '--remote-debugging-port=0'],
     { stdio: ['ignore', 'ignore', 'pipe'], env: electronEnv() }
   )
   let stderr = ''
@@ -296,7 +296,7 @@ test('pet: 四象限贴边 / 窗口内自由位置 / 左侧镜像', async () => 
         "var a=window.__pet.debugAttach('zcode','dbg',{x:200,y:100,w:800,h:600},{h:'left',v:'top'});" +
         "var mirror=document.getElementById('fox').classList.contains('mirror');" +
         "var b=window.__pet.debugAttach('zcode','dbg',{x:200,y:100,w:800,h:600},{h:'right',v:'bottom'});" +
-        "var c=window.__pet.debugAttach('zcode','dbg',{x:200,y:100,w:800,h:600},{h:null,v:null,hOff:123,vOff:234});" +
+        "var c=window.__pet.debugAttach('zcode','dbg',{x:200,y:100,w:800,h:600},{h:null,v:null,hOff:100,vOff:100});" +
         "return JSON.stringify({left:a.pos.x,top:a.pos.y,mirror,right:b.pos.x,bottom:b.pos.y,freeX:c.pos.x,freeY:c.pos.y})})()"
     )
   )
@@ -309,7 +309,7 @@ test('pet: 四象限贴边 / 窗口内自由位置 / 左侧镜像', async () => 
   const size = await cdp.eval('parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fox-size"))')
   assert.ok(Math.abs(out.right - (box.x + box.w - size)) < 2, 'right snap should hug edge: ' + out.right + ' size=' + size)
   // 中间区域保留相对窗口的自由偏移，而不是强行吸到四角。
-  assert.ok(Math.abs(out.freeX - (box.x + 123)) < 2 && Math.abs(out.freeY - (box.y + 234)) < 2, JSON.stringify(out))
+  assert.ok(Math.abs(out.freeX - (box.x + 100)) < 2 && Math.abs(out.freeY - (box.y + 100)) < 2, JSON.stringify(out))
 })
 
 test('pet: 拖到桌面空白进入悬浮，保留角色', async () => {
@@ -345,7 +345,7 @@ test('pet: 控制台改设置后浮层 2 秒内生效（隐藏金额）', async 
   await cdp.eval(
     "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:{amount:0.28,currency:'CNY'}});" +
       "window.__pet.setContext({supported:true,pct:47.5,used:475318,limit:1000000});" +
-      "window.__pet.debugFloat('generic',400,300);" +
+      "window.__pet.debugFloat('zcode',400,300);" +
       "window.__pet.setSettings({hideMoney:true})"
   )
   assert.equal(await cdp.eval("document.getElementById('chip-value').textContent"), '•••')

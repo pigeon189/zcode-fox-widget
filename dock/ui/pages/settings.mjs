@@ -75,6 +75,16 @@ export function SettingsPage({ app }) {
   const has = (...labels) => labels.some((l) => visible(l))
   const groupVisible = (labels) => labels.some((l) => visible(l))
 
+  // 只滚内容区，绝不调用 scrollIntoView：那会把 document 一起滚上去，
+  // 导致标题栏/侧边栏整体漂移（真机截图复现）。
+  function jumpToGroup(id) {
+    const content = document.getElementById('content')
+    const el = document.getElementById(id)
+    if (!content || !el) return
+    const delta = el.getBoundingClientRect().top - content.getBoundingClientRect().top
+    content.scrollTo({ top: Math.max(0, content.scrollTop + delta - 8), behavior: 'smooth' })
+  }
+
   return html`<div data-testid="page.settings">
     <div class="row" style=${{ marginBottom: 12 }}>
       <${SearchBox} value=${search} onInput=${setSearch} placeholder="搜索设置项" />
@@ -83,12 +93,12 @@ export function SettingsPage({ app }) {
     </div>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="设置分组">
-        <button type="button" onClick=${() => document.getElementById("appearance")?.scrollIntoView({ block: "start", inline: "nearest" })}>外观</button>
-        <button type="button" onClick=${() => document.getElementById("attach")?.scrollIntoView({ block: "start", inline: "nearest" })}>吸附与位置</button>
-        <button type="button" onClick=${() => document.getElementById("bubbles")?.scrollIntoView({ block: "start", inline: "nearest" })}>气泡与提醒</button>
-        <button type="button" onClick=${() => document.getElementById("main")?.scrollIntoView({ block: "start", inline: "nearest" })}>主数字与口径</button>
-        <button type="button" onClick=${() => document.getElementById("startup")?.scrollIntoView({ block: "start", inline: "nearest" })}>启动与更新</button>
-        <button type="button" onClick=${() => document.getElementById("privacy")?.scrollIntoView({ block: "start", inline: "nearest" })}>数据与隐私</button>
+        <button type="button" onClick=${() => jumpToGroup("appearance")}>外观</button>
+        <button type="button" onClick=${() => jumpToGroup("attach")}>吸附与位置</button>
+        <button type="button" onClick=${() => jumpToGroup("bubbles")}>气泡与提醒</button>
+        <button type="button" onClick=${() => jumpToGroup("main")}>主数字与口径</button>
+        <button type="button" onClick=${() => jumpToGroup("startup")}>启动与更新</button>
+        <button type="button" onClick=${() => jumpToGroup("privacy")}>数据与隐私</button>
       </nav>
       <div>
         ${groupVisible(['主题', '语言', '角色大小', '显示样式', '菜单按钮', '隐藏金额']) ? html`<div class="group" id="appearance">

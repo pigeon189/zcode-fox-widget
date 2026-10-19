@@ -109,6 +109,16 @@ async function main() {
         if (layout.small.length) problems.push(page + '/' + theme + '/' + vp.width + ' 字号 <12：' + layout.small.slice(0, 4).join(', '))
         if (layout.unnamed.length) problems.push(page + '/' + theme + '/' + vp.width + ' 无可访问名称：' + layout.unnamed.slice(0, 4).join(', '))
 
+        // 设置页左侧分组按钮只能滚内容区，不能把整个窗口（标题栏/侧边栏）滚上去。
+        if (page === 'settings') {
+          await p.locator('.settings-nav button').nth(2).click()
+          await p.waitForTimeout(500)
+          const drift = await p.evaluate(() => ({ y: window.scrollY, body: document.body.scrollTop }))
+          if (drift.y || drift.body) {
+            problems.push(page + '/' + theme + '/' + vp.width + ' 设置分组导航导致整页漂移：y=' + drift.y + ' body=' + drift.body)
+          }
+        }
+
         if (AxeBuilder) {
           const result = await new AxeBuilder({ page: p }).analyze()
           const bad = result.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')

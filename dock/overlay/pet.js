@@ -17,6 +17,11 @@ const IGNORE_PIDS = new Set(
     .filter((n) => Number.isInteger(n) && n > 0)
 )
 const IGNORE_CLASSES = new Set(['Progman', 'WorkerW', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd'])
+// 只吸附这四个宿主；其它应用/桌面一律不绑。测试用 ?allowGeneric=1 放开，
+// 让 fake-agent 这类普通 Electron 窗口能被命中。
+const AGENT_EXES = new Set(['zcode.exe', 'workbuddy.exe', 'kimi code.exe', 'deepseek harness.exe'])
+const AGENT_EXE_INCLUDES = ['/kimicode/', '/dsh-windows/']
+const ALLOW_GENERIC = params.get('allowGeneric') === '1'
 
 const ADAPTER_ROLES = { zcode: 'fox', workbuddy: 'xiaoke', kimi: 'kimi', dsh: 'whale' }
 const ADAPTER_NAMES = { zcode: 'ZCode', workbuddy: 'WorkBuddy', kimi: 'Kimi Code', dsh: 'DeepSeek Harness', generic: '其它' }
@@ -106,6 +111,7 @@ let lastAttach = null
 let hitBusy = false
 let lastHitAt = 0
 let startSnapshotSeen = false
+let placedOnce = false
 
 const sounds = {
   press: new Audio('../assets/sounds/Ya1.mp3'),
@@ -482,7 +488,13 @@ function placeAnchored(rect) {
       : anchor.v === 'bottom'
         ? box.y + box.h - s - gap
         : box.y + anchor.vOff
-  place(x, y)
+  // 吸附后必须落在 agent 窗口矩形内；窗口缩小/自由偏移越界时夹回来，
+  // 避免出现「显示已吸附，但挂件在窗口外」。
+  const minX = box.x
+  const maxX = box.x + Math.max(0, box.w - s)
+  const minY = box.y
+  const maxY = box.y + Math.max(0, box.h - s)
+  place(Math.max(minX, Math.min(maxX, x)), Math.max(minY, Math.min(maxY, y)))
 }
 
 // ---------- 数据 ----------
@@ -543,9 +555,11 @@ async function refreshState() {
     bound = { agentId: '', hwnd: '', title: '', exe: '', pid: 0, startMs: 0, rect: null }
     delete document.body.dataset.restored
     delete document.body.dataset.boundKey
-    if (!startSnapshotSeen) {
+    if (!placedOnce) {
+      // 第一次拿到可用状态（首帧 /v1/state 可能因 daemon 刚起而失败过一次）
+      // 才把角色放到右下角；不能等 startSnapshotSeen，否则会停在 (0,0)。
       place(window.innerWidth - foxSize() - 24, window.innerHeight - foxSize() - 24)
-      startSnapshotSeen = true
+      placedOnce = true
     }
   }
   applySettings()
@@ -603,6 +617,20 @@ function agentName(id) {
   return (a && a.name) || ADAPTER_NAMES[id] || (id ? id : 'fox-dock')
 }
 
+// 当前主数字实际属于哪个厂商/套餐。所有宿主共用快照字段：
+// quotaCard.title（厂商名）→ plan（套餐）→ 窗口标题，逐级回退；
+// 与宿主名相同的值不重复显示（避免「ZCode  ZCode」）。
+function vendorLabel(agentId, withPlan = false) {
+  const card = (snapshot && snapshot.quotaCard) || {}
+  const agent = agentName(agentId)
+  let name = card.title && card.title !== agent ? card.title : ''
+  if (!name && snapshot && snapshot.plan && snapshot.plan !== agent) name = snapshot.plan
+  if (!name && bound.title && bound.title !== agent) name = bound.title
+  if (!name) return ''
+  if (withPlan && card.plan && card.plan !== name) return name + ' · ' + card.plan
+  return name
+}
+
 function agentAccent(id) {
   const a = (state.agents || []).find((x) => x.id === id)
   if (a && a.accent) return a.accent
@@ -611,14 +639,19 @@ function agentAccent(id) {
 }
 
 function renderChip() {
+  const profileId = bound.agentId || state.pet.profileOf || ''
   // 大浮窗与小胶囊共用角色侧边的同一块位置：打开大浮窗时收起小胶囊。
-  const visible = !!(bound.agentId || state.pet.mode === 'floating') && settings.showChip && !quickOpen
+  // 悬浮时只在真的有上一份 agent 档案时显示；generic/空档案不显示「其它 —」。
+  const hasProfile = !!profileId && profileId !== 'generic'
+  const visible = !!(bound.agentId || (state.pet.mode === 'floating' && hasProfile)) && settings.showChip && !quickOpen
   chip.hidden = !visible
   chip.classList.toggle('open', visible)
   chipUnlink.hidden = state.pet.mode !== 'floating'
   if (!visible) return
-  const agentId = bound.agentId || state.pet.profileOf || ''
-  chipAdapter.textContent = agentName(agentId)
+  const agentId = profileId
+  const vendor = vendorLabel(agentId)
+  chipAdapter.textContent = vendor || agentName(agentId)
+  chip.title = agentName(agentId) + (vendor ? ' · ' + vendor : '')
   const metric = mainMetric(snapshot, agentId)
   chipValue.textContent = metric.value
   chipDot.className = 'chip-dot ' + (!snapshot || !snapshot.ok ? 'warn' : snapshot.supported === false ? 'bad' : '')
@@ -635,16 +668,22 @@ function renderChip() {
 function renderQuick() {
   if (quick.hidden) return
   const agentId = bound.agentId || state.pet.profileOf || ''
+  const known = !!agentId && agentId !== 'generic'
   const metric = mainMetric(snapshot, agentId)
-  quickAgent.textContent = agentId ? agentName(agentId) : '未绑定'
+  quickAgent.textContent = known ? agentName(agentId) : state.pet.mode === 'floating' ? '桌面' : '未绑定'
+  const vendor = known ? vendorLabel(agentId, true) : ''
   quickStatus.textContent =
-    state.pet.mode === 'attached'
-      ? bound.title || agentName(agentId)
-      : state.pet.mode === 'floating'
+    vendor ||
+    (state.pet.mode === 'floating'
+      ? known
         ? '桌面 · 沿用 ' + agentName(state.pet.profileOf)
-        : settings.petMode
+        : '未绑定'
+      : state.pet.mode === 'idle'
+        ? settings.petMode
           ? '未吸附'
           : '拖到宿主窗口可吸附'
+        : '')
+  quickStatus.hidden = !quickStatus.textContent
   quickDot.className = 'quick-dot ' + (!snapshot || !snapshot.ok ? 'bad' : '')
   quickValue.textContent = metric.value
   quickSub.textContent = metric.label + (snapshot && snapshot.turn ? ' · 上一轮 ' + moneyText(snapshot.turn, snapshot.unit) : '')
@@ -699,7 +738,9 @@ function positionChip() {
   const h = chip.offsetHeight || 32
   const foxH = fox.getBoundingClientRect().height || foxSize()
   const x = sideX(w)
-  const y = Math.max(8, Math.min(window.innerHeight - h - 8, pos.y + foxH / 2 - h / 2))
+  // 默认与角色底边齐平（旧挂件的小胶囊观感），只贴侧边，不压角色。
+  // 角色贴屏幕底边时允许胶囊触碰屏幕底边，不再额外留 8px，否则看起来仍偏高。
+  const y = Math.max(8, Math.min(window.innerHeight - h, pos.y + foxH - h))
   chip.style.left = Math.round(x) + 'px'
   chip.style.top = Math.round(y) + 'px'
 }
@@ -962,13 +1003,18 @@ async function pickRole(id) {
 
 // ---------- 吸附 / 悬浮 ----------
 
-function acceptable(win) {
-  if (!win) return false
-  if (IGNORE_PIDS.has(win.pid)) return false
-  if (IGNORE_CLASSES.has(win.cls)) return false
-  if (!win.exe && !win.title) return false
-  if (/electron\.exe$/i.test(win.exe || '') && /fox-dock overlay|小挂件/i.test(win.title || '')) return false
-  return true
+function isAgentWindow(win) {
+  const exe = String((win && win.exe) || '').replace(/\\/g, '/').toLowerCase()
+  const base = exe.split('/').pop()
+  return AGENT_EXES.has(base) || AGENT_EXE_INCLUDES.some((part) => exe.includes(part))
+}
+
+function isIgnoredWindow(win) {
+  if (!win) return true
+  if (IGNORE_PIDS.has(win.pid)) return true
+  if (IGNORE_CLASSES.has(win.cls)) return true
+  if (!win.exe && !win.title) return true
+  return /electron\.exe$/i.test(win.exe || '') && /fox-dock overlay|小挂件/i.test(win.title || '')
 }
 
 async function hitAt(clientX, clientY, force = false) {
@@ -986,7 +1032,13 @@ async function hitAt(clientX, clientY, force = false) {
       api && typeof api.hit === 'function'
         ? await api.hit(px, py, SELF_PID)
         : await (await fetch(BASE + '/hit?x=' + px + '&y=' + py + '&exclude=' + SELF_PID)).json()
-    return (data.hits || []).find(acceptable) || null
+    const hits = data && Array.isArray(data.hits) ? data.hits : []
+    // 只认指针最上层的真实窗口：如果最上面是 QQ/桌面/输入体验，就落桌面，
+    // 不再从下面翻出 ZCode 来吸附（那会把挂件贴到用户没指着的窗口上）。
+    const top = hits.find((w) => !isIgnoredWindow(w))
+    if (!top) return null
+    if (isAgentWindow(top)) return top
+    return ALLOW_GENERIC ? top : null
   } catch (err) {
     return null
   } finally {
@@ -1138,8 +1190,7 @@ window.addEventListener('pointermove', (e) => {
     if (!dragging || seq !== hitSeq) return
     currentTarget = win
     fox.classList.toggle('armed', !!win)
-    const name = agentName(bound.agentId || state.pet.profileOf)
-    setDragHint(win ? '松手吸附到 ' + (win.title || win.exe) : '松手放在桌面（保留 ' + name + ' 设置）', !!win)
+    setDragHint(win ? '松手吸附到 ' + (win.title || win.exe) : '松手放在桌面', !!win)
   })
 })
 
@@ -1161,7 +1212,9 @@ window.addEventListener('pointerup', async (e) => {
     speak()
     return
   }
-  if (!target && !settings.petMode) target = await hitAt(e.clientX, e.clientY, true)
+  // 松手点重新采样，避免拖拽节流留下上一次的 target（例如最后 30ms 已经
+  // 移到 QQ/桌面上，却仍按旧 target 吸附）。
+  if (!settings.petMode) target = await hitAt(e.clientX, e.clientY, true)
   if (settings.petMode) {
     await floatAt()
   } else if (target) {

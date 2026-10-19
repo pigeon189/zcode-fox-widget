@@ -192,7 +192,9 @@ export function OverviewPage({ app }) {
   const windows = card && card.windows ? card.windows.slice(0, 3) : []
   const agents = (app.state && app.state.agents) || []
   const todayGroups = (usage && usage.today && usage.today.groups) || []
-  const cardSub = card ? [card.plan, card.account].filter(Boolean).join(' · ') : ''
+  const cardSub = card
+    ? [card.title, card.plan].filter((v, i, list) => v && list.indexOf(v) === i).join(' · ')
+    : ''
 
   return html`<div class="grid" data-testid="page.overview">
     ${alerts.map((a) => html`<div class="col-12"><div class=${'alert-bar ' + (a.tone === 'bad' ? 'bad' : '')}>${a.text}</div></div>`)}

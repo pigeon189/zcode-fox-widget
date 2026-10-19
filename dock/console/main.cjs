@@ -180,7 +180,7 @@ function createWindow() {
     minHeight: 560,
     frame: false,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { height: 40, color: '#F6F7F9', symbolColor: '#172033' },
+    titleBarOverlay: { height: 40, color: '#FFFFFF', symbolColor: '#172033' },
     backgroundColor: '#F6F7F9',
     icon: fs.existsSync(APP_ICON) ? APP_ICON : undefined,
     show: false,
@@ -249,6 +249,16 @@ function createWindow() {
       if (win.isMaximized()) win.unmaximize()
       else win.maximize()
     } else if (action === 'close') win.hide()
+  })
+  // 右上角系统按钮区跟随页面主题，避免原生层与 titlebar 背景出现色差。
+  ipcMain.on('titlebar-theme', (_e, payload) => {
+    if (!win || win.isDestroyed()) return
+    const color = String((payload && payload.color) || '')
+    const symbolColor = String((payload && payload.symbolColor) || '')
+    if (!/^#[0-9a-fA-F]{3,8}$/.test(color) || !/^#[0-9a-fA-F]{3,8}$/.test(symbolColor)) return
+    try {
+      win.setTitleBarOverlay({ color, symbolColor })
+    } catch (err) {}
   })
   ipcMain.handle('open-data-dir', () => (dataDir ? shell.openPath(dataDir) : Promise.resolve('')))
   ipcMain.handle('open-external', (_e, url) => {

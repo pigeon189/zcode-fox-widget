@@ -285,6 +285,16 @@ function App() {
     setHideMoney(!!(settings && settings.hideMoney))
   }, [settings && settings.hideMoney])
 
+  // 跟随系统时，OS 切换深浅色也要同步原生标题栏按钮区。
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => {
+      if (!settings || !settings.theme || settings.theme === 'auto') applyTheme('auto')
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [settings && settings.theme])
+
   useEffect(() => {
     const timer = setInterval(() => {
       reloadState().catch(() => setConnected(false))
@@ -317,6 +327,13 @@ function App() {
     if (t) document.documentElement.dataset.theme = t
     else delete document.documentElement.dataset.theme
     document.documentElement.style.colorScheme = t || 'light dark'
+    // 右上角系统按钮区是原生层，颜色必须跟 titlebar 实际背景一致。
+    try {
+      const styles = getComputedStyle(document.documentElement)
+      const color = styles.getPropertyValue('--surface').trim()
+      const symbolColor = styles.getPropertyValue('--text').trim()
+      if (window.foxDock && window.foxDock.setTitleBarTheme) window.foxDock.setTitleBarTheme(color, symbolColor)
+    } catch (err) {}
   }
 
   function navigate(id) {

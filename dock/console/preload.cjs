@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld('foxDock', {
   windowControl(action) {
     ipcRenderer.send('window-control', String(action))
   },
+  // 标题栏右上角系统按钮区跟随主题（Electron 的 titleBarOverlay 是原生层）。
+  setTitleBarTheme(color, symbolColor) {
+    ipcRenderer.send('titlebar-theme', { color: String(color || ''), symbolColor: String(symbolColor || '') })
+  },
   openDataDir() {
     return ipcRenderer.invoke('open-data-dir')
   },

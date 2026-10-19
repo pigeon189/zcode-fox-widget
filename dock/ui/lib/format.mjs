@@ -165,6 +165,9 @@ export function mainMetric(snapshot, displayMode = 'auto', agentId = '') {
   }
   const unit = snapshot.unit
   const card = snapshot.quotaCard || {}
+  const vendorName = card.title && card.title !== agentName(agentId) ? card.title : ''
+  const planName = card.plan && card.plan !== vendorName ? card.plan : ''
+  const vendorSub = vendorName ? vendorName + (planName ? ' · ' + planName : '') : planName
   let mode = displayMode
   if (!mode || mode === 'auto') {
     // 「按宿主」：预付/套餐型宿主优先显示余额或剩余额度，按量型才显示今日已用。
@@ -174,13 +177,13 @@ export function mainMetric(snapshot, displayMode = 'auto', agentId = '') {
     else mode = 'today'
   }
   if (mode === 'balance' && snapshot.balance) {
-    return { value: fmtMoney(snapshot.balance.amount, snapshot.balance.currency), label: '余额', sub: '', tone: 'neutral' }
+    return { value: fmtMoney(snapshot.balance.amount, snapshot.balance.currency), label: '余额', sub: vendorSub, tone: 'neutral' }
   }
   if (mode === 'quota' && snapshot.quota) {
     return {
       value: fmtPct(snapshot.quota.remainingPct),
       label: '剩余额度',
-      sub: card.plan || '',
+      sub: vendorSub || card.plan || '',
       tone: pctTone(100 - Number(snapshot.quota.usedPct || 0)),
     }
   }
