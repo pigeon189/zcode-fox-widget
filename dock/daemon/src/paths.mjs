@@ -25,5 +25,11 @@ export function pathsFor(dataDir) {
     ledger: path.join(dir, 'ledger.json'),
     settings: path.join(dir, 'settings.json'),
     logs: path.join(dir, 'logs'),
+    // 2.0 新增：上下文历史、气泡模板、导入的角色、凭据保险库
+    contextHistory: path.join(dir, 'context-history.json'),
+    bubbleTemplates: path.join(dir, 'bubble-templates.json'),
+    rolesDir: path.join(dir, 'roles'),
+    soundsDir: path.join(dir, 'sounds'),
+    vault: path.join(dir, 'vault.json'),
   }
 }

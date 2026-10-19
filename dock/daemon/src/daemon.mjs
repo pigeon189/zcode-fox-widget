@@ -22,7 +22,11 @@ import { createBillingService } from './billing.mjs'
 import { readHostVendors } from './host-vendors.mjs'
 import { compareVersions, fetchManifest } from './update.mjs'
 import { recordSnapshot, summarize } from './ledger.mjs'
-import { readSettings, writeSettings } from './settings.mjs'
+import { readSettings, writeSettings, writePet } from './settings.mjs'
+import { transition } from './state-machine.mjs'
+import { createSseHub } from './sse.mjs'
+import { createV1Router } from './v1.mjs'
+import { createAgentWatcher } from './watcher.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
 import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
@@ -42,7 +46,13 @@ function isEntry() {
 }
 
 export function parseArgs(argv) {
-  const out = { dataDir: '', port: DEFAULT_PORT, bridge: true, verbose: false }
+  const envPort = Number(process.env.FOX_DOCK_PORT)
+  const out = {
+    dataDir: '',
+    port: Number.isInteger(envPort) && envPort >= 0 && envPort <= 65535 ? envPort : DEFAULT_PORT,
+    bridge: true,
+    verbose: false,
+  }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--data-dir') out.dataDir = argv[++i] || ''
@@ -182,6 +192,21 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   // 适配器：内置 + 声明式匹配；计费快照带 3 秒缓存
   const adapters = builtinAdapters
   const billing = createBillingService({ adapters })
+  const sse = createSseHub()
+  let actualPort = 0
+  const v1 = createV1Router({
+    paths,
+    token,
+    version: VERSION,
+    startedAt,
+    adapters,
+    billing,
+    sse,
+    bridge,
+    getPort: () => actualPort,
+    readUpdateState: readUpdateStateSafe,
+    log,
+  })
 
   // 更新状态文件由 CLI 写、daemon 只读；读不到就给空历史，不要把诊断接口弄挂
   function readUpdateStateSafe() {
@@ -196,6 +221,13 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1')
     const p = url.pathname
+
+    // 新接口：/v1/*。旧路由保留一个小版本，响应里标记弃用。
+    if (p.startsWith('/v1/')) {
+      await v1.handle(req, res, url)
+      return
+    }
+    res.setHeader('X-Fox-Deprecated', '1')
 
     if (p === '/health') {
       sendJson(res, 200, {
@@ -436,6 +468,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       try {
         const patch = await readBody(req)
         const settings = writeSettings(paths.settings, patch)
+        v1.broadcastState()
         sendJson(res, 200, { ok: true, settings })
       } catch (err) {
         sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
@@ -475,6 +508,17 @@ export async function runDaemon(argv = process.argv.slice(2)) {
             rect: body.rect || null,
           },
         })
+        // 同步三态：拖到 agent 窗口 = attached（新控制台读 /v1/state）。
+        try {
+          const pet = transition(readSettings(paths.settings).pet, {
+            type: 'drop-on-agent',
+            agentId: det.id,
+            hwnd: String(body.hwnd || ''),
+            rect: body.rect,
+          })
+          writePet(paths.settings, pet)
+          v1.broadcastState()
+        } catch (err) {}
         sendJson(res, 200, {
           ok: true,
           binding: saved,
@@ -495,7 +539,16 @@ export async function runDaemon(argv = process.argv.slice(2)) {
 
     if (p === '/bind' && req.method === 'DELETE') {
       const key = url.searchParams.get('key') || ''
+      const before = readBindings(paths.bindings).find((b) => b.key === key) || null
       const r = removeBinding(paths.bindings, key)
+      // 旧前端把「解除吸附」当重置；新状态机按 D025 进入 floating（保留档案）。
+      try {
+        const settings = readSettings(paths.settings)
+        if (before && settings.pet.hwnd && before.window && before.window.hwnd === settings.pet.hwnd) {
+          writePet(paths.settings, transition(settings.pet, { type: 'drop-on-desktop' }))
+          v1.broadcastState()
+        }
+      } catch (err) {}
       sendJson(res, 200, { ok: true, removed: r.removed, bindings: r.bindings })
       return
     }
@@ -530,7 +583,6 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     sendJson(res, 404, { ok: false, error: 'not-found' })
   })
 
-  let actualPort
   try {
     actualPort = await listenOn(server, opts.port, MAX_PORT_TRIES)
   } catch (err) {
@@ -550,6 +602,24 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   updateLock(paths.lock, { port: actualPort })
   log('listening on 127.0.0.1:' + actualPort + ' pid=' + process.pid + ' version=' + VERSION)
 
+  // 启动恢复：附着态但窗口已不在 → floating（保留档案），不要停在「假装绑着」。
+  if (bridgeReady) {
+    try {
+      const settings = readSettings(paths.settings)
+      if (settings.pet.mode === 'attached') {
+        const wins = await bridge.snapshot()
+        const alive = (wins || []).some((w) => String(w.hwnd) === settings.pet.hwnd)
+        if (!alive) {
+          const pet = transition(settings.pet, { type: 'agent-window-gone' })
+          writePet(paths.settings, pet)
+          log('pet restored to ' + pet.mode + ' (profile=' + (pet.profileOf || '-') + ')')
+        }
+      }
+    } catch (err) {
+      log('pet restore skipped: ' + (err && err.message ? err.message : err))
+    }
+  }
+
   const beat = setInterval(() => {
     try {
       fs.writeFileSync(
@@ -566,11 +636,54 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   }, 1000)
   beat.unref && beat.unref()
 
+  // 进程观察器：3s 一次，发现新 agent / 窗口消失时驱动三态。
+  let watcher = null
+  if (bridgeReady) {
+    watcher = createAgentWatcher({ bridge, adapters })
+    watcher.on('appear', (e) => {
+      try {
+        sse.broadcast('agent-appeared', e)
+        const settings = readSettings(paths.settings)
+        let pet = settings.pet
+        // 悬浮态且等的是这个 agent → 自动重新吸附（设置默认开）
+        if (pet.mode === 'floating' && pet.profileOf === e.agentId && settings.reattachOnRestart) {
+          pet = transition(pet, { type: 'agent-window-back', agentId: e.agentId, hwnd: e.window.hwnd }, { reattach: true })
+          writePet(paths.settings, pet)
+          v1.broadcastState()
+          return
+        }
+        // 未绑定且开启「自动吸附新启动的 agent」→ 吸附
+        if (pet.mode === 'idle' && settings.autoAttachNewAgent && !settings.petMode) {
+          pet = transition(pet, { type: 'auto-attach', agentId: e.agentId, hwnd: e.window.hwnd })
+          writePet(paths.settings, pet)
+          v1.broadcastState()
+        }
+      } catch (err) {}
+    })
+    watcher.on('gone', (e) => {
+      try {
+        const settings = readSettings(paths.settings)
+        if (settings.pet.mode === 'attached' && settings.pet.agentId === e.agentId) {
+          writePet(paths.settings, transition(settings.pet, { type: 'agent-window-gone' }))
+          v1.broadcastState()
+        }
+        sse.broadcast('agent-gone', e)
+      } catch (err) {}
+    })
+    watcher.start()
+  }
+
   let shuttingDown = false
   function shutdown(code) {
     if (shuttingDown) return
     shuttingDown = true
     clearInterval(beat)
+    try {
+      if (watcher) watcher.stop()
+    } catch (err) {}
+    try {
+      sse.close()
+    } catch (err) {}
     try {
       fs.unlinkSync(paths.heartbeat)
     } catch (err) {}

@@ -16,4 +16,8 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   hit(x, y, exclude) {
     return ipcRenderer.invoke('hit', { x, y, exclude })
   },
+  // 角色透明边的 64×64 alpha 掩码；渲染层用它判断指针是否真的压在角色上。
+  getAlphaMask(roleId) {
+    return ipcRenderer.invoke('alpha-mask', roleId)
+  },
 })

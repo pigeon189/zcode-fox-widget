@@ -20,6 +20,39 @@ export function createBillingService({ adapters, ttlMs = DEFAULT_TTL_MS, now = (
     )
   }
 
+  function detById(id) {
+    const found = (adapters || []).find((a) => a && a.id === id)
+    if (!found) return null
+    return {
+      id: found.id,
+      name: found.name,
+      adapter: found,
+      fallback: false,
+      capabilities: { ...(found.capabilities || {}) },
+    }
+  }
+
+  async function cachedCompute(det, win, opts) {
+    const key = det.id
+    const ttl = Number.isFinite(opts.ttlMs) ? Number(opts.ttlMs) : ttlMs
+    const hit = cache.get(key)
+    if (!opts.force && hit && now() - hit.at <= ttl) {
+      return { ...hit.value, cached: true }
+    }
+
+    // 同一个适配器的并发请求合并成一次（浮层与 CLI 同时问也只读一次盘）
+    let p = inflight.get(key)
+    if (!p) {
+      p = compute(det, win).finally(() => inflight.delete(key))
+      inflight.set(key, p)
+    }
+    const value = await p
+
+    if (value.ok) cache.set(key, { at: now(), value })
+    else cache.delete(key)
+    return value
+  }
+
   async function compute(det, win) {
     const adapter = det.adapter
     try {
@@ -52,25 +85,21 @@ export function createBillingService({ adapters, ttlMs = DEFAULT_TTL_MS, now = (
     async snapshot(win, opts = {}) {
       const det = resolveAdapter(win, adapters)
       if (!det.capabilities.billing) return unsupported(det)
+      return cachedCompute(det, win, opts)
+    },
 
-      const key = det.id
-      const ttl = Number.isFinite(opts.ttlMs) ? Number(opts.ttlMs) : ttlMs
-      const hit = cache.get(key)
-      if (!opts.force && hit && now() - hit.at <= ttl) {
-        return { ...hit.value, cached: true }
+    // 不依赖「窗口正在运行」：新控制台按 agent 取数时，宿主没开也要能读历史。
+    // win 只用于给适配器提示当前窗口（大多数适配器不读它）。
+    async snapshotById(adapterId, opts = {}) {
+      const det = detById(String(adapterId || ''))
+      if (!det) {
+        return normalizeSnapshot(
+          { supported: false, error: 'unknown-adapter' },
+          { adapterId: String(adapterId || ''), adapterName: String(adapterId || ''), now: now() }
+        )
       }
-
-      // 同一个适配器的并发请求合并成一次（浮层与 CLI 同时问也只读一次盘）
-      let p = inflight.get(key)
-      if (!p) {
-        p = compute(det, win).finally(() => inflight.delete(key))
-        inflight.set(key, p)
-      }
-      const value = await p
-
-      if (value.ok) cache.set(key, { at: now(), value })
-      else cache.delete(key)
-      return value
+      if (!det.capabilities.billing) return unsupported(det)
+      return cachedCompute(det, opts.window || null, opts)
     },
 
     // 给测试/诊断用

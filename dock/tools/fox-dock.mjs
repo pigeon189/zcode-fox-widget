@@ -13,6 +13,7 @@ import { pathsFor } from '../daemon/src/paths.mjs'
 import { installLauncher, uninstallLauncher } from '../daemon/src/install.mjs'
 import { describeAdapters, resolveAdapter } from '../adapters/registry.mjs'
 import { foxDockOverlayPidsOf, overlayPidsOf, resolveElectron } from '../daemon/src/electron.mjs'
+import { installRuntime, runtimeInfo } from '../daemon/src/runtime.mjs'
 import { DEFAULT_CHANNEL, compareVersions, fetchManifest, readUpdateState, updateFromManifest } from '../daemon/src/update.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -256,7 +257,7 @@ function clearOverlayInfo(paths) {
   } catch (err) {}
 }
 
-function buildOverlayArgs(port, ignore, args) {
+function buildOverlayArgs(port, ignore, args, dataDir = '') {
   // 默认保留 GPU 合成：透明窗在软件合成下会出现「只重绘部分区域」，
   // 角色/卡片在桌面上不可见（2.0 真机定位到的问题）。
   // FOX_DOCK_SOFTWARE_RENDER=1 可显式回退到软件渲染。
@@ -264,6 +265,9 @@ function buildOverlayArgs(port, ignore, args) {
   // 崩在 "GPU process isn't usable"，而正常桌面双击启动不需要也不应该关沙箱。
   const software = process.env.FOX_DOCK_SOFTWARE_RENDER === '1'
   const argv = [OVERLAY_DIR, ...(software ? ['--disable-gpu'] : []), '--daemon-port=' + port, '--ignore-pids=' + ignore.join(',')]
+  if (dataDir) argv.push('--data-dir=' + dataDir)
+  // 托盘「开机自启」需要知道真正的 node 与 CLI 路径（Electron 自己的 execPath 不是 node）
+  argv.push('--node-path=' + process.execPath, '--cli-path=' + CLI_PATH)
   if (process.env.FOX_DOCK_NO_SANDBOX === '1') argv.push('--no-sandbox')
   const display = argValue(args, '--display')
   if (display) argv.push('--display=' + display)
@@ -320,7 +324,7 @@ async function startOverlay(paths, port, args) {
     return { ok: true, pid, already: true }
   }
   const ignore = await collectIgnorePids(port)
-  const child = spawn(electron, buildOverlayArgs(port, ignore, args), {
+  const child = spawn(electron, buildOverlayArgs(port, ignore, args, paths.dir), {
     detached: true,
     stdio: 'ignore',
     env: electronEnv(),
@@ -386,7 +390,7 @@ async function overlayForeground(args) {
     return
   }
   const ignore = await collectIgnorePids(lock.port)
-  const child = spawn(electron, buildOverlayArgs(lock.port, ignore, args), { stdio: 'inherit', env: electronEnv() })
+  const child = spawn(electron, buildOverlayArgs(lock.port, ignore, args, paths.dir), { stdio: 'inherit', env: electronEnv() })
   console.log('overlay 前台运行 pid=' + child.pid + '（Ctrl+C 结束）')
   await new Promise((resolve) => child.on('exit', resolve))
 }
@@ -420,6 +424,73 @@ async function start(args) {
     const r = await startOverlay(paths, h.port, args)
     if (!r.ok) process.exitCode = 1
   }
+}
+
+// 幂等拉起：宿主 SessionStart 钩子调用。daemon 不在线才启动，缺 Electron 也不报错
+// 阻断宿主（只写一行提示）。正常路径不输出，保证 <300ms。
+async function ensure(args) {
+  const quiet = !args.includes('--verbose')
+  const dataDir = dataDirFrom(args)
+  const paths = pathsFor(dataDir)
+  const lock = readLock(paths.lock)
+  if (lock && lock.port && isProcessAlive(lock.pid)) {
+    const h = await healthOf(lock.port)
+    if (h && h.ok) {
+      if (!args.includes('--no-overlay')) {
+        const r = await startOverlay(paths, h.port, args)
+        if (!r.ok) {
+          if (!quiet) console.error('overlay 未能启动；dock 已在线，可从托盘或 CLI 再试')
+        }
+      }
+      return
+    }
+  }
+  const child = spawn(process.execPath, [WATCHDOG, ...(dataDir ? ['--data-dir', dataDir] : [])], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+  child.unref()
+  const h = await waitHealthy(paths, 8000)
+  if (!h) {
+    if (!quiet) console.error('fox-dock ensure: daemon 未能在 8s 内启动')
+    process.exitCode = 1
+    return
+  }
+  if (!args.includes('--no-overlay')) {
+    const r = await startOverlay(paths, h.port, args)
+    if (!r.ok) {
+      if (!quiet) console.error('fox-dock ensure: 缺 Electron 运行时，可运行 fox-dock runtime install')
+      // 运行时缺失不算启动失败：daemon 在线，装好运行时后浮层会自动出现
+    }
+  }
+  if (!quiet) console.log('fox-dock ensured pid=' + h.pid + ' port=' + h.port)
+}
+
+async function runtimeCmd(args) {
+  const sub = args.find((a) => !a.startsWith('-')) || 'status'
+  if (sub === 'install') {
+    const r = await installRuntime({ log: (line) => console.log(line) })
+    if (!r.ok) {
+      console.error('运行时安装失败：' + r.error)
+      process.exitCode = 1
+      return
+    }
+    console.log('Electron 运行时就绪：' + r.path)
+    return
+  }
+  if (sub === 'path') {
+    const info = runtimeInfo()
+    console.log(info.resolved.path || '')
+    if (!info.resolved.path) process.exitCode = 1
+    return
+  }
+  const info = runtimeInfo()
+  console.log('版本（钉死）：' + info.version)
+  console.log('运行时根目录：' + info.root)
+  console.log('当前使用：' + (info.resolved.path || '（未找到）') + (info.resolved.source ? '（' + info.resolved.source + '）' : ''))
+  for (const c of info.candidates) console.log('  [' + (c.exists ? '✓' : ' ') + '] ' + c.source + '  ' + c.path)
+  if (!info.resolved.path) console.log('安装：fox-dock runtime install')
 }
 
 async function stop(args) {
@@ -534,6 +605,8 @@ try {
   else if (cmd === 'update') await updateCmd(rest)
   else if (cmd === 'diag') await diag(rest)
   else if (cmd === 'overlay') await overlayForeground(rest)
+  else if (cmd === 'ensure') await ensure(rest)
+  else if (cmd === 'runtime') await runtimeCmd(rest)
   else if (cmd === 'start') await start(rest)
   else if (cmd === 'stop') await stop(rest)
   else if (cmd === 'status') await status(rest)
@@ -541,7 +614,9 @@ try {
   else if (cmd === 'uninstall') await uninstall(rest)
   else if (cmd === 'version' || cmd === '--version' || cmd === '-v') console.log(VERSION)
   else {
-    console.log('usage: fox-dock <doctor|adapters|diag|update|start|stop|status|overlay|install|uninstall|version> [--data-dir <dir>]')
+    console.log(
+      'usage: fox-dock <doctor|adapters|diag|update|start|stop|status|ensure|runtime|overlay|install|uninstall|version> [--data-dir <dir>]'
+    )
     process.exitCode = cmd ? 1 : 0
   }
 } catch (err) {

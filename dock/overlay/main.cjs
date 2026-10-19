@@ -1,5 +1,7 @@
+const fs = require('node:fs')
 const path = require('node:path')
-const { app, BrowserWindow, screen, ipcMain } = require('electron')
+const { pathToFileURL } = require('node:url')
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, nativeImage } = require('electron')
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(name)
@@ -9,6 +11,9 @@ function arg(name, fallback = '') {
 }
 
 const daemonPort = arg('--daemon-port', process.env.FOX_DOCK_PORT || '')
+const dataDir = arg('--data-dir', process.env.FOX_DOCK_DATA || '')
+const nodePath = arg('--node-path', '')
+const cliPath = arg('--cli-path', '')
 const noClickThrough = process.argv.includes('--no-click-through')
 const ignorePids = arg('--ignore-pids', '')
 // 多显示器：浮层只铺**一块**屏幕。默认选光标所在的那块（大概率就是用户正在用的），
@@ -29,6 +34,255 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
 
+// ---------- daemon API（托盘/热键要能改设置、能退出） ----------
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (err) {
+    return null
+  }
+}
+
+function lockInfo() {
+  if (!dataDir) return null
+  return readJson(path.join(dataDir, 'daemon.lock'))
+}
+
+function readSettings() {
+  if (!dataDir) return {}
+  return readJson(path.join(dataDir, 'settings.json')) || {}
+}
+
+async function daemonApi(p, method = 'GET', body) {
+  const lock = lockInfo()
+  if (!lock || !lock.port) throw new Error('daemon-not-running')
+  const headers = { 'Content-Type': 'application/json' }
+  if (lock.token) headers['x-fox-token'] = lock.token
+  const res = await fetch('http://127.0.0.1:' + lock.port + p, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(3000),
+  })
+  return res.json()
+}
+
+async function patchSettings(patch) {
+  try {
+    return await daemonApi('/v1/settings', 'PUT', patch)
+  } catch (err) {
+    console.warn('[fox-dock] settings patch failed: ' + (err && err.message ? err.message : err))
+    return null
+  }
+}
+
+// ---------- 角色 alpha 掩码（治「透明边挡住下面窗口点击」） ----------
+
+const maskCache = new Map()
+
+function rolePath(roleId) {
+  const id = String(roleId || '')
+  if (!/^[a-z0-9-]{2,24}$/i.test(id)) return ''
+  const builtin = path.join(__dirname, 'assets', 'roles', id + '.png')
+  if (fs.existsSync(builtin)) return builtin
+  if (dataDir) {
+    const imported = path.join(dataDir, 'roles', id + '.png')
+    if (fs.existsSync(imported)) return imported
+  }
+  return ''
+}
+
+function alphaMask(roleId) {
+  const file = rolePath(roleId)
+  if (!file) return { ok: false, error: 'role-not-found' }
+  let stat
+  try {
+    stat = fs.statSync(file)
+  } catch (err) {
+    return { ok: false, error: 'role-not-found' }
+  }
+  const key = file + '|' + stat.mtimeMs
+  const hit = maskCache.get(key)
+  if (hit) return hit
+  try {
+    const img = nativeImage.createFromPath(file)
+    if (img.isEmpty()) return { ok: false, error: 'image-empty' }
+    const small = img.resize({ width: 64, height: 64, quality: 'good' })
+    const bmp = small.toBitmap()
+    const data = []
+    for (let i = 0; i < 64 * 64; i++) data.push(bmp[i * 4 + 3] || 0)
+    const value = { ok: true, width: 64, height: 64, data }
+    maskCache.set(key, value)
+    return value
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) }
+  }
+}
+
+// ---------- 托盘 / 热键 ----------
+
+let tray = null
+let win = null
+let consoleProcess = null
+
+function startupLauncherFile() {
+  const appData = process.env.APPDATA || path.join(require('node:os').homedir(), 'AppData', 'Roaming')
+  const dir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+  for (const name of ['fox-dock.vbs', 'fox-dock.cmd']) {
+    const file = path.join(dir, name)
+    if (fs.existsSync(file)) return file
+  }
+  return ''
+}
+
+async function toggleAutoStart(enable) {
+  if (!dataDir || !nodePath || !cliPath) return false
+  try {
+    const mod = await import(pathToFileURL(path.join(__dirname, '..', 'daemon', 'src', 'install.mjs')).href)
+    if (enable) {
+      mod.installLauncher({
+        dataDir,
+        nodePath,
+        scriptPath: cliPath,
+        command: 'start',
+        format: 'vbs',
+      })
+    } else {
+      mod.uninstallLauncher()
+    }
+    await patchSettings({ autoStart: !!enable })
+    return true
+  } catch (err) {
+    console.warn('[fox-dock] autostart toggle failed: ' + (err && err.message ? err.message : err))
+    return false
+  }
+}
+
+function toggleVisible() {
+  if (!win) return
+  try {
+    if (win.isVisible()) win.hide()
+    else win.showInactive()
+  } catch (err) {}
+  refreshTray()
+}
+
+function openConsole() {
+  const consoleDir = path.join(__dirname, '..', 'console')
+  if (!fs.existsSync(path.join(consoleDir, 'main.cjs'))) {
+    console.warn('[fox-dock] console not built yet')
+    return
+  }
+  try {
+    if (consoleProcess && !consoleProcess.killed) {
+      return
+    }
+  } catch (err) {}
+  try {
+    const { spawn } = require('node:child_process')
+    const env = { ...process.env }
+    delete env.ELECTRON_RUN_AS_NODE
+    delete env.NODE_OPTIONS
+    const args = [consoleDir, '--daemon-port=' + daemonPort]
+    if (dataDir) args.push('--data-dir=' + dataDir)
+    const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore', env })
+    child.unref()
+    consoleProcess = child
+    child.on('exit', () => {
+      consoleProcess = null
+    })
+  } catch (err) {
+    console.warn('[fox-dock] open console failed: ' + (err && err.message ? err.message : err))
+  }
+}
+
+async function quitDock() {
+  try {
+    await daemonApi('/shutdown', 'POST')
+  } catch (err) {}
+  app.quit()
+}
+
+function buildMenu() {
+  const s = readSettings()
+  return Menu.buildFromTemplate([
+    { label: '打开控制台', accelerator: 'Ctrl+Alt+D', click: openConsole },
+    { label: win && win.isVisible() ? '隐藏角色' : '显示角色', accelerator: 'Ctrl+Alt+F', click: toggleVisible },
+    { type: 'separator' },
+    {
+      label: '桌宠模式',
+      type: 'checkbox',
+      checked: !!s.petMode,
+      click: (item) => patchSettings({ petMode: item.checked }).then(refreshTray),
+    },
+    {
+      label: '隐藏金额',
+      type: 'checkbox',
+      checked: !!s.hideMoney,
+      click: (item) => patchSettings({ hideMoney: item.checked }).then(refreshTray),
+    },
+    {
+      label: '开机自启',
+      type: 'checkbox',
+      checked: !!startupLauncherFile(),
+      click: (item) => toggleAutoStart(item.checked).then(refreshTray),
+    },
+    { type: 'separator' },
+    { label: '退出 fox-dock', click: quitDock },
+  ])
+}
+
+function refreshTray() {
+  if (!tray) return
+  try {
+    tray.setContextMenu(buildMenu())
+  } catch (err) {}
+}
+
+function setupTray() {
+  const s = readSettings()
+  const roleId = (s.profiles && s.profiles.zcode && s.profiles.zcode.roleId) || s.roleId || 'fox'
+  let icon = nativeImage.createEmpty()
+  try {
+    const file = rolePath(roleId)
+    if (file) icon = nativeImage.createFromPath(file).resize({ width: 16, height: 16, quality: 'best' })
+  } catch (err) {}
+  try {
+    tray = new Tray(icon)
+    tray.setToolTip('fox-dock')
+    tray.setContextMenu(buildMenu())
+    tray.on('right-click', () => {
+      try {
+        tray.popUpContextMenu(buildMenu())
+      } catch (err) {}
+    })
+    tray.on('double-click', openConsole)
+  } catch (err) {
+    console.warn('[fox-dock] tray unavailable: ' + (err && err.message ? err.message : err))
+  }
+}
+
+function setupHotkeys() {
+  const s = readSettings()
+  const hot = s.hotkeys || {}
+  const bind = (accelerator, fn, label) => {
+    if (!accelerator) return
+    try {
+      const ok = globalShortcut.register(accelerator, fn)
+      if (!ok) console.warn('[fox-dock] 热键被占用：' + accelerator + '（' + label + '）')
+    } catch (err) {
+      console.warn('[fox-dock] 热键注册失败：' + accelerator + ' ' + (err && err.message ? err.message : err))
+    }
+  }
+  bind(hot.toggle, toggleVisible, '显示/隐藏')
+  bind(hot.console, openConsole, '控制台')
+  bind(hot.hideMoney, () => {
+    const cur = readSettings()
+    patchSettings({ hideMoney: !cur.hideMoney }).then(refreshTray)
+  }, '隐藏金额')
+}
+
 app.whenReady().then(() => {
   const primary = screen.getPrimaryDisplay()
   const chosen = displayMode === 'primary' ? primary : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
@@ -36,7 +290,7 @@ app.whenReady().then(() => {
   console.log(
     '[fox-dock] overlay display=' + chosen.id + ' ' + work.width + 'x' + work.height + ' @' + chosen.scaleFactor + 'x' + (chosen.id === primary.id ? ' (primary)' : '')
   )
-  const win = new BrowserWindow({
+  win = new BrowserWindow({
     x: work.x,
     y: work.y,
     width: work.width,
@@ -64,6 +318,7 @@ app.whenReady().then(() => {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       backgroundThrottling: false,
     },
   })
@@ -129,6 +384,7 @@ app.whenReady().then(() => {
   // 窗口在屏幕上的位置（DIP）。渲染层的 window.screenX 在激活/DPI 校正前后会变，
   // 这里给一份主进程认得的坐标做兜底（第一次指针事件后就用事件自己算的偏移）。
   ipcMain.handle('bounds', () => win.getBounds())
+  ipcMain.handle('alpha-mask', (_e, roleId) => alphaMask(roleId))
 
   // 拖拽期间渲染进程的网络会被整体挂起（实测所有 fetch 卡到松手后才返回），
   // 命中采样改成主进程代发：主进程是 Node，不受这个限制。
@@ -152,6 +408,17 @@ app.whenReady().then(() => {
       win.setIgnoreMouseEvents(!on, { forward: true })
     } catch (err) {}
   })
+
+  setupTray()
+  setupHotkeys()
 })
 
 app.on('window-all-closed', () => app.quit())
+app.on('will-quit', () => {
+  try {
+    globalShortcut.unregisterAll()
+  } catch (err) {}
+  try {
+    if (tray) tray.destroy()
+  } catch (err) {}
+})

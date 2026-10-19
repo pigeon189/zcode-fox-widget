@@ -29,5 +29,8 @@
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "foxDock": {
+    "electron": "44.4.5"
   }
 }

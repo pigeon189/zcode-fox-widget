@@ -1,41 +1,23 @@
-// Electron 运行时定位（R10）：dock 不带 Electron，复用它已经装好的那份。
-//
-// 优先级：显式环境变量 → ZCode 挂件的运行时 → WorkBuddy 挂件的运行时。
-// 都找不到时返回空串，由调用方给出可读的错误（不要静默失败）。
+// Electron 运行时定位（R10）：dock 优先用自己的运行时，其次复用已装好的挂件线。
+// 实际的候选顺序与安装逻辑在 runtime.mjs（T1.4），这里保留旧导出。
 
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import { resolveRuntime, runtimeCandidates } from './runtime.mjs'
 
-export function electronCandidates() {
-  const home = os.homedir()
-  return [
-    process.env.FOX_DOCK_ELECTRON || '',
-    path.join(home, '.zcode', 'whale', 'desktop-runtime', 'node_modules', 'electron', 'dist', 'electron.exe'),
-    path.join(
-      home,
-      '.workbuddy',
-      'plugins',
-      'cache',
-      'fox-local',
-      'fox-widget',
-      '2.0.0',
-      'desktop-runtime',
-      'node_modules',
-      'electron',
-      'dist',
-      'electron.exe'
-    ),
-  ].filter(Boolean)
+export function electronCandidates(env = process.env) {
+  return runtimeCandidates(env).map((c) => c.path)
 }
 
-export function resolveElectron(candidates = electronCandidates()) {
-  for (const p of candidates) {
-    try {
-      if (fs.statSync(p).isFile()) return p
-    } catch (err) {}
+export function resolveElectron(candidates) {
+  if (Array.isArray(candidates)) {
+    for (const p of candidates) {
+      try {
+        if (fs.statSync(p).isFile()) return p
+      } catch (err) {}
+    }
+    return ''
   }
-  return ''
+  return resolveRuntime().path
 }
 
 // 从任务栏窗口里认出「浮层」：它们是全屏置顶，会把命中全吃掉。

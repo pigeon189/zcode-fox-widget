@@ -231,6 +231,96 @@ function normalizeDetails(raw) {
 //   · 金额一律 number 或 null（不出现字符串、NaN、Infinity）
 //   · 百分比夹在 0..100
 // R7 的统一账本直接消费这个结构，不再各自解析。
+// 上下文契约（D029）：
+//   · 读不到就 supported=false + reason，绝不把缺失当 0（不补零）；
+//   · pct 只能由 contextPct() 统一计算，适配器不得自己算百分比；
+//   · points 是宿主能给出的历史（旧→新），daemon 采样补齐由上层负责。
+export const CONTEXT_CONFIDENCE = ['exact', 'derived', 'unavailable']
+export const CONTEXT_REASONS = ['not-running', 'no-session', 'no-data', 'auth', 'schema']
+
+export function contextPct(used, limit) {
+  const u = finiteOrNull(used)
+  const l = finiteOrNull(limit)
+  if (u === null || l === null || l <= 0) return null
+  return Math.min(100, Math.max(0, Math.round((u / l) * 1000) / 10))
+}
+
+function normalizeBreakdown(raw) {
+  if (!raw || typeof raw !== 'object') return undefined
+  const keys = ['input', 'cacheRead', 'cacheWrite', 'output', 'reasoning']
+  const out = {}
+  for (const k of keys) {
+    const n = finiteOrNull(raw[k])
+    if (n !== null && n >= 0) out[k] = Math.round(n)
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+function normalizeCompaction(raw) {
+  if (!raw || typeof raw !== 'object') return undefined
+  const count = Math.max(0, Math.round(finiteOrNull(raw.count) || 0))
+  if (!count) return undefined
+  return {
+    count,
+    lastAt: finiteOrNull(raw.lastAt) || (typeof raw.lastAt === 'string' ? raw.lastAt.slice(0, 40) : ''),
+    shadowedTokens: finiteOrNull(raw.shadowedTokens) === null ? undefined : Math.round(raw.shadowedTokens),
+    derived: raw.derived === true,
+  }
+}
+
+export function normalizeContext(raw, ctx = {}) {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const adapterId = String(ctx.adapterId || r.adapterId || 'generic')
+  const adapterName = String(ctx.adapterName || r.adapterName || adapterId)
+  const supported = r.supported === true
+  const confidence = supported
+    ? r.confidence === 'exact' || r.confidence === 'derived'
+      ? r.confidence
+      : 'derived'
+    : 'unavailable'
+  const reason = supported
+    ? undefined
+    : CONTEXT_REASONS.includes(String(r.reason || ''))
+      ? String(r.reason)
+      : 'no-data'
+  const used = supported ? Math.max(0, Math.round(finiteOrNull(r.used) || 0)) : null
+  const limit = supported ? finiteOrNull(r.limit) : null
+  const points = Array.isArray(r.points)
+    ? r.points
+        .map((p) => {
+          if (!p || typeof p !== 'object') return null
+          const t = finiteOrNull(p.t)
+          const u = finiteOrNull(p.used)
+          if (t === null || u === null) return null
+          return { t, used: Math.max(0, Math.round(u)), turnId: p.turnId ? String(p.turnId).slice(0, 60) : undefined }
+        })
+        .filter(Boolean)
+        .slice(-240)
+    : []
+  return {
+    ok: r.ok !== false,
+    adapterId,
+    adapterName,
+    supported,
+    confidence,
+    reason,
+    sessionId: text(r.sessionId, 80),
+    title: text(r.title, 160),
+    model: text(r.model, 80),
+    limit,
+    limitSource: ['host', 'config', 'builtin-table', 'unknown'].includes(String(r.limitSource || ''))
+      ? String(r.limitSource)
+      : 'unknown',
+    used,
+    pct: supported ? contextPct(used, limit) : null,
+    breakdown: supported ? normalizeBreakdown(r.breakdown) : undefined,
+    compaction: supported ? normalizeCompaction(r.compaction) : undefined,
+    points,
+    updatedAt: finiteOrNull(r.updatedAt) || (typeof r.updatedAt === 'string' ? r.updatedAt.slice(0, 40) : ''),
+    error: r.error ? String(r.error).slice(0, 300) : '',
+  }
+}
+
 export function normalizeSnapshot(raw, ctx = {}) {
   const r = raw && typeof raw === 'object' ? raw : {}
   const adapterId = String(ctx.adapterId || r.adapterId || 'generic')

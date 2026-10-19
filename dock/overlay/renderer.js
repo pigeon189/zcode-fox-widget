@@ -255,12 +255,34 @@ function roleForAdapter(adapterId) {
   return settings.roleId
 }
 
+// 透明边的命中掩码：64×64 alpha 位图，由主进程用 nativeImage 采样。
+// 没有掩码时退回包围盒（旧行为），不会因为取不到掩码而让角色变得点不到。
+let alphaMask = null
+let alphaRole = ''
+async function loadAlphaMask(id) {
+  try {
+    const api = window.foxOverlay
+    const m = api && typeof api.getAlphaMask === 'function' ? await api.getAlphaMask(id) : null
+    if (m && m.ok && Array.isArray(m.data)) {
+      alphaMask = m
+      alphaRole = id
+    } else {
+      alphaMask = null
+      alphaRole = ''
+    }
+  } catch (err) {
+    alphaMask = null
+    alphaRole = ''
+  }
+}
+
 // 换角色：立绘做一次淡入；speak=true 时说这个角色的「挑经句」
 function applyRole(id, speak) {
   const role = foxRoleOf(id)
   if (!role) return
   const changed = roleId !== role.id
   roleId = role.id
+  loadAlphaMask(role.id)
   applyAccent(role.accent)
   if (changed) {
     foxImg.classList.add('switching')
@@ -2228,7 +2250,13 @@ function togglePanel(open) {
 
 function isOverFox(x, y) {
   const r = fox.getBoundingClientRect()
-  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+  if (x < r.left || x > r.right || y < r.top || y > r.bottom) return false
+  if (alphaMask && alphaRole === roleId && r.width > 0 && r.height > 0) {
+    const ix = Math.min(alphaMask.width - 1, Math.max(0, Math.floor(((x - r.left) / r.width) * alphaMask.width)))
+    const iy = Math.min(alphaMask.height - 1, Math.max(0, Math.floor(((y - r.top) / r.height) * alphaMask.height)))
+    return alphaMask.data[iy * alphaMask.width + ix] > 12
+  }
+  return true
 }
 
 function isInside(el, x, y) {
@@ -2241,6 +2269,9 @@ function isInside(el, x, y) {
 // 数字卡片是看得见的按钮，必须接住点击，不能穿透到下面的宿主窗口。
 function isOverUI(x, y) {
   if (isOverFox(x, y)) return true
+  // 菜单键/徽标是角色的控件，可能落在立绘的透明区上方，不能靠 alpha 判定
+  if (isInside(petMenu, x, y)) return true
+  if (isInside(foxBadge, x, y)) return true
   if (isInside(chip, x, y)) return true
   if (panelOpen && isInside(panel, x, y)) return true
   return false
