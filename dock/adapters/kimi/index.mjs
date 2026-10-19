@@ -9,6 +9,7 @@
 // 额度接口结果缓存 60s（见 usage.mjs）。
 
 import { readKimiStatus } from './usage.mjs'
+import { listKimiSessions, readKimiContext } from './context.mjs'
 
 function worstWindow(windows) {
   let used = 0
@@ -41,7 +42,15 @@ export const kimiAdapter = {
     exeBasenames: ['kimi code.exe'],
     exeIncludes: ['/kimicode/'],
   },
-  capabilities: { billing: true, follow: true },
+  capabilities: { billing: true, follow: true, context: true },
+
+  getContext(opts = {}) {
+    return readKimiContext(opts)
+  },
+
+  listSessions(opts = {}) {
+    return listKimiSessions(opts)
+  },
 
   createBilling(ctx = {}) {
     const now = typeof ctx.now === 'function' ? ctx.now : () => Date.now()

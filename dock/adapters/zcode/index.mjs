@@ -6,6 +6,7 @@
 // 标题不参与匹配——标题里有项目名，用户一改就会抖动。
 
 import { readUsage, dominantCurrency } from './store.mjs'
+import { listZcodeSessions, readZcodeContext } from './context.mjs'
 
 const REASON_TEXT = {
   'sqlite-unavailable': '当前 Node 没有 node:sqlite（需 ≥ 22.5）',
@@ -35,7 +36,15 @@ export const zcodeAdapter = {
   roleDefault: 'fox',
   accent: '#f0a04b',
   match: { exeBasenames: ['zcode.exe'] },
-  capabilities: { billing: true, follow: true },
+  capabilities: { billing: true, follow: true, context: true },
+
+  getContext(opts = {}) {
+    return readZcodeContext(opts)
+  },
+
+  listSessions(opts = {}) {
+    return listZcodeSessions(opts)
+  },
 
   createBilling(ctx = {}) {
     const now = typeof ctx.now === 'function' ? ctx.now : () => Date.now()

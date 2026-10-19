@@ -4,6 +4,7 @@
 // 不折算成钱——折算会让人以为那是账单。
 
 import { readCreditUsage } from './transcripts.mjs'
+import { listWorkbuddySessions, readWorkbuddyContext } from './context.mjs'
 
 const REASON_TEXT = {
   'projects-missing': '找不到 WorkBuddy 的会话目录（~/.workbuddy/projects）',
@@ -23,7 +24,15 @@ export const workbuddyAdapter = {
   roleDefault: 'xiaoke',
   accent: '#7db6ff',
   match: { exeBasenames: ['workbuddy.exe'] },
-  capabilities: { billing: true, follow: true },
+  capabilities: { billing: true, follow: true, context: true },
+
+  getContext(opts = {}) {
+    return readWorkbuddyContext(opts)
+  },
+
+  listSessions(opts = {}) {
+    return listWorkbuddySessions(opts)
+  },
 
   createBilling(ctx = {}) {
     const now = typeof ctx.now === 'function' ? ctx.now : () => Date.now()

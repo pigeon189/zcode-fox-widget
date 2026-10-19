@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { isProcessAlive, readLock } from '../../daemon/src/lock.mjs'
 
@@ -28,14 +29,51 @@ async function waitHealth(dir, timeoutMs = 20000) {
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-dock-v1-'))
+const zcodeHome = path.join(dir, 'zcode-home')
 let daemon = null
 let started = null
 let base = ''
 
+function seedZcode() {
+  const dbFile = path.join(zcodeHome, 'cli', 'db', 'db.sqlite')
+  fs.mkdirSync(path.dirname(dbFile), { recursive: true })
+  const db = new DatabaseSync(dbFile)
+  db.exec(`
+    CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
+    CREATE TABLE model_usage (
+      session_id TEXT, turn_id TEXT, provider_id TEXT, model_id TEXT, status TEXT,
+      started_at INTEGER, completed_at INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+      reasoning_tokens INTEGER, cache_creation_input_tokens INTEGER, cache_read_input_tokens INTEGER,
+      computed_total_tokens INTEGER, context_exceeded INTEGER
+    );
+  `)
+  const now = Date.now()
+  db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?)').run('s1', null, '集成测试会话', now, null, null)
+  db.prepare(
+    `INSERT INTO model_usage VALUES ('s1','t1','p','deepseek-v4.1','completed',?,?,?,?,?,?,?,?,?)`
+  ).run(now - 1000, now - 900, 800, 200, 0, 0, 200, 1000, 0)
+  db.close()
+  const endpoint = path.join(zcodeHome, 'v2', 'runtime', 'provider', 'windows-x86_64', '9.9.9', 'ep')
+  fs.mkdirSync(endpoint, { recursive: true })
+  fs.writeFileSync(
+    path.join(endpoint, 'zcode-builtin.json'),
+    JSON.stringify({ config: { modelConfigRules: { modelRules: [{ modelMatch: '.*', config: { properties: { contextWindow: 1000000 } } }] } } })
+  )
+}
+
 before(async () => {
+  seedZcode()
   daemon = spawn(process.execPath, [DAEMON, '--data-dir', dir, '--port', '0', '--no-bridge'], {
     stdio: 'ignore',
     windowsHide: true,
+    env: {
+      ...process.env,
+      ZCODE_HOME: zcodeHome,
+      ZCODE_DATA_BASE_DIR: zcodeHome,
+      CODEBUDDY_HOME: path.join(dir, 'wb-home'),
+      DSH_HOME: path.join(dir, 'dsh-home'),
+      KIMI_CODE_HOME: path.join(dir, 'kimi-home'),
+    },
   })
   started = await waitHealth(dir)
   assert.ok(started, 'daemon did not become healthy')
@@ -134,6 +172,23 @@ test('v1: attach 缺 agentId/hwnd 返回 400', async () => {
     body: JSON.stringify({ agentId: 'zcode' }),
   })
   assert.equal(r.status, 400)
+})
+
+test('v1: 上下文接口返回 used/limit/pct，并带会话列表', async () => {
+  const r = await (await fetch(base + '/v1/agents/zcode/context')).json()
+  assert.equal(r.ok, true)
+  assert.equal(r.context.supported, true)
+  assert.equal(r.context.used, 1000)
+  assert.equal(r.context.limit, 1000000)
+  assert.equal(r.context.pct, 0.1)
+  assert.equal(r.context.confidence, 'exact')
+  const s = await (await fetch(base + '/v1/agents/zcode/sessions')).json()
+  assert.equal(s.ok, true)
+  assert.equal(s.sessions[0].id, 's1')
+  // 没有数据的宿主不补 0
+  const none = await (await fetch(base + '/v1/agents/workbuddy/context')).json()
+  assert.equal(none.context.supported, false)
+  assert.equal(none.context.used, null)
 })
 
 test('v1: 宿主事件需要 token 并进入诊断包', async () => {

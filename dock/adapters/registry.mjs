@@ -77,6 +77,7 @@ export function describeAdapters(list = builtinAdapters) {
     fallback: !!a.fallback,
     billing: !!(a.capabilities && a.capabilities.billing),
     follow: !!(a.capabilities && a.capabilities.follow),
+    context: !!(a.capabilities && a.capabilities.context),
     roleDefault: a.roleDefault || '',
     accent: a.accent || '',
     match: {

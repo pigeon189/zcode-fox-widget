@@ -7,6 +7,7 @@
 
 import { defaultDshHome, readDeepSeekBalance } from './credentials.mjs'
 import { readDshwLedger, scanDshUsage } from './sessions.mjs'
+import { listDshSessions, readDshContext } from './context.mjs'
 
 function fmtTokens(n) {
   const v = Number(n) || 0
@@ -31,7 +32,15 @@ export const dshAdapter = {
     exeBasenames: ['deepseek harness.exe'],
     exeIncludes: ['/dsh-windows/'],
   },
-  capabilities: { billing: true, follow: true },
+  capabilities: { billing: true, follow: true, context: true },
+
+  getContext(opts = {}) {
+    return readDshContext(opts)
+  },
+
+  listSessions(opts = {}) {
+    return listDshSessions(opts)
+  },
 
   createBilling(ctx = {}) {
     const now = typeof ctx.now === 'function' ? ctx.now : () => Date.now()

@@ -146,3 +146,23 @@ export const myAdapter = {
   必须**按轮归并、按轮首事件归日**（D009）。
 - **尾部截断**：大 transcript 只读尾部会系统性低估。默认窗口 32MB，
   并在结果里如实标记截断条数，不要假装完整。
+
+## 上下文契约（2.0）
+
+适配器在 `capabilities` 里声明 `context: true`，并实现：
+
+```js
+getContext({ now, session, range })   // → ContextSnapshot | Promise<ContextSnapshot>
+listSessions({ limit })               // → SessionSummary[]
+```
+
+`ContextSnapshot` 由 `adapters/contracts.mjs` 的 `normalizeContext()` 统一兜底：
+
+- `supported=false` 时必须带 `reason ∈ not-running | no-session | no-data | auth | schema`；
+- `used/limit` 读不到就不给，**不要补 0**；
+- `pct` 只能由 `contextPct(used, limit)` 计算，适配器不得自己写 `/ limit * 100`；
+- `points` 是宿主能给出的历史（旧→新，≤240 点）；daemon 会再按会话采样补齐；
+- `breakdown` 缺项不补；`compaction.derived=true` 表示是推测（宿主只给了时间或启发式）。
+
+取数口径与 schema 见各适配器 `context.mjs` 顶部注释；真机对账用
+`npm run verify:context`（Kimi 没有运行中的会话时输出 `SKIPPED`，不算通过）。

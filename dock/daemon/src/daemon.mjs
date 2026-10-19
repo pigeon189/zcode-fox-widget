@@ -27,6 +27,9 @@ import { transition } from './state-machine.mjs'
 import { createSseHub } from './sse.mjs'
 import { createV1Router } from './v1.mjs'
 import { createAgentWatcher } from './watcher.mjs'
+import { createContextHistory } from './context-history.mjs'
+import { createContextService } from './context-service.mjs'
+import { createContextScheduler } from './scheduler.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
 import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
@@ -193,6 +196,14 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   const adapters = builtinAdapters
   const billing = createBillingService({ adapters })
   const sse = createSseHub()
+  const contextHistory = createContextHistory({ file: paths.contextHistory })
+  const contextService = createContextService({ adapters, history: contextHistory })
+  const scheduler = createContextScheduler({
+    adapters,
+    service: contextService,
+    sse,
+    getSettings: () => readSettings(paths.settings),
+  })
   let actualPort = 0
   const v1 = createV1Router({
     paths,
@@ -205,6 +216,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     bridge,
     getPort: () => actualPort,
     readUpdateState: readUpdateStateSafe,
+    contextService,
     log,
   })
 
@@ -672,12 +684,19 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     })
     watcher.start()
   }
+  scheduler.start()
 
   let shuttingDown = false
   function shutdown(code) {
     if (shuttingDown) return
     shuttingDown = true
     clearInterval(beat)
+    try {
+      scheduler.stop()
+    } catch (err) {}
+    try {
+      contextHistory.flush()
+    } catch (err) {}
     try {
       if (watcher) watcher.stop()
     } catch (err) {}

@@ -133,49 +133,24 @@ export function createV1Router(deps) {
     bridge,
     getPort,
     readUpdateState,
+    contextService,
     log = () => {},
   } = deps
 
   const events = []
-  const contextCache = new Map() // agentId -> { at, value }
-  const CONTEXT_TTL_MS = 3000
 
-  function contextFor(adapterId, query = {}) {
+  async function contextFor(adapterId, query = {}) {
     const id = String(adapterId || '')
-    const adapter = (adapters || []).find((a) => a && a.id === id)
-    const now = Date.now()
-    const hit = contextCache.get(id)
-    if (!query.force && hit && now - hit.at < CONTEXT_TTL_MS) return hit.value
-    let value
-    if (!adapter || typeof adapter.getContext !== 'function') {
-      value = normalizeContext(
-        { supported: false, reason: 'no-data' },
-        { adapterId: id, adapterName: adapter ? adapter.name : id }
-      )
-    } else {
-      try {
-        const raw = adapter.getContext({ now: () => now, query })
-        value = normalizeContext(raw, { adapterId: id, adapterName: adapter.name })
-      } catch (err) {
-        value = normalizeContext(
-          { supported: false, reason: 'schema', error: String((err && err.message) || err) },
-          { adapterId: id, adapterName: adapter.name }
-        )
-      }
+    if (!contextService) {
+      const adapter = (adapters || []).find((a) => a && a.id === id)
+      return normalizeContext({ supported: false, reason: 'no-data' }, { adapterId: id, adapterName: adapter ? adapter.name : id })
     }
-    contextCache.set(id, { at: now, value })
-    return value
+    return contextService.get(id, query)
   }
 
-  function sessionsFor(adapterId) {
-    const adapter = (adapters || []).find((a) => a && a.id === String(adapterId || ''))
-    if (!adapter || typeof adapter.listSessions !== 'function') return []
-    try {
-      const r = adapter.listSessions({ limit: 8 })
-      return Array.isArray(r) ? r.slice(0, 20) : []
-    } catch (err) {
-      return []
-    }
+  async function sessionsFor(adapterId) {
+    if (!contextService) return []
+    return contextService.sessions(adapterId, { limit: 8 })
   }
 
   async function windowsNow() {
@@ -293,7 +268,7 @@ export function createV1Router(deps) {
           ok: true,
           adapterId: id,
           snapshot: snap,
-          context: contextFor(id, { force: url.searchParams.get('force') === '1' }),
+          context: await contextFor(id, { force: url.searchParams.get('force') === '1' }),
         })
         return true
       }
@@ -303,7 +278,7 @@ export function createV1Router(deps) {
         const id = decodeURIComponent(ctxMatch[1])
         sendJson(res, 200, {
           ok: true,
-          context: contextFor(id, {
+          context: await contextFor(id, {
             force: url.searchParams.get('force') === '1',
             session: url.searchParams.get('session') || '',
             range: url.searchParams.get('range') || 'session',
@@ -314,7 +289,7 @@ export function createV1Router(deps) {
 
       const sessMatch = p.match(/^\/v1\/agents\/([^/]+)\/sessions$/)
       if (sessMatch && method === 'GET') {
-        sendJson(res, 200, { ok: true, sessions: sessionsFor(decodeURIComponent(sessMatch[1])) })
+        sendJson(res, 200, { ok: true, sessions: await sessionsFor(decodeURIComponent(sessMatch[1])) })
         return true
       }
 

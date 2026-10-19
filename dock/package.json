@@ -20,6 +20,7 @@
     "install-app": "node tools/fox-dock.mjs install",
     "verify:zcode": "node tools/verify-zcode.mjs",
     "verify:workbuddy": "node tools/verify-workbuddy.mjs",
+    "verify:context": "node tools/verify-context.mjs",
     "check:sync": "node tools/check-pricing-sync.mjs",
     "e2e:real": "node tools/e2e-real.mjs",
     "soak": "node tools/soak.mjs",
