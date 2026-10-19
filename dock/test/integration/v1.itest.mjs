@@ -223,6 +223,47 @@ test('v1: 导入候选不含完整 key；凭据写入/删除走保险库', { ski
   assert.equal((await del.json()).removed, true)
 })
 
+test('v1: 角色导入校验并通过，内置角色不可删除', async () => {
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  const imported = await fetch(base + '/v1/roles/import', {
+    method: 'POST',
+    headers: auth(),
+    body: JSON.stringify({ id: 'it-role', name: '集成角色', dataBase64: png }),
+  })
+  assert.equal(imported.status, 200)
+  const r = await imported.json()
+  assert.equal(r.role.id, 'it-role')
+  assert.equal(r.role.width, 1)
+  const list = await (await fetch(base + '/v1/roles')).json()
+  assert.ok(list.roles.some((x) => x.id === 'it-role' && x.name === '集成角色'))
+
+  const delBuiltin = await fetch(base + '/v1/roles/fox', { method: 'DELETE', headers: auth() })
+  assert.equal(delBuiltin.status, 400)
+  const del = await fetch(base + '/v1/roles/it-role', { method: 'DELETE', headers: auth() })
+  assert.equal(del.status, 200)
+  assert.equal((await del.json()).removed, true)
+})
+
+test('v1: 余额校正写入/读取/删除', async () => {
+  const post = await fetch(base + '/v1/vendors/deepseek/corrections', {
+    method: 'POST',
+    headers: auth(),
+    body: JSON.stringify({ type: 'add', amount: 12.5, currency: 'CNY', note: '赠送' }),
+  })
+  assert.equal(post.status, 200)
+  const created = (await post.json()).correction
+  assert.ok(created.id)
+  const list = await (await fetch(base + '/v1/vendors/deepseek/corrections')).json()
+  assert.equal(list.corrections.length, 1)
+  assert.equal(list.corrections[0].amount, 12.5)
+  const del = await fetch(base + '/v1/vendors/corrections/' + encodeURIComponent(created.id), {
+    method: 'DELETE',
+    headers: auth(),
+  })
+  assert.equal(del.status, 200)
+})
+
 test('v1: 宿主事件需要 token 并进入诊断包', async () => {
   const bad = await fetch(base + '/v1/events', { method: 'POST', body: '{"type":"turn-start"}' })
   assert.equal(bad.status, 403)

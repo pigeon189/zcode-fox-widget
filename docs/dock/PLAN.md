@@ -281,3 +281,21 @@ dock/
 - 端口：39401 起。
 - 日志：`%LOCALAPPDATA%\fox-dock\logs\`，按天轮转，7 天保留。
 - 诊断：`fox-dock doctor --bundle`（脱敏，复用挂件的家目录替换规则）。
+
+---
+
+## 10. 2.0 整合进度（2026-10-19）
+
+| 里程碑 | 状态 | 落点 |
+|---|---|---|
+| M0 测试基建 | ✅ | 夹具 daemon、截图矩阵、`tools/ui-check.mjs`、静态守卫 |
+| M1 底座硬化 | ✅ | `/v1` + SSE、settings v2、三态、自管运行时、`ensure`、托盘热键、alpha 命中 |
+| M2 上下文统计 | ✅ | 四宿主 `context`、历史采样、调度；真机 ZCode/WB/dsh 对账 PASS |
+| M3 厂商引擎 | ✅ | `dock/engines/`、DPAPI 保险库、导入、`parity:engines` |
+| M4 前端基座 | ✅ | vendored Preact/htm、令牌、组件、SVG 图表、console 窗口 |
+| M5 控制台页面 | ✅ | 八页 + 页面自检（布局/可访问名称/axe） |
+| M5b 宠物层新设计 | ⏳ | 快览卡、四象限镜像、新胶囊尚未替换旧浮层 |
+| M6 功能回归 | ⏳ | 角色导入/余额校正已做；气泡队列执行、音效未做 |
+| M7 宿主 shim | ⏳ | 旧两线的 dock 感知版本尚未发布（按规范在各自分支做） |
+| M8 厚测试/真机 | ⏳ | 视觉基线、Electron E2E、soak 与真机清单未完成 |
+| M9 文档/打包 | ⏳ | README/CHANGELOG/DECISIONS/ADAPTERS/UI-SPEC/TESTING 已更新；未打 tag |

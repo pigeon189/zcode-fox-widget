@@ -1,5 +1,5 @@
 import { h } from '../vendor/preact.module.js'
-import { useEffect, useState } from '../vendor/hooks.module.js'
+import { useEffect, useRef, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, Select, Toggle } from '../components/base.mjs'
 
@@ -17,6 +17,12 @@ export function RolesPage({ app }) {
   const [templates, setTemplates] = useState(null)
   const [dialog, setDialog] = useState(false)
   const [json, setJson] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [pending, setPending] = useState(null)
+  const [roleName, setRoleName] = useState('')
+  const [roleId, setRoleId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef(null)
 
   useEffect(() => {
     let alive = true
@@ -61,6 +67,77 @@ export function RolesPage({ app }) {
     }
   }
 
+  function slugOf(name) {
+    return (
+      String(name || 'role')
+        .toLowerCase()
+        .replace(/\.[a-z0-9]+$/i, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 18) || 'role'
+    )
+  }
+
+  async function onFile(e) {
+    const file = e.currentTarget.files && e.currentTarget.files[0]
+    e.currentTarget.value = ''
+    if (!file) return
+    if (file.size > 3 * 1024 * 1024) return app.toast('图片超过 3MB', 'bad')
+    if (!/\.png$/i.test(file.name)) return app.toast('只支持 PNG 图片', 'bad')
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error('读取文件失败'))
+      reader.readAsDataURL(file)
+    })
+    const base64 = dataUrl.split(',')[1] || ''
+    const dims = await new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      img.onerror = () => resolve(null)
+      img.src = dataUrl
+    })
+    if (!dims) return app.toast('PNG 解码失败', 'bad')
+    if (dims.width > 2048 || dims.height > 2048) return app.toast('图片尺寸超过 2048×2048', 'bad')
+    const name = file.name.replace(/\.png$/i, '').slice(0, 24)
+    setPending({ dataUrl, base64, width: dims.width, height: dims.height })
+    setRoleName(name)
+    setRoleId(slugOf(name))
+    setImportOpen(true)
+  }
+
+  async function doImport() {
+    if (!pending) return
+    setBusy(true)
+    try {
+      const d = await app.api('/v1/roles/import', {
+        method: 'POST',
+        body: { id: roleId, name: roleName, dataBase64: pending.base64 },
+      })
+      app.toast('已导入角色 ' + d.role.name)
+      setImportOpen(false)
+      setPending(null)
+      await app.reloadRoles()
+      await pick(d.role.id)
+    } catch (e) {
+      app.toast('导入失败：' + String(e.message || e), 'bad')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeRole(r) {
+    if (!window.confirm('删除角色「' + r.name + '」？')) return
+    try {
+      await app.api('/v1/roles/' + encodeURIComponent(r.id), { method: 'DELETE' })
+      app.toast('已删除角色')
+      await app.reloadRoles()
+      if (current === r.id) await pick('fox')
+    } catch (e) {
+      app.toast('删除失败：' + String(e.message || e), 'bad')
+    }
+  }
+
   const roles = app.roles || []
   const current = (profile && profile.roleId) || ''
 
@@ -70,14 +147,22 @@ export function RolesPage({ app }) {
         <${Card} title="角色库" actions=${html`<span class="small muted">${app.agentName(app.viewAgent)} 的档案</span>`}>
           <div class="role-grid">
             ${roles.map(
-              (r) => html`<button type="button" role="radio" aria-checked=${current === r.id}
-                class=${'role-card ' + (current === r.id ? 'selected' : '')} onClick=${() => pick(r.id)}>
-                ${app.roleImageUrl(r.id) ? html`<img src=${app.roleImageUrl(r.id)} alt=${r.name} />` : html`<div class="avatar" style=${{ width: 96, height: 96 }}>${r.name.slice(0, 1)}</div>`}
-                <span style=${{ fontWeight: 600 }}>${r.name}</span>
-                ${r.builtin ? null : html`<${Badge} tone="info">导入</${Badge}>`}
-              </button>`
+              (r) => html`<div class="role-wrap">
+                <button type="button" role="radio" aria-checked=${current === r.id}
+                  class=${'role-card ' + (current === r.id ? 'selected' : '')} onClick=${() => pick(r.id)}>
+                  ${app.roleImageUrl(r.id) ? html`<img src=${app.roleImageUrl(r.id)} alt=${r.name} />` : html`<div class="avatar" style=${{ width: 96, height: 96 }}>${r.name.slice(0, 1)}</div>`}
+                  <span style=${{ fontWeight: 600 }}>${r.name}</span>
+                  ${r.builtin ? null : html`<${Badge} tone="info">导入</${Badge}>`}
+                </button>
+                ${r.builtin ? null : html`<button type="button" class="role-del" aria-label=${'删除角色 ' + r.name} title="删除角色" onClick=${() => removeRole(r)}>×</button>`}
+              </div>`
             )}
+            <button type="button" class="role-card role-add" onClick=${() => fileRef.current && fileRef.current.click()}>
+              <span style=${{ fontSize: 28, color: 'var(--text-3)' }}>+</span>
+              <span class="small muted">导入角色</span>
+            </button>
           </div>
+          <input ref=${fileRef} type="file" accept="image/png" hidden onChange=${onFile} aria-label="选择角色 PNG" />
         </${Card}>
       </div>
       <div class="col-5">
@@ -126,6 +211,24 @@ export function RolesPage({ app }) {
           actions=${html`<${Button} onClick=${() => setDialog(false)}>取消</${Button}><${Button} variant="primary" onClick=${saveTemplates}>保存</${Button}>`}>
           <textarea class="textarea" rows="16" style=${{ width: '100%' }} value=${json} onInput=${(e) => setJson(e.currentTarget.value)}></textarea>
           <div class="small muted">格式与旧挂件兼容；保存后由控制台与宠物层共同使用。</div>
+        </${Dialog}>`
+      : null}
+
+    ${importOpen && pending
+      ? html`<${Dialog} title="导入角色" onClose=${() => setImportOpen(false)}
+          actions=${html`<${Button} onClick=${() => setImportOpen(false)}>取消</${Button}><${Button} variant="primary" onClick=${doImport} loading=${busy}>导入</${Button}>`}>
+          <div class="row" style=${{ gap: 16, alignItems: 'flex-start' }}>
+            <img src=${pending.dataUrl} alt="预览" style=${{ width: 120, height: 120, objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 12 }} />
+            <div style=${{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <${Field} label="显示名" hint="最多 24 个字符">
+                <${Input} value=${roleName} onInput=${setRoleName} aria-label="角色显示名" />
+              </${Field}>
+              <${Field} label="角色 id" hint="小写字母/数字/连字符，2–24 位；用作文件名">
+                <${Input} value=${roleId} onInput=${setRoleId} aria-label="角色 id" />
+              </${Field}>
+              <div class="small muted">${pending.width} × ${pending.height} · ${(pending.base64.length * 0.75 / 1024).toFixed(0)} KB</div>
+            </div>
+          </div>
         </${Dialog}>`
       : null}
   </div>`

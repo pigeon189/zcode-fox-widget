@@ -787,6 +787,35 @@ a {
   height: 96px;
   object-fit: contain;
 }
+.role-wrap {
+  position: relative;
+}
+.role-wrap .role-card {
+  width: 100%;
+}
+.role-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  line-height: 1;
+  font-size: 16px;
+}
+.role-del:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.role-add {
+  border-style: dashed;
+  color: var(--text-3);
+  min-height: 176px;
+  justify-content: center;
+}
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 1099px) {

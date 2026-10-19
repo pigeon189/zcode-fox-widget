@@ -123,6 +123,11 @@ function App() {
     setSettings(d.settings)
     return d.settings
   }
+  async function reloadRoles() {
+    const r = await api('/v1/roles')
+    setRoles(r.roles || [])
+    return r.roles || []
+  }
   function refresh() {
     setRefreshAt(Date.now())
   }
@@ -386,6 +391,7 @@ function App() {
     toast,
     refresh,
     reloadState,
+    reloadRoles,
     saveSettings,
     copyDiagnostics,
     resetSettings,

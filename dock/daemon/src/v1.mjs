@@ -16,15 +16,8 @@ import { readBindings } from './bindings.mjs'
 import { getProfile, readSettings, resetSettings, writePet, writeProfile, writeSettings } from './settings.mjs'
 import { recordSnapshot, summarize } from './ledger.mjs'
 import { transition } from './state-machine.mjs'
-
-export const BUILTIN_ROLES = [
-  { id: 'fox', name: '嘎啦嘛', accent: '#f0a04b', defaultFor: ['zcode'], image: 'assets/roles/fox.png' },
-  { id: 'whale', name: '大肥鱼', accent: '#4d6bfe', defaultFor: ['dsh'], image: 'assets/roles/whale.png' },
-  { id: 'gpt', name: 'GPT娘', accent: '#10a37f', defaultFor: [], image: 'assets/roles/gpt.png' },
-  { id: 'kimi', name: 'kimi娘', accent: '#b07cff', defaultFor: ['kimi'], image: 'assets/roles/kimi.png' },
-  { id: 'xiaoke', name: '小克', accent: '#22b8a0', defaultFor: ['workbuddy'], image: 'assets/roles/xiaoke.png' },
-  { id: 'gemini', name: '哈基米', accent: '#4285f4', defaultFor: [], image: 'assets/roles/gemini.png' },
-]
+import { deleteRole, importRole, listRoleLibrary, renameRole, suggestRoleId } from './roles.mjs'
+import { addAdjustment, adjustmentSummary, applyAdjustments, listAdjustments, removeAdjustment } from './balance-adjustments.mjs'
 
 function sendJson(res, code, obj) {
   res.writeHead(code, {
@@ -102,18 +95,12 @@ function redactHome(value) {
   return home ? String(value).split(home).join('~') : String(value)
 }
 
-// 角色目录：内置六个 + 用户导入（M6 才允许写，这里只读）。
+function rolesIndexFile(paths) {
+  return path.join(paths.dir, 'roles.json')
+}
+
 function listRoles(paths) {
-  const out = BUILTIN_ROLES.map((r) => ({ ...r, builtin: true }))
-  try {
-    for (const name of fs.readdirSync(paths.rolesDir)) {
-      if (!/^[a-z0-9-]{2,24}\.png$/i.test(name)) continue
-      const id = name.replace(/\.png$/i, '')
-      if (out.some((r) => r.id === id)) continue
-      out.push({ id, name: id, accent: '', defaultFor: [], image: 'roles/' + name, builtin: false })
-    }
-  } catch (err) {}
-  return out
+  return listRoleLibrary({ rolesDir: paths.rolesDir, indexFile: rolesIndexFile(paths) })
 }
 
 function listBubbleTemplates(paths) {
@@ -148,12 +135,20 @@ export function createV1Router(deps) {
     if (engines) {
       if (!force && vendorCache.value && Date.now() - vendorCache.at < VENDOR_TTL_MS) return { ...vendorCache.value, cached: true }
       const r = await engines.listVendorStatus(force)
-      const vendors = (r.vendors || []).map((v) => ({
-        ...v,
-        // 前端只消费稳定字段；keySource/keyMasked 也保留（掩码，不是密钥）
-        configured: !!(v.keyMasked || (v.keySource && v.keySource !== 'none')),
-        status: v.available ? 'ok' : 'unavailable',
-      }))
+      const adjFile = path.join(paths.dir, 'balance-adjustments.json')
+      const vendors = (r.vendors || []).map((v) => {
+        const items = listAdjustments(adjFile, v.id)
+        const summary = adjustmentSummary(items, v.currency || 'CNY')
+        const balance = v.balance == null ? v.balance : applyAdjustments(v.balance, items, v.currency || 'CNY')
+        return {
+          ...v,
+          balance,
+          // 前端只消费稳定字段；keySource/keyMasked 也保留（掩码，不是密钥）
+          configured: !!(v.keyMasked || (v.keySource && v.keySource !== 'none')),
+          status: v.available ? 'ok' : 'unavailable',
+          corrections: summary,
+        }
+      })
       const value = { ok: r.ok !== false, vendors, source: 'engines' }
       vendorCache = { at: Date.now(), value }
       return value
@@ -378,6 +373,42 @@ export function createV1Router(deps) {
         return true
       }
 
+      // 余额校正：只记录人工修正，不写宿主
+      const corrMatch = p.match(/^\/v1\/vendors\/([^/]+)\/corrections$/)
+      if (corrMatch) {
+        const id = decodeURIComponent(corrMatch[1])
+        const file = path.join(paths.dir, 'balance-adjustments.json')
+        if (method === 'GET') {
+          sendJson(res, 200, { ok: true, corrections: listAdjustments(file, id) })
+          return true
+        }
+        if (method === 'POST') {
+          const body = await readBody(req)
+          try {
+            const item = addAdjustment(file, {
+              vendorId: id,
+              type: body.type,
+              amount: body.amount,
+              currency: body.currency,
+              note: body.note,
+            })
+            vendorCache = { at: 0, value: null }
+            sendJson(res, 200, { ok: true, correction: item })
+          } catch (err) {
+            sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+          }
+          return true
+        }
+      }
+
+      if (p.startsWith('/v1/vendors/corrections/') && method === 'DELETE') {
+        const id = decodeURIComponent(p.slice('/v1/vendors/corrections/'.length))
+        const r = removeAdjustment(path.join(paths.dir, 'balance-adjustments.json'), id)
+        vendorCache = { at: 0, value: null }
+        sendJson(res, 200, { ok: true, ...r })
+        return true
+      }
+
       const credMatch = p.match(/^\/v1\/vendors\/([^/]+)\/credential$/)
       if (credMatch) {
         const id = decodeURIComponent(credMatch[1])
@@ -536,7 +567,57 @@ export function createV1Router(deps) {
 
       // ---------- 角色 / 气泡模板 ----------
       if (p === '/v1/roles' && method === 'GET') {
-        sendJson(res, 200, { ok: true, roles: listRoles(paths) })
+        sendJson(res, 200, { ok: true, roles: listRoles(paths), suggestedId: suggestRoleId('role', listRoles(paths).map((r) => r.id)) })
+        return true
+      }
+
+      if (p === '/v1/roles/import' && method === 'POST') {
+        const body = await readBody(req, 5 * 1024 * 1024)
+        try {
+          const b64 = String(body.dataBase64 || '')
+          if (!/^[A-Za-z0-9+/=\r\n]+$/.test(b64) || b64.length < 40) throw new Error('图片数据无效')
+          const buffer = Buffer.from(b64, 'base64')
+          const role = importRole({
+            rolesDir: paths.rolesDir,
+            indexFile: rolesIndexFile(paths),
+            id: body.id,
+            name: body.name,
+            buffer,
+            overwrite: body.overwrite === true,
+          })
+          await broadcastState()
+          sendJson(res, 200, { ok: true, role })
+        } catch (err) {
+          sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+        }
+        return true
+      }
+
+      if (p === '/v1/roles/rename' && method === 'POST') {
+        const body = await readBody(req)
+        try {
+          const role = renameRole({
+            rolesDir: paths.rolesDir,
+            indexFile: rolesIndexFile(paths),
+            id: body.id,
+            name: body.name,
+          })
+          sendJson(res, 200, { ok: true, role })
+        } catch (err) {
+          sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+        }
+        return true
+      }
+
+      const roleMatch = p.match(/^\/v1\/roles\/([^/]+)$/)
+      if (roleMatch && method === 'DELETE') {
+        try {
+          const id = decodeURIComponent(roleMatch[1])
+          const r = deleteRole({ rolesDir: paths.rolesDir, indexFile: rolesIndexFile(paths), id })
+          sendJson(res, 200, { ok: true, ...r })
+        } catch (err) {
+          sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+        }
         return true
       }
 

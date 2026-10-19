@@ -1,7 +1,7 @@
 import { h } from '../vendor/preact.module.js'
 import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
-import { Badge, Card, EmptyState, ProgressBar, Segmented, Select } from '../components/base.mjs'
+import { Badge, Button, Card, Dialog, EmptyState, Field, Input, ProgressBar, Segmented, Select } from '../components/base.mjs'
 import { agentName, fmtDateTime, fmtMoney, fmtPct, pctTone, fmtReset } from '../lib/format.mjs'
 
 const html = htm.bind(h)
@@ -17,7 +17,7 @@ const SORTS = [
   { value: 'usage', label: '按用量' },
 ]
 
-function VendorCard({ v }) {
+function VendorCard({ v, onCorrect }) {
   const color = v.kind === 'relay' ? '#8b5cf6' : v.kind === 'local-log' ? '#f0a04b' : v.kind === 'cmdgo' ? '#10b981' : 'var(--text-3)'
   const value =
     v.percentRemaining != null
@@ -51,8 +51,9 @@ function VendorCard({ v }) {
     <div class="row small muted">
       <span>${v.keyMasked || (v.keySource && v.keySource !== 'none' ? v.keySource : '')}</span>
       <span class="spacer"></span>
-      ${v.source ? html`<span class="mono">${v.source}</span>` : null}
+      ${v.balance != null ? html`<${Button} variant="ghost" onClick=${() => onCorrect(v)}>校正</${Button}>` : null}
     </div>
+    ${v.corrections ? html`<div class="small muted">已校正 ${v.corrections.count} 次 · 最近 ${fmtDateTime(v.corrections.lastAt)}</div>` : null}
   </div>`
 }
 
@@ -61,6 +62,11 @@ export function QuotaPage({ app }) {
   const [filter, setFilter] = useState('configured')
   const [sort, setSort] = useState('balance')
   const [error, setError] = useState('')
+  const [correcting, setCorrecting] = useState(null)
+  const [type, setType] = useState('add')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -84,6 +90,35 @@ export function QuotaPage({ app }) {
       return (b.balance || b.remaining || 0) - (a.balance || a.remaining || 0)
     })
   const unconfigured = (vendors || []).filter((v) => !v.configured)
+
+  function reloadVendors() {
+    app
+      .api('/v1/vendors')
+      .then((d) => setVendors(d.vendors || []))
+      .catch((e) => setError(String(e.message || e)))
+  }
+
+  async function submitCorrection() {
+    if (!correcting) return
+    const n = Number(amount)
+    if (!Number.isFinite(n) || n < 0) return app.toast('金额不合法', 'bad')
+    setBusy(true)
+    try {
+      await app.api('/v1/vendors/' + encodeURIComponent(correcting.id) + '/corrections', {
+        method: 'POST',
+        body: { type, amount: n, currency: correcting.currency || 'CNY', note },
+      })
+      app.toast('已记录余额校正')
+      setCorrecting(null)
+      setAmount('')
+      setNote('')
+      reloadVendors()
+    } catch (e) {
+      app.toast(String(e.message || e), 'bad')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return html`<div data-testid="page.quota">
     ${error ? html`<div class="alert-bar bad">${error}</div>` : null}
@@ -129,7 +164,29 @@ export function QuotaPage({ app }) {
     ${!vendors
       ? html`<div class="card"><div class="skeleton" style=${{ height: 200 }}></div></div>`
       : list.length
-        ? html`<div class="vendor-grid">${list.map((v) => html`<${VendorCard} v=${v} />`)}</div>`
+        ? html`<div class="vendor-grid">${list.map((v) => html`<${VendorCard} v=${v} onCorrect=${(x) => { setCorrecting(x); setType('add'); setAmount(''); setNote('') }} />`)}</div>`
         : html`<${Card}><${EmptyState} title="没有符合筛选的厂商" hint="切换到「全部」查看所有模板" /></${Card}>`}
+
+    ${correcting
+      ? html`<${Dialog} title=${'余额校正 · ' + correcting.name} onClose=${() => setCorrecting(null)}
+          actions=${html`<${Button} onClick=${() => setCorrecting(null)}>取消</${Button}><${Button} variant="primary" onClick=${submitCorrection} loading=${busy}>记录</${Button}>`}>
+          <div style=${{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <${Field} label="类型">
+              <${Select} aria-label="校正类型" value=${type} options=${[
+                { value: 'add', label: '充值 / 赠金入账（加）' },
+                { value: 'subtract', label: '到账扣减（减）' },
+                { value: 'set', label: '设为指定余额' },
+              ]} onChange=${setType} />
+            </${Field}>
+            <${Field} label="金额" hint=${'币种：' + (correcting.currency || 'CNY')}>
+              <${Input} type="number" aria-label="校正金额" value=${amount} onInput=${setAmount} />
+            </${Field}>
+            <${Field} label="备注" hint="可选，最多 120 字">
+              <${Input} aria-label="校正备注" value=${note} onInput=${setNote} />
+            </${Field}>
+            <div class="small muted">只记录人工修正，不改宿主数据；展示时按时间顺序作用在当前余额上。</div>
+          </div>
+        </${Dialog}>`
+      : null}
   </div>`
 }
