@@ -829,10 +829,6 @@ a {
   }
 }
 @media (max-width: 859px) {
-  .col-7,
-  .col-5 {
-    grid-column: span 12;
-  }
   .page-head {
     padding: 0 16px;
     gap: 8px;

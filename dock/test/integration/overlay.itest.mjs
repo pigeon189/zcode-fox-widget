@@ -995,8 +995,10 @@ test('vendors: 全厂商页渲染余额/套餐/未配置', async (t) => {
         "source:{app:'zcode-fox-widget',version:'1.15.1',port:39322},services:[]," +
         "vendors:[" +
         "{id:'deepseek',name:'DeepSeek',kind:'balance',currency:'CNY',available:true,balance:0.63,todayUsage:0.000563,note:'内置余额接口'}," +
-        "{id:'commandcode',name:'CommandCode',kind:'cmdgo',currency:'USD',available:true,planName:'GOAT',account:'paper189'," +
+        "{id:'commandcode',name:'CommandCode',kind:'cmdgo',currency:'USD',available:true,planName:'GOAT',account:'paper189',pool:{available:1,total:1}," +
         "monthly:{remaining:39.8,total:70,percent:0.431},fiveHour:{used:0.77,cap:14,percent:0.055},weekly:{used:5.95,cap:35,percent:0.17},note:'套餐三重额度'}," +
+        "{id:'commandcode-pool',name:'CommandCode Pool',kind:'cmdgo',currency:'USD',available:true,planName:'GOAT',account:'pool-user',pool:{available:2,total:2}," +
+        "monthly:{remaining:30,total:70,percent:0.57},note:'池套餐'}," +
         "{id:'zcode-plan',name:'GLM Plan',kind:'local-log',available:true,percentRemaining:0.0675,remaining:135,total:2000,note:'尾随日志'}," +
         "{id:'openai',name:'OpenAI',kind:'tokens',available:false,reason:'未配置凭据'}]};" +
         "activeTab='vendors';renderPanel(null,[]);" +
@@ -1013,6 +1015,9 @@ test('vendors: 全厂商页渲染余额/套餐/未配置', async (t) => {
   assert.match(out.t1, /GLM Plan/)
   assert.match(out.t1, /6\.8%/)
   assert.match(out.t1, /39322/)
+  // 单账号直连不叫账号池；多账号池才显示池状态
+  assert.equal(out.t1.indexOf('账号池 1/1'), -1, out.t1)
+  assert.match(out.t1, /账号池 2\/2/)
   assert.equal(out.unavailable, true, '默认不展开未配置项')
   assert.match(out.t2, /未配置凭据/)
   await cdp.eval("vendorState={adapter:'',loading:false,error:'',source:null,services:[],vendors:[],showAll:false};activeTab='detail';renderPanel(null,[])")

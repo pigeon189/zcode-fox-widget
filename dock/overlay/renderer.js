@@ -1394,7 +1394,8 @@ function vendorCard(v) {
         plan: v.planName,
         account: v.account,
         windows,
-        note: v.pool && v.pool.total ? '账号池 ' + (v.pool.available || 0) + '/' + v.pool.total + ' 可用 · ' + (v.note || '') : v.note,
+        // 单账号直连不叫「账号池」；只有多账号时才显示池状态。
+        note: v.pool && v.pool.total > 1 ? '账号池 ' + (v.pool.available || 0) + '/' + v.pool.total + ' 可用 · ' + (v.note || '') : v.note,
       },
       false
     )

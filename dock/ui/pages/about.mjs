@@ -90,8 +90,8 @@ export function AboutPage({ app }) {
     <div class="col-5">
       <${Card} title="运行信息">
         <div style=${{ display: 'flex', flexDirection: 'column', gap: 8 }} class="small">
-          <div class="row"><span class="muted">daemon</span><span class="spacer"></span><span class="mono">:${runtime.port || '—'} · pid ${runtime.pid || '—'}</span></div>
-          <div class="row"><span class="muted">运行时长</span><span class="spacer"></span><span class="mono">${runtime.uptimeSec != null ? fmtNum(runtime.uptimeSec) + 's' : '—'}</span></div>
+          <div class="row"><span class="muted">daemon</span><span class="spacer"></span><span class="mono" data-visual-mask>:${runtime.port || '—'} · pid ${runtime.pid || '—'}</span></div>
+          <div class="row"><span class="muted">运行时长</span><span class="spacer"></span><span class="mono" data-visual-mask>${runtime.uptimeSec != null ? fmtNum(runtime.uptimeSec) + 's' : '—'}</span></div>
           <div class="row"><span class="muted">Node</span><span class="spacer"></span><span class="mono">${runtime.node || boot.node || '—'}</span></div>
           <div class="row"><span class="muted">Electron</span><span class="spacer"></span><span class="mono">${boot.electron || '—'}</span></div>
           <div class="row"><span class="muted">平台</span><span class="spacer"></span><span class="mono">${runtime.platform || boot.platform || '—'}</span></div>
@@ -112,7 +112,7 @@ export function AboutPage({ app }) {
             setTimeout(() => URL.revokeObjectURL(url), 2000)
           }}>导出诊断包</${Button}>
         </div>
-        <div class="small muted" style=${{ marginTop: 8 }}>不含密钥；用户目录已替换为 ~。生成于 ${diag ? fmtDateTime(Date.parse(diag.generatedAt)) : '—'}</div>
+        <div class="small muted" data-visual-mask style=${{ marginTop: 8 }}>不含密钥；用户目录已替换为 ~。生成于 ${diag ? fmtDateTime(Date.parse(diag.generatedAt)) : '—'}</div>
       </${Card}>
     </div>
   </div>`

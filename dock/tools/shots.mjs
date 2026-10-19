@@ -88,6 +88,8 @@ async function main() {
           await p.evaluate((t) => {
             document.documentElement.dataset.theme = t
             document.documentElement.style.colorScheme = t
+            // 动态值（pid/uptime/生成时间）不参与截图比对
+            for (const el of document.querySelectorAll('[data-visual-mask]')) el.style.visibility = 'hidden'
           }, theme)
           await p.waitForTimeout(800)
           const file = path.join(outDir, name + '.png')
