@@ -30,6 +30,7 @@ import { createAgentWatcher } from './watcher.mjs'
 import { createContextHistory } from './context-history.mjs'
 import { createContextService } from './context-service.mjs'
 import { createContextScheduler } from './scheduler.mjs'
+import { createVault } from './vault.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
 import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
@@ -170,6 +171,19 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   const paths = pathsFor(opts.dataDir)
   fs.mkdirSync(paths.dir, { recursive: true })
   fs.mkdirSync(paths.logs, { recursive: true })
+  // engines/paths.mjs 在首次动态 import 时求值；先把它指到实际数据目录。
+  process.env.FOX_DOCK_DATA = paths.dir
+
+  // 凭据保险库 + 内置引擎（动态 import：路径常量依赖上面刚设置的目录）
+  let vault = null
+  let engines = null
+  try {
+    vault = createVault({ file: paths.vault })
+    engines = await import('../../engines/index.mjs')
+    engines.configureEngineCredentials(vault.provider())
+  } catch (err) {
+    log('engines unavailable: ' + (err && err.message ? err.message : err))
+  }
 
   const token = crypto.randomBytes(16).toString('hex')
   const startedAt = Date.now()
@@ -217,6 +231,8 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     getPort: () => actualPort,
     readUpdateState: readUpdateStateSafe,
     contextService,
+    engines,
+    vault,
     log,
   })
 

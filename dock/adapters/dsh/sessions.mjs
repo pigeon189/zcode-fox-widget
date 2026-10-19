@@ -17,7 +17,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { costOfUsage } from '../zcode/pricing.mjs'
+import { costOfUsage } from '../../engines/pricing.mjs'
 
 const ZSTD_MAGIC = 0xfd2fb528
 const SKIPPABLE_MIN = 0x184d2a50

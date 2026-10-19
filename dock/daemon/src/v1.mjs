@@ -134,10 +134,33 @@ export function createV1Router(deps) {
     getPort,
     readUpdateState,
     contextService,
+    engines,
+    vault,
     log = () => {},
   } = deps
 
   const events = []
+  let vendorCache = { at: 0, value: null }
+  const VENDOR_TTL_MS = 30_000
+
+  async function vendorsPayload(force) {
+    if (engines) {
+      if (!force && vendorCache.value && Date.now() - vendorCache.at < VENDOR_TTL_MS) return { ...vendorCache.value, cached: true }
+      const r = await engines.listVendorStatus(force)
+      const vendors = (r.vendors || []).map((v) => ({
+        ...v,
+        // 前端只消费稳定字段；keySource/keyMasked 也保留（掩码，不是密钥）
+        configured: !!(v.keyMasked || (v.keySource && v.keySource !== 'none')),
+        status: v.available ? 'ok' : 'unavailable',
+      }))
+      const value = { ok: r.ok !== false, vendors, source: 'engines' }
+      vendorCache = { at: Date.now(), value }
+      return value
+    }
+    const { readHostVendors } = await import('./host-vendors.mjs')
+    const data = await readHostVendors('', { force })
+    return { ok: data.ok !== false, reason: data.reason || '', source: 'legacy-service', services: data.services || [], vendors: data.vendors || [] }
+  }
 
   async function contextFor(adapterId, query = {}) {
     const id = String(adapterId || '')
@@ -319,18 +342,80 @@ export function createV1Router(deps) {
 
       // ---------- 厂商 ----------
       if (p === '/v1/vendors' && method === 'GET') {
-        // M3 会替换成内置 engines；当前仍复用同机挂件线服务。
-        const { readHostVendors } = await import('./host-vendors.mjs')
-        const adapter = url.searchParams.get('adapter') || ''
-        const data = await readHostVendors(adapter, { force: url.searchParams.get('force') === '1' })
-        sendJson(res, 200, {
-          ok: data.ok !== false,
-          reason: data.reason || '',
-          adapter: data.adapter || adapter,
-          source: data.source || '',
-          services: data.services || [],
-          vendors: data.vendors || [],
-        })
+        sendJson(res, 200, await vendorsPayload(url.searchParams.get('force') === '1'))
+        return true
+      }
+
+      if (p === '/v1/vendors/import/candidates' && method === 'GET') {
+        if (!engines) {
+          sendJson(res, 503, { ok: false, error: 'engines-unavailable' })
+          return true
+        }
+        const candidates = engines.discoverCandidates().map((c) => ({
+          templateId: c.templateId,
+          providerId: c.providerId,
+          name: c.name,
+          host: c.host,
+          source: c.source,
+          isLocal: c.isLocal,
+          keyEncrypted: c.keyEncrypted,
+          masked: c.masked,
+        }))
+        sendJson(res, 200, { ok: true, candidates })
+        return true
+      }
+
+      if (p === '/v1/vendors/import' && method === 'POST') {
+        if (!engines || !vault) {
+          sendJson(res, 503, { ok: false, error: 'engines-unavailable' })
+          return true
+        }
+        const body = await readBody(req)
+        const r = engines.importCandidates(body.ids, vault)
+        vendorCache = { at: 0, value: null }
+        sendJson(res, 200, { ok: true, ...r })
+        return true
+      }
+
+      const credMatch = p.match(/^\/v1\/vendors\/([^/]+)\/credential$/)
+      if (credMatch) {
+        const id = decodeURIComponent(credMatch[1])
+        if (!vault) {
+          sendJson(res, 503, { ok: false, error: 'vault-unavailable', hint: '非 Windows 请使用环境变量' })
+          return true
+        }
+        try {
+          if (method === 'POST' || method === 'PUT') {
+            const body = await readBody(req)
+            if (!body.key || typeof body.key !== 'string') {
+              sendJson(res, 400, { ok: false, error: 'key-required' })
+              return true
+            }
+            const saved = vault.set(id, body.key)
+            vendorCache = { at: 0, value: null }
+            sendJson(res, 200, { ok: true, id, maskedKey: saved.masked, source: 'vault' })
+            return true
+          }
+          if (method === 'DELETE') {
+            const r = vault.delete(id)
+            vendorCache = { at: 0, value: null }
+            sendJson(res, 200, { ok: true, ...r })
+            return true
+          }
+        } catch (err) {
+          sendJson(res, 400, { ok: false, error: String((err && err.message) || err).slice(0, 200) })
+          return true
+        }
+      }
+
+      const testMatch = p.match(/^\/v1\/vendors\/([^/]+)\/test$/)
+      if (testMatch && method === 'POST') {
+        if (!engines) {
+          sendJson(res, 503, { ok: false, error: 'engines-unavailable' })
+          return true
+        }
+        const r = await engines.testTemplate(decodeURIComponent(testMatch[1]))
+        sendJson(res, 200, r)
         return true
       }
 

@@ -191,6 +191,38 @@ test('v1: 上下文接口返回 used/limit/pct，并带会话列表', async () =
   assert.equal(none.context.used, null)
 })
 
+test('v1: 厂商页走内置 engines，响应里没有完整密钥', async () => {
+  const r = await (await fetch(base + '/v1/vendors')).json()
+  assert.equal(r.ok, true)
+  assert.equal(r.source, 'engines')
+  assert.ok(Array.isArray(r.vendors) && r.vendors.length >= 30, '内置模板应全部返回')
+  const text = JSON.stringify(r)
+  assert.equal(/sk-[A-Za-z0-9_-]{16,}/.test(text), false, '厂商响应不得包含完整 key')
+  assert.ok(r.vendors.every((v) => !('key' in v) && !('apiKey' in v)))
+})
+
+test('v1: 导入候选不含完整 key；凭据写入/删除走保险库', { skip: process.platform !== 'win32' }, async () => {
+  const candidates = await (await fetch(base + '/v1/vendors/import/candidates')).json()
+  assert.equal(candidates.ok, true)
+  assert.ok(candidates.candidates.every((c) => !('key' in c) && typeof c.masked === 'string'))
+
+  const bad = await fetch(base + '/v1/vendors/deepseek/credential', { method: 'POST', body: '{"key":"sk-x"}' })
+  assert.equal(bad.status, 403)
+  const set = await fetch(base + '/v1/vendors/deepseek/credential', {
+    method: 'POST',
+    headers: auth(),
+    body: JSON.stringify({ key: 'fx-test-1234567890abcdef' }),
+  })
+  assert.equal(set.status, 200)
+  const saved = await set.json()
+  assert.equal(saved.maskedKey, 'fx-••••cdef')
+  assert.equal(JSON.stringify(saved).includes('fx-test-'), false)
+
+  const del = await fetch(base + '/v1/vendors/deepseek/credential', { method: 'DELETE', headers: auth() })
+  assert.equal(del.status, 200)
+  assert.equal((await del.json()).removed, true)
+})
+
 test('v1: 宿主事件需要 token 并进入诊断包', async () => {
   const bad = await fetch(base + '/v1/events', { method: 'POST', body: '{"type":"turn-start"}' })
   assert.equal(bad.status, 403)

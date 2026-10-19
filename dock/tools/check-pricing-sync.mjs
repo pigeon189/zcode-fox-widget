@@ -13,7 +13,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const TARGET = path.join(HERE, '..', 'adapters', 'zcode', 'pricing.mjs')
+const TARGET = path.join(HERE, '..', 'engines', 'pricing.mjs')
 const SOURCE = path.join(HERE, '..', '..', 'lib', 'pricing.mjs')
 
 if (!fs.existsSync(TARGET)) {
