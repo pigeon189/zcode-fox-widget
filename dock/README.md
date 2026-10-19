@@ -4,9 +4,26 @@
 把它拖到某个 agent 窗口上松手：自动识别宿主、吸附到窗口边缘、换成该宿主的角色，并把数字切成
 该宿主的余额 / 额度 / 今日消耗口径。
 
-**状态：2.0.0。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、
-watchdog、登录启动器、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、声明式适配器框架
-（不跑第三方 JS）、四宿主真实计费、统一账本与跨 agent 汇总、六页签面板、六个内置角色。
+**状态：2.0.0-pre.1。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、
+watchdog、登录启动器、`fox-dock ensure` 幂等拉起、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、
+声明式适配器框架（不跑第三方 JS）、四宿主真实计费与**上下文统计**、统一账本与跨 agent 汇总、
+内置厂商引擎（45 个模板）与 DPAPI 凭据保险库、`/v1` API + SSE、独立控制台窗口、六个内置角色。
+
+### 控制台
+
+托盘菜单「打开控制台」、全局热键 `Ctrl+Alt+D`，或命令行 `node tools/fox-dock.mjs` 之后从托盘打开。
+控制台是与宠物层分开的可聚焦窗口：
+
+- **总览**：当前 agent 的主数字、上下文环、上一轮、今日 tokens、7 天用量、额度窗口、全部 agent 对比。
+- **上下文**：会话选择、占用环、最近一次请求构成、触顶估算、压缩记录、趋势图、最近会话。
+- **用量**：今日 / 7 天 / 30 天 × 按 Agent/厂商/模型 × 金额/Token，排名、搜索、CSV/JSON 导出。
+- **额度与余额**：单窗口大字百分比、多窗口进度条、余额卡、套餐卡；全部厂商卡片与筛选排序。
+- **厂商与密钥**：45 个内置模板、掩码密钥状态、配置/测试/删除、从宿主导入。
+- **角色与气泡**：六个内置角色、强调色、气泡开关与停留、台词间隔、气泡模板 JSON。
+- **设置**：主题、吸附、气泡与提醒、主数字口径、启动与更新、数据与隐私。
+- **关于与诊断**：版本、运行信息、适配器能力、绑定、更新检查、复制/导出诊断包。
+
+控制台只通过主进程访问 daemon（`contextIsolation` + `sandbox`），令牌不会进入渲染层。
 
 ## 适配器
 
@@ -20,13 +37,22 @@ watchdog、登录启动器、透明浮层「拖动 → 命中 → 绑定 → 吸
 
 口径与两条挂件线**逐日对齐**，用 `npm run verify:zcode` / `npm run verify:workbuddy` 现场对账
 （ZCode 用挂件线源码算基准；WorkBuddy 用新进程重算，避开运行中服务的 30s 缓存）。
+上下文统计用 `npm run verify:context` 对账；读不到就显示「暂无」，绝不补 0：
+
+| 宿主 | used 口径 | 上限来源 |
+|---|---|---|
+| ZCode | 主会话最后一条 completed 的 `computed_total_tokens` | `zcode-builtin.json` → `cc-models.txt` → `litellm.json` → 200k |
+| WorkBuddy | `session_usage.used`（最后请求的 prompt_tokens） | `session_usage.size`，缺失回落 `sessions.context_window` |
+| Kimi Code | 本地服务 `/sessions/:id/status` 的 `context_tokens` | `max_context_tokens`，兜底 `config.toml` |
+| dsh | 最近一次 usage 的 `totalTokens` | `request/context.contextWindow`，兜底 `cordis.patch.yml` |
 
 Kimi Code 的 OAuth access token 只有 15 分钟；挂件会在过期时按宿主同款流程刷新并原子写回
 凭据文件，不额外保存密钥。dsh 的会话日志是多帧 zstd，挂件逐帧解压；上一轮优先主会话，
 今日总额包含 subagent 调用。
 
-已知差异：GLM 订阅修正（要读账号套餐事实）没有移植，GLM 订阅用量会按按量价显示金额，
-见 `docs/dock/DECISIONS.md` 的 D008。
+厂商引擎已内置（`dock/engines/`），不再依赖挂件线服务在跑；凭据优先级是
+环境变量 → DPAPI 保险库 → 宿主发现 → 旧挂件配置（只读导入）。密钥只以掩码出现在界面、
+日志与诊断包里。旧挂件的 `vendorKeys` 可在控制台「厂商与密钥 → 查看并导入」一次性复制进保险库。
 
 
 ## 与现有挂件的关系

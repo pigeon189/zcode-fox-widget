@@ -174,11 +174,8 @@ function openConsole() {
     console.warn('[fox-dock] console not built yet')
     return
   }
-  try {
-    if (consoleProcess && !consoleProcess.killed) {
-      return
-    }
-  } catch (err) {}
+  // 每次都尝试启动：控制台自己是单实例，已存在时第二实例会把窗口显示出来。
+  // 不在这里判断 consoleProcess —— 窗口被关闭到后台时它仍然存活，跳过就再也打不开。
   try {
     const { spawn } = require('node:child_process')
     const env = { ...process.env }

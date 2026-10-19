@@ -46,6 +46,7 @@ function saveWindowState(win) {
 let win = null
 let sseTimer = null
 let sseAbort = null
+let streamFails = 0
 
 async function apiRequest(pathname, options = {}) {
   const lock = lockInfo()
@@ -82,6 +83,7 @@ async function streamLoop() {
   try {
     const res = await fetch('http://127.0.0.1:' + port + '/v1/stream', { signal: sseAbort.signal })
     if (!res.ok || !res.body) throw new Error('stream ' + res.status)
+    streamFails = 0
     const reader = res.body.getReader()
     const dec = new TextDecoder()
     let buf = ''
@@ -107,7 +109,14 @@ async function streamLoop() {
       }
     }
   } catch (err) {
-    if (String(err && err.name) !== 'AbortError') scheduleStream(2500)
+    if (String(err && err.name) === 'AbortError') return
+    streamFails += 1
+    // daemon 已经彻底不在了：不要留下一个永远连不上的后台窗口。
+    if (streamFails >= 6 && !lockInfo()) {
+      app.quit()
+      return
+    }
+    scheduleStream(2500)
   }
 }
 
