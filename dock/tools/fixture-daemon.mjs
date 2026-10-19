@@ -109,6 +109,18 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (p === '/rect') {
+    const hwnd = url.searchParams.get('hwnd') || ''
+    const rect = (scene.rects && scene.rects[hwnd]) || scene.defaultRect || { x: 520, y: 180, w: 960, h: 620 }
+    sendJson(res, 200, { ok: true, rect })
+    return
+  }
+
+  if (p === '/hit') {
+    sendJson(res, 200, { ok: true, hits: scene.hits || [] })
+    return
+  }
+
   if (p === '/v1/state') {
     sendJson(res, 200, stateBody())
     return

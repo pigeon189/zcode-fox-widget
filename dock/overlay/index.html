@@ -5,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline'; script-src 'self'" />
     <title>fox-dock overlay</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="../ui/tokens.css" />
+    <link rel="stylesheet" href="pet.css" />
   </head>
-  <body>
-    <div id="say" role="status" aria-live="polite" hidden>
-      <span id="say-text"></span>
-    </div>
+  <body data-menu-button="hover">
+    <div id="say" role="status" aria-live="polite" hidden><span id="say-text"></span></div>
 
     <div id="bubble" role="status" aria-live="polite" hidden>
       <div class="bubble-main"><span id="bubble-text"></span></div>
@@ -18,44 +17,53 @@
     </div>
 
     <div id="chip" hidden>
-      <span id="chip-dot" aria-hidden="true"></span>
+      <span id="chip-dot" class="chip-dot" aria-hidden="true"></span>
       <span class="chip-copy">
         <span id="chip-adapter"></span>
         <span id="chip-value"></span>
       </span>
-      <span class="chip-chevron" aria-hidden="true">›</span>
+      <svg id="chip-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="2.5" />
+        <circle id="chip-ring-value" cx="9" cy="9" r="7" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-dasharray="43.98" stroke-dashoffset="43.98" transform="rotate(-90 9 9)" />
+      </svg>
+      <span id="chip-unlink" class="chip-unlink" hidden title="悬浮中" aria-label="悬浮中">↺</span>
     </div>
 
-    <div id="panel" hidden>
-      <div class="panel-head">
-        <div class="panel-brand">
-          <span id="panel-accent" aria-hidden="true"></span>
-          <span id="panel-title">—</span>
-        </div>
-        <div class="panel-head-actions">
-          <span id="panel-fresh" class="panel-fresh" title="数据新鲜度"></span>
-          <button id="panel-close" type="button" title="关闭">×</button>
-        </div>
+    <div id="quick" role="dialog" aria-label="快览" hidden>
+      <div class="quick-head">
+        <span id="quick-dot" class="quick-dot" aria-hidden="true"></span>
+        <span id="quick-agent" class="quick-agent"></span>
+        <span id="quick-status" class="quick-status"></span>
+        <span class="spacer"></span>
+        <button id="quick-more" type="button" class="icon-btn" aria-label="更多">⋯</button>
       </div>
-      <div class="panel-tabs" role="tablist">
-        <button type="button" data-tab="detail" class="active">总览</button>
-        <button type="button" data-tab="quota">额度</button>
-        <button type="button" data-tab="vendors">厂商</button>
-        <button type="button" data-tab="usage">用量</button>
-        <button type="button" data-tab="roles">角色</button>
-        <button type="button" data-tab="settings">设置</button>
-        <button type="button" data-tab="about">关于</button>
+      <div id="quick-value" class="quick-value"></div>
+      <div id="quick-sub" class="quick-sub"></div>
+      <div class="quick-context">
+        <span class="quick-label">上下文</span>
+        <span class="quick-bar"><i id="quick-ctx-bar"></i></span>
+        <span id="quick-ctx-pct" class="quick-pct"></span>
+        <span id="quick-ctx-abs" class="quick-abs"></span>
       </div>
-      <div id="panel-body"></div>
+      <div id="quick-windows"></div>
+      <div class="quick-actions">
+        <button id="quick-console" type="button" class="btn primary">打开控制台</button>
+        <button id="quick-refresh" type="button" class="icon-btn" aria-label="刷新">↻</button>
+        <button id="quick-reset" type="button" class="btn ghost">解除吸附</button>
+      </div>
     </div>
 
-    <div id="fox" title="拖到 agent 窗口上吸附；单击打开面板">
+    <div id="menu" role="menu" aria-label="宠物菜单" hidden></div>
+    <div id="drag-hint" hidden></div>
+
+    <div id="fox" title="拖到 agent 窗口上吸附；单击打开快览">
       <img id="fox-img" src="assets/roles/fox.png" alt="角色" draggable="false" />
       <span id="fox-badge" hidden></span>
-      <button id="pet-menu" type="button" title="打开面板" aria-label="打开面板">⋯</button>
+      <button id="pet-menu" type="button" title="打开菜单" aria-label="打开菜单">⋯</button>
     </div>
 
     <script src="roles.js"></script>
-    <script src="renderer.js"></script>
+    <script src="pet.js"></script>
   </body>
 </html>

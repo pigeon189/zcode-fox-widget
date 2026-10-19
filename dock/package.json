@@ -34,7 +34,8 @@
     "test:e2e": "node tools/ui-check.mjs --axe 0",
     "test:electron:console": "node tools/console-smoke.mjs",
     "visual": "node tools/visual-test.mjs",
-    "visual:update": "node tools/visual-test.mjs --update"
+    "visual:update": "node tools/visual-test.mjs --update",
+    "shots:pet": "node tools/pet-shots.mjs"
   },
   "engines": {
     "node": ">=22.5"

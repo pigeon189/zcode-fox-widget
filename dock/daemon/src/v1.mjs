@@ -458,6 +458,11 @@ export function createV1Router(deps) {
         return true
       }
 
+      if (p === '/v1/bindings' && method === 'GET') {
+        sendJson(res, 200, { ok: true, bindings: readBindings(paths.bindings) })
+        return true
+      }
+
       // ---------- 设置与档案 ----------
       if (p === '/v1/settings' && method === 'GET') {
         sendJson(res, 200, { ok: true, settings: readSettings(paths.settings) })

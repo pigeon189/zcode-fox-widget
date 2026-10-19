@@ -15,6 +15,15 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   write(path, method, body) {
     return ipcRenderer.invoke('daemon-write', { path: String(path), method: String(method || 'POST'), body })
   },
+  openConsole() {
+    ipcRenderer.send('open-console')
+  },
+  hideOverlay() {
+    ipcRenderer.send('hide-overlay')
+  },
+  quitDock() {
+    ipcRenderer.send('quit-dock')
+  },
   // 命中查询走主进程：拖拽期间渲染进程的网络会被挂起
   hit(x, y, exclude) {
     return ipcRenderer.invoke('hit', { x, y, exclude })

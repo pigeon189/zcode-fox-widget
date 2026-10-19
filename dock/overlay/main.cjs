@@ -420,6 +420,14 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.on('open-console', () => openConsole())
+  ipcMain.on('hide-overlay', () => {
+    try {
+      win.hide()
+    } catch (err) {}
+  })
+  ipcMain.on('quit-dock', () => quitDock())
+
   ipcMain.on('set-interactive', (_e, on) => {
     try {
       win.setIgnoreMouseEvents(!on, { forward: true })
