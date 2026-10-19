@@ -5,12 +5,12 @@
     "name": "zcode-fox-widget contributors"
   },
   "metadata": {
-    "version": "1.3.2"
+    "version": "1.3.3"
   },
   "plugins": [
     {
       "name": "fox-widget",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "description": "WorkBuddy狐娘小挂件（fox-widget）：订阅积分口径（今日积分 / 本轮 credit / 上下文余量）、35 家厂商余额与额度模板、用量记录面板、六套内置角色（专属台词池与浅色配色跟随、按模型自动换角色）、按压泡泡（点击队列 + 模板导入导出）、记账二级页、桌宠模式与桌面浮层。",
       "source": "./",
       "category": "productivity"
