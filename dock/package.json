@@ -35,7 +35,8 @@
     "test:electron:console": "node tools/console-smoke.mjs",
     "visual": "node tools/visual-test.mjs",
     "visual:update": "node tools/visual-test.mjs --update",
-    "shots:pet": "node tools/pet-shots.mjs"
+    "shots:pet": "node tools/pet-shots.mjs",
+    "test:pet": "node tools/pet-shots.mjs --theme light,dark --viewport 1280x720,960x680"
   },
   "engines": {
     "node": ">=22.5"

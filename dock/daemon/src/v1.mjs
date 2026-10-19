@@ -12,8 +12,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { normalizeContext } from '../../adapters/contracts.mjs'
 import { resolveAdapter } from '../../adapters/registry.mjs'
-import { readBindings } from './bindings.mjs'
+import { readBindings, upsertBinding } from './bindings.mjs'
 import { getProfile, readSettings, resetSettings, writePet, writeProfile, writeSettings } from './settings.mjs'
+import { buildBindKey } from '../../shared/identity.mjs'
 import { recordSnapshot, summarize } from './ledger.mjs'
 import { transition } from './state-machine.mjs'
 import { deleteRole, importRole, listRoleLibrary, renameRole, suggestRoleId } from './roles.mjs'
@@ -531,6 +532,27 @@ export function createV1Router(deps) {
         // attach 支持传窗口描述；服务端判定适配器，不信任客户端自报。
         const det = resolveAdapter({ exe: body.exe, title: body.title, cls: body.cls }, adapters)
         const pet = petEvent(type, { ...body, agentId: det.id })
+        if (type === 'drop-on-agent') {
+          try {
+          const key = buildBindKey({ exe: body.exe, pid: body.pid, startMs: body.startMs, hwnd: body.hwnd })
+          upsertBinding(paths.bindings, {
+            key,
+            adapterId: det.id,
+            anchor: body.anchor,
+            window: {
+              title: String(body.title || '').slice(0, 200),
+              exe: String(body.exe || '').slice(0, 400),
+              pid: Number(body.pid) || 0,
+              startMs: Number(body.startMs) || 0,
+              hwnd: String(body.hwnd || ''),
+              cls: String(body.cls || '').slice(0, 120),
+              rect: body.rect || null,
+            },
+          })
+          } catch (err) {
+            log('binding write skipped: ' + (err && err.message ? err.message : err))
+          }
+        }
         await broadcastState()
         sendJson(res, 200, { ok: true, pet })
         return true

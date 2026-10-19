@@ -92,6 +92,14 @@ let hideMoney = false
 let alphaMask = null
 let alphaRole = ''
 let lastSnapshotFingerprint = ''
+let followTimer = null
+let followEvery = 0
+let chatterTimer = null
+let lastChatterMs = -1
+let petModeFloating = false
+let lastInteractive = null
+let hitBusy = false
+let lastHitAt = 0
 let startSnapshotSeen = false
 
 const sounds = {
@@ -167,6 +175,14 @@ function roleForAgent(agentId) {
   return settings.roleId || 'fox'
 }
 
+// 深色强调色上用白字，其余用深色字；避免主按钮文字低于 4.5:1。
+const WHITE_TEXT_ACCENTS = new Set(['#4d6bfe'])
+function applyAccent(accent) {
+  const a = accent || '#f0a04b'
+  document.documentElement.style.setProperty('--pet-accent', a)
+  document.documentElement.style.setProperty('--on-accent', WHITE_TEXT_ACCENTS.has(a.toLowerCase()) ? '#ffffff' : '#111111')
+}
+
 function applyRole(id) {
   const role = FOX_ROLES[id] || FOX_ROLES.fox
   const changed = roleId !== role.id || foxImg.getAttribute('src') !== role.image
@@ -174,9 +190,9 @@ function applyRole(id) {
   if (changed) {
     foxImg.src = role.image
     foxImg.alt = role.name
-    loadAlphaMask(role.id)
   }
-  document.documentElement.style.setProperty('--pet-accent', role.accent || '#f0a04b')
+  if (alphaRole !== role.id) loadAlphaMask(role.id)
+  applyAccent(role.accent || '#f0a04b')
 }
 
 function applySettings() {
@@ -188,6 +204,14 @@ function applySettings() {
   else delete document.documentElement.dataset.theme
   document.documentElement.style.colorScheme = theme || 'light dark'
   applyRole(roleId || settings.roleId || 'fox')
+  if (Number(settings.followMs) !== followEvery) restartFollowTimer()
+  if (Number(settings.chatterMs) !== lastChatterMs) restartChatter()
+  if (settings.petMode && state.pet.mode === 'attached' && !petModeFloating) {
+    petModeFloating = true
+    floatAt().finally(() => {
+      petModeFloating = false
+    })
+  }
   placeAll()
   renderChip()
   if (quickOpen) renderQuick()
@@ -365,6 +389,7 @@ async function markRestored(hwnd) {
 }
 
 async function refreshState() {
+  if (dragging || pressing) return
   const s = await read('/v1/state')
   if (!s || !s.ok) return
   state = s
@@ -415,7 +440,7 @@ async function refreshState() {
 }
 
 async function refreshRect() {
-  if (!bound.hwnd) return
+  if (!bound.hwnd || dragging || pressing) return
   const r = await read('/rect?hwnd=' + encodeURIComponent(bound.hwnd))
   if (!r) return
   if (r.ok && r.rect) {
@@ -489,7 +514,7 @@ function renderChip() {
   chipRingValue.style.strokeDashoffset = String(C * (1 - (pct == null ? 0 : pct) / 100))
   const ring = document.getElementById('chip-ring')
   if (ring) ring.style.display = pct == null ? 'none' : ''
-  document.documentElement.style.setProperty('--pet-accent', agentAccent(agentId))
+  applyAccent(agentAccent(agentId))
   placeAll()
 }
 
@@ -546,6 +571,9 @@ function positionQuick() {
   if (x < 8) x = pos.x + s + 12
   if (x + w > window.innerWidth - 8) x = pos.x - w - 12
   x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
+  // 气泡被钳到角色左侧时，保证箭头仍能落在角色中心附近
+  const center = pos.x + s / 2
+  if (center > x + w - 14) x = Math.max(8, Math.min(window.innerWidth - w - 8, center - w + 20))
   const y = Math.max(8, Math.min(window.innerHeight - h - 8, pos.y + s / 2 - h / 2))
   quick.style.left = Math.round(x) + 'px'
   quick.style.top = Math.round(y) + 'px'
@@ -604,6 +632,9 @@ function positionSay() {
   if (x < 8) x = pos.x + s + 8
   else if (x + w > window.innerWidth - 8) x = pos.x - w - 8
   x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
+  // 气泡被钳到角色左侧时，保证箭头仍能落在角色中心附近
+  const center = pos.x + s / 2
+  if (center > x + w - 14) x = Math.max(8, Math.min(window.innerWidth - w - 8, center - w + 20))
   sayEl.style.left = Math.round(x) + 'px'
   sayEl.style.top = Math.round(y) + 'px'
   sayEl.classList.toggle('below', below)
@@ -648,6 +679,9 @@ function positionBubble() {
   if (x < 8) x = pos.x + s + 8
   else if (x + w > window.innerWidth - 8) x = pos.x - w - 8
   x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
+  // 气泡被钳到角色左侧时，保证箭头仍能落在角色中心附近
+  const center = pos.x + s / 2
+  if (center > x + w - 14) x = Math.max(8, Math.min(window.innerWidth - w - 8, center - w + 20))
   bubble.style.left = Math.round(x) + 'px'
   bubble.style.top = Math.round(y) + 'px'
   bubble.classList.toggle('below', below)
@@ -759,6 +793,16 @@ function openMenu(x, y) {
   setInteractive(true)
 }
 
+function positionMenu() {
+  if (!menuOpen) return
+  const w = menu.offsetWidth || 224
+  const h = menu.offsetHeight || 300
+  const x = parseFloat(menu.style.left || '200') || 200
+  const y = parseFloat(menu.style.top || '200') || 200
+  menu.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x)) + 'px'
+  menu.style.top = Math.max(8, Math.min(window.innerHeight - h - 8, y)) + 'px'
+}
+
 function closeMenu() {
   menuOpen = false
   menu.hidden = true
@@ -786,13 +830,17 @@ function acceptable(win) {
   return true
 }
 
-async function hitAt(clientX, clientY) {
-  const api = window.foxOverlay
-  const dpr = window.devicePixelRatio || 1
-  const o = await ensureOrigin()
-  const px = Math.round((clientX + o.x) * dpr)
-  const py = Math.round((clientY + o.y) * dpr)
+async function hitAt(clientX, clientY, force = false) {
+  const now = performance.now()
+  if (!force && (hitBusy || now - lastHitAt < 30)) return currentTarget
+  hitBusy = true
+  lastHitAt = now
   try {
+    const api = window.foxOverlay
+    const dpr = window.devicePixelRatio || 1
+    const o = await ensureOrigin()
+    const px = Math.round((clientX + o.x) * dpr)
+    const py = Math.round((clientY + o.y) * dpr)
     const data =
       api && typeof api.hit === 'function'
         ? await api.hit(px, py, SELF_PID)
@@ -800,6 +848,8 @@ async function hitAt(clientX, clientY) {
     return (data.hits || []).find(acceptable) || null
   } catch (err) {
     return null
+  } finally {
+    hitBusy = false
   }
 }
 
@@ -812,6 +862,7 @@ async function bindTo(win, atX, atY) {
     startMs: win.startMs,
     hwnd: win.hwnd,
     rect: win.rect,
+    anchor: corner,
   })
   if (!data || !data.ok) return false
   bound = { agentId: data.pet.agentId, hwnd: win.hwnd, title: win.title, exe: win.exe, pid: win.pid, startMs: win.startMs, rect: win.rect }
@@ -823,6 +874,7 @@ async function bindTo(win, atX, atY) {
   applyRole(roleId)
   placeAnchored(win.rect)
   renderChip()
+  markRestored(win.hwnd)
   refreshAgentData(true)
   return true
 }
@@ -877,9 +929,33 @@ function isOverUI(x, y) {
 }
 
 function setInteractive(on) {
+  const v = !!on
+  if (lastInteractive === v) return
+  lastInteractive = v
   try {
-    if (window.foxOverlay && window.foxOverlay.setInteractive) window.foxOverlay.setInteractive(!!on)
+    if (window.foxOverlay && window.foxOverlay.setInteractive) window.foxOverlay.setInteractive(v)
   } catch (err) {}
+}
+
+function restartFollowTimer() {
+  if (followTimer) clearInterval(followTimer)
+  followTimer = null
+  followEvery = Math.max(200, Math.min(1000, Number(settings.followMs) || 500))
+  followTimer = setInterval(() => {
+    if (!bound.hwnd || dragging || pressing || settings.petMode) return
+    refreshRect()
+  }, followEvery)
+}
+
+function restartChatter() {
+  if (chatterTimer) clearInterval(chatterTimer)
+  chatterTimer = null
+  lastChatterMs = Number(settings.chatterMs) || 0
+  if (lastChatterMs <= 0) return
+  chatterTimer = setInterval(() => {
+    if (settings.dnd || dragging || pressing || quickOpen || menuOpen || !bubble.hidden) return
+    speak()
+  }, Math.max(30000, lastChatterMs))
 }
 
 fox.addEventListener('pointerdown', (e) => {
@@ -932,7 +1008,7 @@ window.addEventListener('pointerup', async (e) => {
   if (!pressing) return
   playSound('release')
   const wasDragging = dragging
-  const target = currentTarget
+  let target = currentTarget
   pressing = null
   dragging = false
   currentTarget = null
@@ -943,6 +1019,7 @@ window.addEventListener('pointerup', async (e) => {
     speak()
     return
   }
+  if (!target && !settings.petMode) target = await hitAt(e.clientX, e.clientY, true)
   if (settings.petMode) {
     await floatAt()
   } else if (target) {
@@ -1025,10 +1102,7 @@ async function boot() {
   setInterval(refreshState, 1500)
   setInterval(() => (quickOpen ? 0 : refreshSettings()), 2000)
   setInterval(() => (quickOpen ? 0 : refreshAgentData(false)), 3000)
-  setInterval(() => {
-    if (!bound.hwnd) return
-    refreshRect()
-  }, Math.max(250, Math.min(1000, Number(settings.followMs) || 500)))
+  restartFollowTimer()
   setInterval(loadQueue, 15000)
   if (BASE) {
     try {
@@ -1049,8 +1123,14 @@ window.__pet = {
   get state() { return state },
   get settings() { return settings },
   get bound() { return bound },
+  get dragging() { return dragging },
+  get quickOpen() { return quickOpen },
+  get menuOpen() { return menuOpen },
+  get currentTarget() { return currentTarget },
   get snapshot() { return snapshot },
   get context() { return context },
+  alphaMaskLoaded: () => !!alphaMask,
+  get followEvery() { return followEvery },
   debugAttach(agentId, hwnd, rect, c) {
     bound = { agentId, hwnd, title: 'debug', exe: 'debug.exe', pid: 1, startMs: 1, rect }
     state.pet = { mode: 'attached', agentId, hwnd, profileOf: agentId, lastAgentId: agentId }

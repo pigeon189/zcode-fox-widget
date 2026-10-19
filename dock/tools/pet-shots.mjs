@@ -85,6 +85,8 @@ async function main() {
             }
           })
           const page = await ctx.newPage()
+          const errors = []
+          page.on('pageerror', (e) => errors.push(e.message))
           const url = 'http://127.0.0.1:' + port + '/overlay/index.html?port=' + port + '&pid=999999&ct=0'
           await page.goto(url, { waitUntil: 'domcontentloaded' })
           await page.waitForSelector('#fox', { timeout: 10000 })
@@ -95,6 +97,23 @@ async function main() {
           }, theme)
           await page.evaluate(st.run)
           await page.waitForTimeout(250)
+          if (errors.length) throw new Error(st.id + ' JS 异常：' + errors.join(' | '))
+          const geom = await page.evaluate(() => {
+            const box = (id) => {
+              const el = document.getElementById(id)
+              if (!el || el.hidden) return null
+              const r = el.getBoundingClientRect()
+              return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+            }
+            return { width: innerWidth, height: innerHeight, fox: box('fox'), quick: box('quick'), menu: box('menu') }
+          })
+          for (const key of ['fox', 'quick', 'menu']) {
+            const r = geom[key]
+            if (!r) continue
+            if (r.left < -1 || r.top < -1 || r.right > geom.width + 1 || r.bottom > geom.height + 1) {
+              throw new Error(st.id + ' ' + key + ' 越界：' + JSON.stringify({ viewport: [geom.width, geom.height], rect: r }))
+            }
+          }
           const name = 'pet-' + st.id + '-' + theme + '-' + vp.name + '.png'
           await page.screenshot({ path: path.join(OUT, name) })
           shots.push({ name, theme, viewport: vp.name, state: st.id })

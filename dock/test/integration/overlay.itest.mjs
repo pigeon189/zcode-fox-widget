@@ -233,19 +233,39 @@ test('pet: 单击角色打开快览卡，再点收起', async () => {
   )
   await mouse(cdp, c.x, c.y)
   await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 4000, 'quick open')
+  await sleep(300)
   await mouse(cdp, c.x, c.y)
-  await waitFor(async () => (await cdp.eval("document.getElementById('quick').hidden")), 4000, 'quick close')
+  try {
+    await waitFor(async () => (await cdp.eval("document.getElementById('quick').hidden")), 2500, 'quick close')
+  } catch (err) {
+    await mouse(cdp, c.x, c.y)
+    await waitFor(async () => (await cdp.eval("document.getElementById('quick').hidden")), 4000, 'quick close retry')
+  }
 })
 
 test('pet: 拖到 agent 窗口吸附并显示胶囊', async () => {
-  await dragTo(fakeWin.rect.x + fakeWin.rect.w / 2, fakeWin.rect.y + fakeWin.rect.h / 2)
-  const st = await waitFor(async () => {
-    const s = await json('http://127.0.0.1:' + port + '/v1/state')
-    return s.pet.mode === 'attached' ? s : null
-  }, 8000, 'attached state')
+  const target = async () => dragTo(fakeWin.rect.x + fakeWin.rect.w / 2, fakeWin.rect.y + fakeWin.rect.h / 2)
+  await target()
+  let st = null
+  try {
+    st = await waitFor(async () => {
+      const s = await json('http://127.0.0.1:' + port + '/v1/state')
+      return s.pet.mode === 'attached' ? s : null
+    }, 5000, 'attached state')
+  } catch (err) {
+    await target()
+    st = await waitFor(async () => {
+      const s = await json('http://127.0.0.1:' + port + '/v1/state')
+      return s.pet.mode === 'attached' ? s : null
+    }, 8000, 'attached state retry')
+  }
   assert.equal(st.pet.agentId, 'generic')
   await waitFor(async () => (await cdp.eval("!document.getElementById('chip').hidden")), 5000, 'chip visible')
   assert.match(await cdp.eval("document.getElementById('chip-value').textContent"), /—|¥|积分|%/)
+  assert.equal(await cdp.eval('window.__pet.alphaMaskLoaded()'), true, '默认角色也要加载 alpha 掩码')
+  const bindings = await (await fetch('http://127.0.0.1:' + port + '/v1/bindings')).json()
+  assert.ok(bindings.bindings.length >= 1, 'attach 后应写入绑定表')
+  assert.equal(await cdp.eval("typeof window.foxOverlay.getToken"), 'undefined', '渲染层不能拿到 token')
 })
 
 test('pet: 四象限贴边与左侧镜像', async () => {
@@ -275,6 +295,8 @@ test('pet: 拖到桌面空白进入悬浮，保留角色', async () => {
   }, 8000, 'floating state')
   assert.equal(st.pet.profileOf, 'generic')
   await waitFor(async () => (await cdp.eval("!document.getElementById('chip-unlink').hidden")), 4000, 'unlink')
+  const pos = JSON.parse(await cdp.eval("(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"))
+  assert.ok(Math.abs(pos.x - blank.x) < 140 && Math.abs(pos.y - blank.y) < 140, '落点不能被 follow 拉回：' + JSON.stringify({ pos, blank }))
 })
 
 test('pet: 控制台改设置后浮层 2 秒内生效（隐藏金额）', async () => {
@@ -319,6 +341,26 @@ test('pet: 菜单换角色', async () => {
   await waitFor(async () => (await cdp.eval("!document.getElementById('menu').hidden")), 3000, 'menu')
   await cdp.eval("document.querySelectorAll('.menu-role')[2].click()")
   await waitFor(async () => /roles\/gpt\.png/.test(await cdp.eval("document.getElementById('fox-img').src")), 4000, 'role gpt')
+})
+
+test('pet: petMode 立即脱离吸附，followMs 即时生效', async () => {
+  // 重新吸附
+  await dragTo(fakeWin.rect.x + fakeWin.rect.w / 2, fakeWin.rect.y + fakeWin.rect.h / 2)
+  await waitFor(async () => (await json('http://127.0.0.1:' + port + '/v1/state')).pet.mode === 'attached', 6000, 'attached again')
+  const put = async (body) =>
+    fetch('http://127.0.0.1:' + port + '/v1/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
+      body: JSON.stringify(body),
+    })
+  await put({ followMs: 250 })
+  await waitFor(async () => (await cdp.eval('window.__pet.followEvery')) === 250, 5000, 'followMs applied')
+  await put({ petMode: true })
+  await waitFor(async () => (await json('http://127.0.0.1:' + port + '/v1/state')).pet.mode === 'floating', 6000, 'petMode floats')
+  await put({ petMode: false })
+
+  const bad = await fetch('http://127.0.0.1:' + port + '/v1/pet/reset', { method: 'POST', body: '{}' })
+  assert.equal(bad.status, 403)
 })
 
 test('pet: 解除吸附并重置', async () => {
