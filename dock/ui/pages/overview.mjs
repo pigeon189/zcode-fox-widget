@@ -80,10 +80,10 @@ export function OverviewPage({ app }) {
   const weekTotal = usage ? sumGroups(usage, () => true) : 0
   const monthTotal = usage30 ? sumGroups(usage30, () => true) : 0
   if (Number(settings.weeklyBudget) > 0 && weekTotal > Number(settings.weeklyBudget)) {
-    alerts.push({ tone: 'warn', text: '本周已用 ' + fmtMoney(weekTotal, cur) + '，超过周预算 ' + fmtMoney(settings.weeklyBudget, cur) })
+    alerts.push({ tone: 'warn', text: '近 7 天已用 ' + fmtMoney(weekTotal, cur) + '，超过 7 天预算 ' + fmtMoney(settings.weeklyBudget, cur) })
   }
   if (Number(settings.monthlyBudget) > 0 && monthTotal > Number(settings.monthlyBudget)) {
-    alerts.push({ tone: 'warn', text: '本月已用 ' + fmtMoney(monthTotal, cur) + '，超过月预算 ' + fmtMoney(settings.monthlyBudget, cur) })
+    alerts.push({ tone: 'warn', text: '近 30 天已用 ' + fmtMoney(monthTotal, cur) + '，超过 30 天预算 ' + fmtMoney(settings.monthlyBudget, cur) })
   }
   if (snap && snap.balance && Number(settings.balanceWarnMoney) > 0 && snap.balance.currency === cur && snap.balance.amount <= Number(settings.balanceWarnMoney)) {
     alerts.push({ tone: 'warn', text: '余额 ' + fmtMoney(snap.balance.amount, snap.balance.currency) + ' 低于预警值' })
@@ -92,7 +92,10 @@ export function OverviewPage({ app }) {
     const prev = ((usage.days || []).filter((d) => d.date !== todayKey))
     const vals = prev.map((d) => {
       let v = 0
-      for (const g of d.groups || []) if (g.unit === 'money' && g.currency === cur) v += Number(g.amount) || 0
+      for (const g of d.groups || []) {
+        if (g.unit !== 'money' || g.currency !== cur) continue
+        for (const a of g.adapters || []) if (a.id === id) v += Number(a.amount) || 0
+      }
       return v
     })
     const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
@@ -131,7 +134,7 @@ export function OverviewPage({ app }) {
     <div class="col-5">
       <${Card} title="上下文" testid="overview.context">
         ${ctx && ctx.supported
-          ? html`<div class="row" style=${{ gap: 16, alignItems: 'center' }}>
+          ? html`<div style=${{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
               <${Gauge} pct=${ctx.pct} size=${120} tone=${pctTone(ctx.pct)} label="已用" />
               <div style=${{ minWidth: 0 }}>
                 <div class="mono nowrap">${fmtNum(ctx.used)} / ${ctx.limit ? fmtNum(ctx.limit) : '—'}</div>

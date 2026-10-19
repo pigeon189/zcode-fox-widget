@@ -89,7 +89,7 @@ async function main() {
             document.documentElement.dataset.theme = t
             document.documentElement.style.colorScheme = t
           }, theme)
-          await p.waitForTimeout(150)
+          await p.waitForTimeout(800)
           const file = path.join(outDir, name + '.png')
           await p.screenshot({ path: file, fullPage: false })
           shots.push({ name, page: variant ? page + '/' + variant : page, theme, viewport: vp.name, dpr, file })

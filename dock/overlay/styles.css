@@ -190,6 +190,15 @@ html[data-theme="dark"] {
   z-index: 12;
 }
 
+body[data-menu-button="hover"] #pet-menu {
+  opacity: 0;
+}
+body[data-menu-button="hover"] #fox:hover #pet-menu {
+  opacity: 1;
+}
+body[data-menu-button="always"] #pet-menu {
+  opacity: 1;
+}
 #pet-menu:hover {
   opacity: 1;
   transform: scale(1.04);

@@ -442,7 +442,7 @@ function App() {
           <button class="nav-item" aria-current=${page === 'about' ? 'page' : undefined} onClick=${() => navigate('about')} aria-label="关于与诊断" title="关于与诊断" data-testid="nav.about">
             <${Icon} name="info" size=${18} /><span>关于与诊断</span>
           </button>
-          <div class="row sidebar-status"><span class=${'dot ' + (online ? '' : 'offline')}></span>${online ? '在线' : '离线'} · v${boot ? boot.version : ''}</div>
+          <div class="row sidebar-status"><span class=${'dot ' + (online ? '' : 'offline')} title=${online ? '在线' : '离线'}></span><span class="status-text">${online ? '在线' : '离线'} · v${boot ? boot.version : ''}</span></div>
         </div>
       </aside>
       <main class="main">

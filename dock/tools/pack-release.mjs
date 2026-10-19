@@ -47,6 +47,7 @@ function walk(dir, base, out) {
       continue
     }
     if (!e.isFile()) continue
+    if (/^last-.*\.log$/i.test(e.name) || /\.tmp$/i.test(e.name)) continue
     const ext = path.extname(e.name).toLowerCase()
     if (SKIP_EXT.has(ext)) continue
     const full = path.join(dir, e.name)

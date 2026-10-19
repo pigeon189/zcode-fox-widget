@@ -385,10 +385,21 @@ app.whenReady().then(() => {
   // 窗口在屏幕上的位置（DIP）。渲染层的 window.screenX 在激活/DPI 校正前后会变，
   // 这里给一份主进程认得的坐标做兜底（第一次指针事件后就用事件自己算的偏移）。
   ipcMain.handle('bounds', () => win.getBounds())
-  // 遗留写路由已加令牌校验；渲染层通过 IPC 取，不把 token 写进页面脚本。
-  ipcMain.handle('daemon-token', () => {
+  // 遗留写路由需要令牌；渲染层只传 path/method/body，token 留在主进程。
+  ipcMain.handle('daemon-write', async (_e, payload) => {
     const lock = lockInfo()
-    return lock ? String(lock.token || '') : ''
+    if (!lock || !lock.port) return { ok: false, error: 'daemon-not-running' }
+    try {
+      const res = await fetch('http://127.0.0.1:' + lock.port + String(payload.path || ''), {
+        method: String(payload.method || 'POST'),
+        headers: { 'Content-Type': 'application/json', 'x-fox-token': lock.token || '' },
+        body: payload.body === undefined ? undefined : JSON.stringify(payload.body),
+        signal: AbortSignal.timeout(3000),
+      })
+      return await res.json()
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) }
+    }
   })
   ipcMain.handle('alpha-mask', (_e, roleId) => alphaMask(roleId))
 

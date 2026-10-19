@@ -63,27 +63,6 @@ a {
 .titlebar .spacer {
   flex: 1;
 }
-.nowrap {
-  white-space: nowrap;
-}
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-.grid > div {
-  display: flex;
-  flex-direction: column;
-}
-.grid > div > .card {
-  flex: 1;
-}
 .titlebar .meta {
   font-size: 12px;
   color: var(--text-3);
@@ -145,7 +124,7 @@ a {
   left: 0;
   width: 3px;
   height: 16px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--accent);
 }
 .nav-item svg {
@@ -181,27 +160,6 @@ a {
 .page-head .spacer {
   flex: 1;
 }
-.nowrap {
-  white-space: nowrap;
-}
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-.grid > div {
-  display: flex;
-  flex-direction: column;
-}
-.grid > div > .card {
-  flex: 1;
-}
 .page-head .fresh {
   font-size: 12px;
   color: var(--text-3);
@@ -233,27 +191,6 @@ a {
   flex-wrap: wrap;
 }
 .spacer {
-  flex: 1;
-}
-.nowrap {
-  white-space: nowrap;
-}
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-.grid > div {
-  display: flex;
-  flex-direction: column;
-}
-.grid > div > .card {
   flex: 1;
 }
 .muted {
@@ -359,7 +296,7 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--s1);
   background: var(--surface);
   color: var(--text);
   white-space: nowrap;
@@ -433,7 +370,7 @@ a {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--s1);
 }
 .field label {
   font-size: 12px;
@@ -449,7 +386,7 @@ a {
   padding: 0;
   border-radius: var(--r-md);
   background: var(--surface-2);
-  gap: 2px;
+  gap: 0;
 }
 .segmented button {
   border: 0;
@@ -461,7 +398,7 @@ a {
   color: var(--text-2);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s1);
   white-space: nowrap;
 }
 .segmented button[aria-selected="true"] {
@@ -705,7 +642,7 @@ a {
 .legend .swatch {
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: 4px;
   display: inline-block;
   margin-right: 6px;
   vertical-align: -1px;
@@ -919,7 +856,7 @@ a {
   .nav-item span {
     display: none;
   }
-  .sidebar-status {
+  .sidebar-status .status-text {
     display: none;
   }
   .sidebar-footer {
@@ -944,4 +881,26 @@ a {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.grid > div {
+  display: flex;
+  flex-direction: column;
+}
+.grid > div > .card {
+  flex: 1;
 }

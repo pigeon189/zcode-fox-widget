@@ -94,7 +94,6 @@ let bubbleTimer = null
 // 按压泡泡队列：每点一次气泡推进一条；空队列时点击只关闭气泡。
 let pressQueue = []
 let pressQueueIndex = 0
-let DAEMON_TOKEN = ''
 let hideMoney = false
 let activeTab = 'detail'
 let filterText = ''
@@ -358,6 +357,9 @@ function positionBubble() {
   let x = left + fw / 2 - bw / 2
   let y = top - bh - 8
   if (y < 8) y = top + fw + 8
+  // 靠近左右边缘时把气泡放到角色的另一侧，避免只做水平钳制导致箭头贴边。
+  if (x < 8) x = left + fw + 8
+  else if (x + bw > window.innerWidth - 8) x = left - bw - 8
   x = Math.max(8, Math.min(x, window.innerWidth - bw - 8))
   bubble.style.left = Math.round(x) + 'px'
   bubble.style.top = Math.round(y) + 'px'
@@ -417,8 +419,10 @@ function hideBubble() {
 
 // ---------- 设置（daemon 持久化） ----------
 
-function writeHeaders() {
-  return { 'Content-Type': 'application/json', 'x-fox-token': DAEMON_TOKEN }
+async function daemonWrite(pathname, method, body) {
+  const api = window.foxOverlay
+  if (!api || typeof api.write !== 'function') return { ok: false, error: 'write-unavailable' }
+  return api.write(pathname, method || 'POST', body)
 }
 
 async function loadSettings() {
@@ -426,7 +430,9 @@ async function loadSettings() {
   try {
     const r = await (await fetch(base + '/settings', { cache: 'no-store' })).json()
     if (r && r.ok && r.settings) {
-      settings = { ...settings, ...r.settings }
+      const next = { ...settings, ...r.settings }
+      if (JSON.stringify(next) === JSON.stringify(settings)) return
+      settings = next
       applySettings()
       if (settings.petMode && boundKey) unbind()
       if (settings.autoUpdate && settings.updateManifestUrl) checkUpdate(false)
@@ -439,13 +445,7 @@ async function saveSettings(patch) {
   applySettings()
   if (!base) return settings
   try {
-    const r = await (
-      await fetch(base + '/settings', {
-        method: 'PUT',
-        headers: writeHeaders(),
-        body: JSON.stringify(patch),
-      })
-    ).json()
+    const r = await daemonWrite('/settings', 'PUT', patch)
     if (r && r.ok && r.settings) {
       settings = { ...settings, ...r.settings }
       applySettings()
@@ -471,7 +471,11 @@ function applySettings() {
   restartFollowTimer()
   restartAlertTimer()
   if (lastBoundRect) placeByAnchor(lastBoundRect)
-  if (panelOpen) renderPanel(lastSummary, lastBindings)
+  if (panelOpen) {
+    const ae = document.activeElement
+    const typing = ae && panelBody.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)
+    if (!typing) renderPanel(lastSummary, lastBindings)
+  }
 }
 
 function updateChipVisibility() {
@@ -488,6 +492,7 @@ function dayKeyNow() {
 
 // 同一天同一项只弹一次：预算刚超时会每 30s 命中一次，不节流会变成骚扰
 function alertOnce(name, text, sub) {
+  if (settings.dnd) return false
   const key = 'fox-dock:alert:' + dayKeyNow() + ':' + name
   try {
     if (localStorage.getItem(key)) return false
@@ -764,6 +769,7 @@ function row(label, value, title) {
 }
 
 function groupLabel(g) {
+  if (hideMoney && g.unit === 'money') return '•••'
   if (g.unit === 'money') {
     if (g.currency === 'CNY') return '¥' + g.amount.toFixed(2)
     if (g.currency === 'USD') return '$' + g.amount.toFixed(2)
@@ -1476,14 +1482,8 @@ function renderVendors() {
   const label = document.createElement('span')
   label.className = 'vendor-source-label'
   label.textContent = '数据源'
-  const sel = selectControl(
-    [
-      { value: 'zcode', label: 'ZCode 挂件' },
-      { value: 'workbuddy', label: 'WorkBuddy 挂件' },
-    ],
-    vendorState.adapter,
-    (v) => loadVendors(v, false)
-  )
+  const sel = document.createElement('span')
+  sel.textContent = '内置引擎'
   sel.className = 'vendor-select'
   const refresh = document.createElement('button')
   refresh.type = 'button'
@@ -1576,8 +1576,10 @@ function renderVendors() {
     const note = document.createElement('p')
     note.className = 'setting-hint'
     note.textContent =
-      '来自 ' + (vendorState.source.app || vendorState.source.adapter) + ' v' + (vendorState.source.version || '?') +
-      ' · 端口 ' + vendorState.source.port + '；只读本机接口，凭据不进入 dock。'
+      vendorState.source === 'engines'
+        ? '来自内置厂商引擎；只读本机数据，凭据不进入界面。'
+        : '来自 ' + (vendorState.source.app || vendorState.source.adapter) + ' v' + (vendorState.source.version || '?') +
+          ' · 端口 ' + vendorState.source.port + '；只读本机接口，凭据不进入 dock。'
     panelBody.appendChild(note)
   }
 }
@@ -1608,7 +1610,7 @@ function renderUsage() {
       btn.disabled = b.key === boundKey
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
-        fetch(base + '/bind?key=' + encodeURIComponent(b.key), { method: 'DELETE', headers: writeHeaders() })
+        daemonWrite('/bind?key=' + encodeURIComponent(b.key), 'DELETE')
           .then(() => refreshSummary())
           .catch(() => {})
       })
@@ -1773,7 +1775,7 @@ function renderDetailList() {
       btn.textContent = '解绑'
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
-        fetch(base + '/bind?key=' + encodeURIComponent(b.key), { method: 'DELETE', headers: writeHeaders() })
+        daemonWrite('/bind?key=' + encodeURIComponent(b.key), 'DELETE')
           .then(() => refreshSummary())
           .catch(() => {})
       })
@@ -2463,21 +2465,16 @@ async function bind(win) {
   const anchor = anchorForDrop(win)
   turnFingerprint = null
   try {
-    const res = await fetch(base + '/bind', {
-      method: 'POST',
-      headers: writeHeaders(),
-      body: JSON.stringify({
-        hwnd: win.hwnd,
-        pid: win.pid,
-        exe: win.exe,
-        startMs: win.startMs,
-        title: win.title,
-        rect: win.rect,
-        adapterId: 'generic',
-        anchor,
-      }),
+    const data = await daemonWrite('/bind', 'POST', {
+      hwnd: win.hwnd,
+      pid: win.pid,
+      exe: win.exe,
+      startMs: win.startMs,
+      title: win.title,
+      rect: win.rect,
+      adapterId: 'generic',
+      anchor,
     })
-    const data = await res.json()
     if (data.ok && data.binding) {
       boundKey = data.binding.key
       boundHwnd = win.hwnd
@@ -2510,7 +2507,7 @@ async function bind(win) {
 async function unbind() {
   if (!boundKey || !base) return
   try {
-    await fetch(base + '/bind?key=' + encodeURIComponent(boundKey), { method: 'DELETE', headers: writeHeaders() })
+    await daemonWrite('/bind?key=' + encodeURIComponent(boundKey), 'DELETE')
   } catch (err) {}
   boundKey = ''
   boundHwnd = ''
@@ -2768,12 +2765,6 @@ applyTheme()
 applyAccent(roleId)
 place(window.innerWidth - foxSize() - 28, window.innerHeight - foxSize() - 96)
 applyScale()
-try {
-  if (window.foxOverlay && typeof window.foxOverlay.getToken === 'function') {
-    window.foxOverlay.getToken().then((t) => (DAEMON_TOKEN = String(t || ''))).catch(() => {})
-  }
-} catch (err) {}
-
 loadSettings().then(() => {
   restoreBinding()
   refreshAgents()

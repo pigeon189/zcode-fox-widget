@@ -93,7 +93,11 @@ function writeJsonFile(file, value) {
 
 function redactHome(value) {
   const home = process.env.USERPROFILE || process.env.HOME || ''
-  return home ? String(value).split(home).join('~') : String(value)
+  if (!home) return String(value)
+  let out = String(value)
+  const variants = [home, home.replace(/\\/g, '/'), home.toLowerCase(), home.replace(/\\/g, '/').toLowerCase()]
+  for (const v of variants) if (v) out = out.split(v).join('~')
+  return out
 }
 
 function rolesIndexFile(paths) {
@@ -726,6 +730,7 @@ export function createV1Router(deps) {
           settings: { ...settings, profiles: Object.keys(settings.profiles).length },
           bindings: readBindings(paths.bindings).slice(0, 20).map((b) => ({
             ...b,
+            key: redactHome(b.key || ''),
             window: b.window ? { ...b.window, exe: redactHome(b.window.exe || ''), title: redactHome(b.window.title || '') } : null,
           })),
           events: events.slice(-40),

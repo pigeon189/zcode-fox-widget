@@ -148,7 +148,7 @@
 ### 账本
 
 - `ledger.json` 按 (日期, 适配器) 记今日累计；`unit|currency` 分组汇总，元/积分/币种绝不混算
-- 保留 14 天；`GET /summary`
+- 保留 30 天；`GET /summary`
 
 ### 维护
 
