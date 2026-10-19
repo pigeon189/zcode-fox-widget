@@ -8,6 +8,7 @@
 | 单元 + 集成 | `npm run test:all` | 集成会开真窗口/真 Electron，需要桌面会话 |
 | 控制台页面自检 | `npm run test:ui` | 夹具 daemon + Edge；布局/可访问名称/axe，8 页 × 双主题 |
 | 页面 E2E（结构部分） | `npm run test:e2e` | 同上，关闭 axe |
+| 控制台真窗口冒烟 | `npm run test:electron:console` | 启动夹具 + Electron console，CDP 断言并截图 |
 | 截图矩阵 | `npm run shots -- --page console --console-pages overview,context,usage,quota,vendors,roles,settings,about --theme light,dark --base http://127.0.0.1:39490` | 先启动夹具 daemon |
 | 真机上下文对账 | `npm run verify:context` | PASS / SKIPPED（not-running / no-session）/ UNAVAILABLE |
 | 真机计费对账 | `npm run verify:zcode` / `verify:workbuddy` | 与宿主/旧挂件口径比对 |

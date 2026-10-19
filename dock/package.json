@@ -31,7 +31,8 @@
     "test:ui": "node tools/ui-check.mjs",
     "lint:layout": "node tools/ui-check.mjs --axe 0",
     "test:a11y": "node tools/ui-check.mjs --axe 1",
-    "test:e2e": "node tools/ui-check.mjs --axe 0"
+    "test:e2e": "node tools/ui-check.mjs --axe 0",
+    "test:electron:console": "node tools/console-smoke.mjs"
   },
   "engines": {
     "node": ">=22.5"

@@ -13,6 +13,13 @@ const dataDir = arg('--data-dir', process.env.FOX_DOCK_DATA || '')
 const daemonPort = arg('--daemon-port', process.env.FOX_DOCK_PORT || '')
 const UI_DIR = path.join(__dirname, '..', 'ui')
 
+// 每个数据目录一个 userData：测试实例与正式实例的缓存/单实例锁互不干扰。
+if (dataDir) {
+  try {
+    app.setPath('userData', path.join(dataDir, 'console'))
+  } catch (err) {}
+}
+
 function lockInfo() {
   if (!dataDir) return null
   try {
