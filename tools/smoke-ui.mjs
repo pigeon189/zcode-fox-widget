@@ -2173,7 +2173,7 @@ try {
     '(function(){var real=window.fetch;' +
     'function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
     'var S={ok:true,source:"cmdgo",vendor:"commandcode",label:"CommandCode",timeMode:"none",modelId:"zai-org/GLM-5.3",currency:"USD",from:"selection"};' +
-    'var C={ok:true,ref:"K1",pool:{available:0,total:1},plan:"Go",userName:"pigeon189",limited:true,' +
+    'var C={ok:true,ref:"K1",pool:{available:0,total:1,kind:"pool"},plan:"Go",userName:"pigeon189",limited:true,' +
     'monthly:{remaining:0.0457,total:10,percent:0.9954,resetAt:' + nearReset + '},' +
     'fiveHour:{used:0.912,cap:3,exceeded:false,resetAt:' + (Date.now() + 5 * 3600000) + ',remaining:2.088,percent:0.3041},' +
     'weekly:{used:3.947,cap:6,exceeded:false,resetAt:' + (Date.now() + 6 * 86400000) + ',remaining:2.053,percent:0.6578},readAt:Date.now()};' +
