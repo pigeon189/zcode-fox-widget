@@ -46,3 +46,6 @@ jobs:
 
       - name: 单元测试
         run: npm test
+
+      - name: engines parity
+        run: npm run parity:engines
