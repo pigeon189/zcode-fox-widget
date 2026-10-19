@@ -158,14 +158,14 @@ export function VendorsPage({ app }) {
         ? html`<div class="skeleton" style=${{ height: 260 }}></div>`
         : list.length
           ? html`<table class="table">
-              <thead><tr><th style=${{ width: 260 }}>厂商</th><th style=${{ width: 80 }}>类型</th><th>密钥状态</th><th style=${{ width: 80 }}>状态</th><th style=${{ width: 90 }}></th></tr></thead>
+              <thead><tr><th style=${{ width: 260 }}>厂商</th><th style=${{ width: 80 }}>类型</th><th>密钥状态</th><th style=${{ width: 80 }}>状态</th><th style=${{ width: 90 }}><span class="sr-only">操作</span></th></tr></thead>
               <tbody>
                 ${list.map((v) => {
                   const ks = keyStatus(v)
                   return html`<tr>
                     <td><div class="row"><span style=${{ fontWeight: 600 }}>${v.name}</span><span class="small muted mono">${v.id}</span></div></td>
                     <td><${Badge} tone=${v.kind === 'relay' ? 'info' : 'neutral'}>${kindLabel(v)}</${Badge}></td>
-                    <td class="mono" title=${v.keyMasked || ''}><${Badge} tone=${ks.tone}>${ks.text}</${Badge}></td>
+                    <td class="mono" title=${ks.text}><${Badge} tone=${ks.tone}>${ks.text}</${Badge}></td>
                     <td><${Badge} tone=${v.available ? 'ok' : 'neutral'}>${v.available ? '可用' : '未取到'}</${Badge}></td>
                     <td class="right"><${Button} onClick=${() => { setEditing(v); setKey(''); setShow(false); setTest(null) }}>配置</${Button}></td>
                   </tr>`
@@ -190,7 +190,7 @@ export function VendorsPage({ app }) {
               </div>
             </${Field}>
             <div class="small muted">类型：${kindLabel(editing)} · 状态：${editing.available ? '接口可用' : (editing.reason || '暂无数据')}</div>
-            ${test ? html`<div class=${'alert-bar ' + (test.ok ? '' : 'bad')}>${test.ok ? '连接成功' : '连接失败：' + (test.reason || '未知原因')}</div>` : null}
+            ${test ? html`<div class=${'alert-bar ' + (test.ok ? '' : 'bad')}>${test.ok ? (test.skipped ? '凭据已存在（未发起网络测试）' : '连接成功') : '连接失败：' + (test.reason || '未知原因')}</div>` : null}
           </div>
         </${Dialog}>`
       : null}

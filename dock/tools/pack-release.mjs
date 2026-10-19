@@ -23,7 +23,7 @@ const DIST = path.join(DOCK, 'dist')
 const PUB = path.join(DOCK, 'keys', 'update-pub.pem')
 const MANIFEST = path.join(DOCK, '..', 'docs', 'dock', 'update.json')
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.backup'])
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.backup', '__shots__', '__diff__', 'test-results', 'playwright-report'])
 const SKIP_EXT = new Set(['.tgz', '.gz', '.zip'])
 
 function argValue(name, fallback) {

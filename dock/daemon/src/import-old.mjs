@@ -4,8 +4,8 @@
 // 以及 FOX_DOCK_IMPORT_DIRS（分号分隔）手工指定。所有写操作只发生在 dock 数据目录；
 // 源文件 mtime 不变（测试会断言）。
 //
-// vendorConfig 只导入 vendorKeys / relayAuth，**不导入 apiKey / platformToken**；
-// API Key 请走控制台「从宿主导入」进 DPAPI 保险库。
+// 厂商 API Key 不在本导入范围内：真实密钥必须走控制台「从宿主导入」进 DPAPI
+// 保险库，避免在 dock 数据目录产生明文副本。
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -18,7 +18,6 @@ export const CATEGORIES = [
   { id: 'bubbleContent', label: '按压泡泡队列' },
   { id: 'ledger', label: '用量账本' },
   { id: 'widgetState', label: '外观与提醒' },
-  { id: 'vendorConfig', label: '厂商 key 引用与中转站令牌' },
 ]
 
 export function defaultSources(env = process.env) {
@@ -60,7 +59,6 @@ export function inspectSources(env = process.env) {
           ['bubbleContent', 'bubble-content.json'],
           ['ledger', 'usage-ledger.json'],
           ['widgetState', 'widget-state.json'],
-          ['vendorConfig', 'config.json'],
         ]) {
           if (fs.existsSync(path.join(dir, file))) caps[id] = 1
         }
@@ -187,24 +185,6 @@ function importWidgetState(srcDir) {
   return { patch, count: Object.keys(patch).length }
 }
 
-function importVendorConfig(srcDir, paths) {
-  const cfg = readJson(path.join(srcDir, 'config.json'), null)
-  if (!cfg) return { count: 0 }
-  const destFile = path.join(paths.dir, 'vendor-config.json')
-  const dest = readJson(destFile, {})
-  let count = 0
-  if (cfg.vendorKeys && typeof cfg.vendorKeys === 'object') {
-    dest.vendorKeys = { ...(dest.vendorKeys || {}), ...cfg.vendorKeys }
-    count += Object.keys(cfg.vendorKeys).length
-  }
-  if (cfg.relayAuth && typeof cfg.relayAuth === 'object') {
-    dest.relayAuth = { ...(dest.relayAuth || {}), ...cfg.relayAuth }
-    count += Object.keys(cfg.relayAuth).length
-  }
-  if (count) fs.writeFileSync(destFile, JSON.stringify(dest, null, 2), { mode: 0o600 })
-  return { count }
-}
-
 // 返回 { summary: { category: {count, skipped} }, settingsPatch }
 export function importCategories({ source, categories, paths, env = process.env }) {
   const src = defaultSources(env).find((s) => s.id === source)
@@ -226,6 +206,5 @@ export function importCategories({ source, categories, paths, env = process.env 
     settingsPatch = r.patch
     summary.widgetState = { count: r.count, skipped: r.count ? 0 : 1 }
   }
-  if (want.has('vendorConfig')) summary.vendorConfig = importVendorConfig(dir, paths)
   return { summary, settingsPatch }
 }

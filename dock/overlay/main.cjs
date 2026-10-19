@@ -334,6 +334,10 @@ app.whenReady().then(() => {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   } catch (err) {}
   if (!noClickThrough) win.setIgnoreMouseEvents(true, { forward: true })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!String(url).startsWith('file://')) event.preventDefault()
+  })
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.loadFile(path.join(__dirname, 'index.html'), {
     query: { port: String(daemonPort), pid: String(process.pid), ignore: ignorePids, ct: noClickThrough ? '0' : '1' },
   })
@@ -381,6 +385,11 @@ app.whenReady().then(() => {
   // 窗口在屏幕上的位置（DIP）。渲染层的 window.screenX 在激活/DPI 校正前后会变，
   // 这里给一份主进程认得的坐标做兜底（第一次指针事件后就用事件自己算的偏移）。
   ipcMain.handle('bounds', () => win.getBounds())
+  // 遗留写路由已加令牌校验；渲染层通过 IPC 取，不把 token 写进页面脚本。
+  ipcMain.handle('daemon-token', () => {
+    const lock = lockInfo()
+    return lock ? String(lock.token || '') : ''
+  })
   ipcMain.handle('alpha-mask', (_e, roleId) => alphaMask(roleId))
 
   // 拖拽期间渲染进程的网络会被整体挂起（实测所有 fetch 卡到松手后才返回），

@@ -61,8 +61,9 @@ async function main() {
     const { AxeBuilder } = withAxe ? await loadAxe() : { AxeBuilder: null }
     const browser = await chromium.launch({ channel: 'msedge', headless: true })
     for (const theme of themes) {
+      for (const vp of [{ width: 960, height: 680 }, { width: 760, height: 560 }]) {
       for (const page of PAGES) {
-        const ctx = await browser.newContext({ viewport: { width: 960, height: 680 }, colorScheme: theme, reducedMotion: 'reduce' })
+        const ctx = await browser.newContext({ viewport: vp, colorScheme: theme, reducedMotion: 'reduce' })
         const p = await ctx.newPage()
         const errors = []
         p.on('pageerror', (e) => errors.push(e.message))
@@ -84,7 +85,7 @@ async function main() {
             const text = String(node.textContent || '').trim()
             if (!text) continue
             const el = node.parentElement
-            if (!el || seen.has(el) || el.closest('svg')) continue
+            if (!el || seen.has(el)) continue
             seen.add(el)
             const style = getComputedStyle(el)
             if (style.display === 'none' || style.visibility === 'hidden') continue
@@ -104,16 +105,17 @@ async function main() {
           }
           return out
         })
-        if (layout.overflow) problems.push(page + '/' + theme + ' 出现横向滚动')
-        if (layout.small.length) problems.push(page + '/' + theme + ' 字号 <12：' + layout.small.slice(0, 4).join(', '))
-        if (layout.unnamed.length) problems.push(page + '/' + theme + ' 无可访问名称：' + layout.unnamed.slice(0, 4).join(', '))
+        if (layout.overflow) problems.push(page + '/' + theme + '/' + vp.width + ' 出现横向滚动')
+        if (layout.small.length) problems.push(page + '/' + theme + '/' + vp.width + ' 字号 <12：' + layout.small.slice(0, 4).join(', '))
+        if (layout.unnamed.length) problems.push(page + '/' + theme + '/' + vp.width + ' 无可访问名称：' + layout.unnamed.slice(0, 4).join(', '))
 
         if (AxeBuilder) {
           const result = await new AxeBuilder({ page: p }).analyze()
           const bad = result.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')
-          if (bad.length) problems.push(page + '/' + theme + ' axe：' + bad.map((v) => v.id + '(' + v.nodes.length + ')').join(', '))
+          if (bad.length) problems.push(page + '/' + theme + '/' + vp.width + ' axe：' + bad.map((v) => v.id + '(' + v.nodes.length + ')').join(', '))
         }
         await ctx.close()
+      }
       }
     }
     await browser.close()
@@ -128,7 +130,7 @@ async function main() {
     console.error('UI 自检失败：' + problems.length + ' 项')
     process.exit(1)
   }
-  console.log('UI 自检通过：' + PAGES.length + ' 页 × ' + themes.length + ' 主题（布局 / 可访问名称 / axe' + (withAxe ? '' : ' 已关闭') + '）')
+  console.log('UI 自检通过：' + PAGES.length + ' 页 × ' + themes.length + ' 主题 × 2 视口（布局 / 可访问名称 / axe' + (withAxe ? '' : ' 已关闭') + '）')
 }
 
 main().catch((err) => {

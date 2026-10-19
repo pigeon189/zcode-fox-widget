@@ -18,7 +18,7 @@ const SORTS = [
 ]
 
 function VendorCard({ v, onCorrect }) {
-  const color = v.kind === 'relay' ? '#8b5cf6' : v.kind === 'local-log' ? '#f0a04b' : v.kind === 'cmdgo' ? '#10b981' : 'var(--text-3)'
+  const color = v.kind === 'relay' ? 'var(--vendor-relay)' : v.kind === 'local-log' ? 'var(--vendor-plan)' : v.kind === 'cmdgo' ? 'var(--vendor-prepaid)' : 'var(--text-3)'
   const value =
     v.percentRemaining != null
       ? fmtPct(v.percentRemaining) + ' 剩余'

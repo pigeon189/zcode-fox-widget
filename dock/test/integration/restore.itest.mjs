@@ -156,7 +156,7 @@ before(async () => {
   const r = await (
     await fetch('http://127.0.0.1:' + port + '/bind', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
       body: JSON.stringify({
         exe: target.exe,
         pid: target.pid,

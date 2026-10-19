@@ -125,6 +125,8 @@ export function createV1Router(deps) {
     contextHistory,
     engines,
     vault,
+    setAutoStart,
+    getAutoStart,
     log = () => {},
   } = deps
 
@@ -513,15 +515,13 @@ export function createV1Router(deps) {
           sendJson(res, 404, { ok: false, error: 'unknown-pet-action', action })
           return true
         }
-        if (type === 'drop-on-agent' && (!body.agentId || !body.hwnd)) {
+        if (type === 'drop-on-agent' && (!body.hwnd || (!body.agentId && !body.exe && !body.title))) {
           sendJson(res, 400, { ok: false, error: 'agentId-and-hwnd-required' })
           return true
         }
         // attach 支持传窗口描述；服务端判定适配器，不信任客户端自报。
-        const agentId =
-          body.agentId ||
-          resolveAdapter({ exe: body.exe, title: body.title, cls: body.cls }, adapters).id
-        const pet = petEvent(type, { ...body, agentId })
+        const det = resolveAdapter({ exe: body.exe, title: body.title, cls: body.cls }, adapters)
+        const pet = petEvent(type, { ...body, agentId: det.id })
         await broadcastState()
         sendJson(res, 200, { ok: true, pet })
         return true
@@ -573,6 +573,22 @@ export function createV1Router(deps) {
         return true
       }
 
+      // ---------- 开机自启（控制台与托盘共用同一条安装/移除路径） ----------
+      if (p === '/v1/maintenance/autostart' && (method === 'GET' || method === 'POST')) {
+        try {
+          if (method === 'GET') {
+            sendJson(res, 200, { ok: true, installed: typeof getAutoStart === 'function' ? !!getAutoStart() : false })
+            return true
+          }
+          const body = await readBody(req)
+          const r = typeof setAutoStart === 'function' ? setAutoStart(body.enabled === true) : { enabled: false, installed: false }
+          sendJson(res, 200, { ok: true, ...r })
+        } catch (err) {
+          sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+        }
+        return true
+      }
+
       // ---------- 维护 ----------
       if (p === '/v1/maintenance/reset-settings' && method === 'POST') {
         const r = resetSettings(paths.settings)
@@ -594,7 +610,12 @@ export function createV1Router(deps) {
 
       // ---------- 角色 / 气泡模板 ----------
       if (p === '/v1/roles' && method === 'GET') {
-        sendJson(res, 200, { ok: true, roles: listRoles(paths), suggestedId: suggestRoleId('role', listRoles(paths).map((r) => r.id)) })
+        const adapterDefaults = Object.fromEntries((adapters || []).map((a) => [a.id, a.roleDefault || '']).filter(([, r]) => r))
+        const roleList = listRoles(paths).map((r) => ({
+          ...r,
+          defaultFor: Object.entries(adapterDefaults).filter(([, role]) => role === r.id).map(([id]) => id),
+        }))
+        sendJson(res, 200, { ok: true, roles: roleList, suggestedId: suggestRoleId('role', roleList.map((r) => r.id)) })
         return true
       }
 
@@ -703,7 +724,10 @@ export function createV1Router(deps) {
             follow: !!(a.capabilities && a.capabilities.follow),
           })),
           settings: { ...settings, profiles: Object.keys(settings.profiles).length },
-          bindings: readBindings(paths.bindings).slice(0, 20),
+          bindings: readBindings(paths.bindings).slice(0, 20).map((b) => ({
+            ...b,
+            window: b.window ? { ...b.window, exe: redactHome(b.window.exe || ''), title: redactHome(b.window.title || '') } : null,
+          })),
           events: events.slice(-40),
           update: typeof readUpdateState === 'function' ? readUpdateState() : null,
         })

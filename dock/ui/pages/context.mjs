@@ -7,11 +7,6 @@ import { fmtDateTime, fmtNum, fmtPct, fmtTokens, pctTone } from '../lib/format.m
 
 const html = htm.bind(h)
 
-const RANGES = [
-  { value: 'session', label: '本会话' },
-  { value: '1h', label: '近 1 小时' },
-  { value: 'today', label: '今日' },
-]
 
 function confidenceBadge(ctx) {
   if (!ctx) return null
@@ -83,7 +78,6 @@ export function ContextPage({ app }) {
         <option value="">最近会话</option>
         ${sessions.map((s) => html`<option value=${s.id}>${(s.title || s.id).slice(0, 40)} · ${s.pct == null ? '—' : fmtPct(s.pct)}</option>`)}
       </select>
-      <${Segmented} value=${range} options=${RANGES} onChange=${setRange} label="时间范围" />
       <span class="spacer"></span>
       ${confidenceBadge(ctx)}
       <span class="small muted">${loading ? '更新中…' : ctx && ctx.updatedAt ? fmtDateTime(ctx.updatedAt) : ''}</span>
@@ -131,7 +125,7 @@ export function ContextPage({ app }) {
                   <tbody>
                     ${sessions.length
                       ? sessions.map(
-                          (s) => html`<tr style=${{ cursor: 'pointer' }} onClick=${() => setSession(s.id)}>
+                          (s) => html`<tr style=${{ cursor: 'pointer' }} tabindex="0" role="button" onClick=${() => setSession(s.id)} onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSession(s.id) } }}>
                             <td class="ellipsis" title=${s.title || s.id}>${s.title || s.id}</td>
                             <td class="ellipsis" title=${s.model || ''}>${s.model || '—'}</td>
                             <td><div class="row" style=${{ gap: 8 }}>

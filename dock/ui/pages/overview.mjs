@@ -31,12 +31,17 @@ function pickSeries(usage, unit, currency) {
 
 export function OverviewPage({ app }) {
   const [usage, setUsage] = useState(null)
+  const [usage30, setUsage30] = useState(null)
   useEffect(() => {
     let alive = true
     app
       .api('/v1/usage?range=7d&groupBy=agent&metric=money')
       .then((d) => alive && setUsage(d))
       .catch(() => alive && setUsage({ days: [], today: { groups: [] } }))
+    app
+      .api('/v1/usage?range=30d&groupBy=agent&metric=money')
+      .then((d) => alive && setUsage30(d))
+      .catch(() => alive && setUsage30({ days: [], today: { groups: [] } }))
     return () => {
       alive = false
     }
@@ -59,6 +64,42 @@ export function OverviewPage({ app }) {
   }
   if (snap && snap.today && snap.unit === 'money' && Number(settings.budgetMoney) > 0 && snap.today.amount > Number(settings.budgetMoney)) {
     alerts.push({ tone: 'bad', text: '今日已用超过预算 ' + fmtMoney(settings.budgetMoney, snap.today.currency) })
+  }
+  const cur = (snap && snap.today && snap.today.currency) || 'CNY'
+  const sumGroups = (apiUsage, pred) => {
+    let total = 0
+    for (const day of (apiUsage && apiUsage.days) || []) {
+      if (!pred(day)) continue
+      for (const g of day.groups || []) {
+        if (g.unit === 'money' && g.currency === cur) total += Number(g.amount) || 0
+      }
+    }
+    return total
+  }
+  const todayKey = usage && usage.today ? usage.today.date : ''
+  const weekTotal = usage ? sumGroups(usage, () => true) : 0
+  const monthTotal = usage30 ? sumGroups(usage30, () => true) : 0
+  if (Number(settings.weeklyBudget) > 0 && weekTotal > Number(settings.weeklyBudget)) {
+    alerts.push({ tone: 'warn', text: '本周已用 ' + fmtMoney(weekTotal, cur) + '，超过周预算 ' + fmtMoney(settings.weeklyBudget, cur) })
+  }
+  if (Number(settings.monthlyBudget) > 0 && monthTotal > Number(settings.monthlyBudget)) {
+    alerts.push({ tone: 'warn', text: '本月已用 ' + fmtMoney(monthTotal, cur) + '，超过月预算 ' + fmtMoney(settings.monthlyBudget, cur) })
+  }
+  if (snap && snap.balance && Number(settings.balanceWarnMoney) > 0 && snap.balance.currency === cur && snap.balance.amount <= Number(settings.balanceWarnMoney)) {
+    alerts.push({ tone: 'warn', text: '余额 ' + fmtMoney(snap.balance.amount, snap.balance.currency) + ' 低于预警值' })
+  }
+  if (usage && Number(settings.costAnomalyX) > 0) {
+    const prev = ((usage.days || []).filter((d) => d.date !== todayKey))
+    const vals = prev.map((d) => {
+      let v = 0
+      for (const g of d.groups || []) if (g.unit === 'money' && g.currency === cur) v += Number(g.amount) || 0
+      return v
+    })
+    const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
+    const today = snap && snap.today ? Number(snap.today.amount) || 0 : 0
+    if (avg > 0 && today > avg * Number(settings.costAnomalyX)) {
+      alerts.push({ tone: 'warn', text: '今日用量是近 7 日均值的 ' + (today / avg).toFixed(1) + ' 倍' })
+    }
   }
 
   const series = usage ? pickSeries(usage, snap && snap.unit, snap && snap.today ? snap.today.currency : 'CNY') : []
@@ -93,7 +134,7 @@ export function OverviewPage({ app }) {
           ? html`<div class="row" style=${{ gap: 16, alignItems: 'center' }}>
               <${Gauge} pct=${ctx.pct} size=${120} tone=${pctTone(ctx.pct)} label="已用" />
               <div style=${{ minWidth: 0 }}>
-                <div class="mono">${fmtNum(ctx.used)} / ${ctx.limit ? fmtNum(ctx.limit) : '—'}</div>
+                <div class="mono nowrap">${fmtNum(ctx.used)} / ${ctx.limit ? fmtNum(ctx.limit) : '—'}</div>
                 <div class="small muted truncate" title=${ctx.model || ''}>${ctx.model || '未知模型'}</div>
                 <div class="row" style=${{ marginTop: 6 }}>
                   <${Badge} tone=${ctx.confidence === 'exact' ? 'ok' : ctx.confidence === 'derived' ? 'info' : 'neutral'}>
@@ -118,8 +159,8 @@ export function OverviewPage({ app }) {
     </${Card}></div>
     <div class="col-4"><${Card} class="stat">
       <div class="stat-label">${snap && snap.balance ? '余额' : '额度'}</div>
-      <div class="stat-value">${snap && snap.balance ? fmtMoney(snap.balance.amount, snap.balance.currency) : snap && snap.quota ? fmtPct(snap.quota.remainingPct) + ' 剩余' : '—'}</div>
-      <div class="stat-sub">${card && card.plan ? card.plan : (snap && snap.plan) || ''}</div>
+      <div class="stat-value">${snap && snap.balance ? fmtMoney(snap.balance.amount, snap.balance.currency) : snap && snap.quota ? fmtPct(snap.quota.remainingPct) + ' 剩余' : '不可得'}</div>
+      <div class="stat-sub">${snap && (snap.error || (card && card.note)) ? (snap.error || card.note) : '宿主未提供额度'}</div>
     </${Card}></div>
 
     <div class="col-7">

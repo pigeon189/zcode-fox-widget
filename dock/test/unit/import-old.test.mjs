@@ -65,7 +65,7 @@ test('import-old: 按类别导入，源目录只读，配置不复制 apiKey', (
   const src = inspectSources({ ZCODE_HOME: base, FOX_DOCK_IMPORT_DIRS: oldDir }).find((s) => s.dir === path.resolve(oldDir))
   const r = importCategories({
     source: src.id,
-    categories: ['roles', 'bubbleTemplates', 'bubbleContent', 'ledger', 'widgetState', 'vendorConfig'],
+    categories: ['roles', 'bubbleTemplates', 'bubbleContent', 'ledger', 'widgetState'],
     paths,
     env: { ZCODE_HOME: base, FOX_DOCK_IMPORT_DIRS: oldDir },
   })
@@ -78,10 +78,7 @@ test('import-old: 按类别导入，源目录只读，配置不复制 apiKey', (
   assert.ok(fs.existsSync(path.join(paths.rolesDir, 'my-role.png')))
   const idx = JSON.parse(fs.readFileSync(path.join(dataDir, 'roles.json'), 'utf8'))
   assert.equal(idx.roles['my-role'].name, '旧角色')
-  const cfg = JSON.parse(fs.readFileSync(path.join(dataDir, 'vendor-config.json'), 'utf8'))
-  assert.equal(cfg.vendorKeys.openai, 'k')
-  assert.equal(cfg.relayAuth.packycode.token, 't')
-  assert.equal(JSON.stringify(cfg).includes('should-not-copy'), false, '不能把 apiKey 复制进 dock 配置')
+  assert.equal(fs.existsSync(path.join(dataDir, 'vendor-config.json')), false, '导入不能生成明文厂商配置')
 })
 
 test('import-old: 未知来源/不存在目录报可读错误', () => {

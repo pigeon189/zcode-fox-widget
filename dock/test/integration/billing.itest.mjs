@@ -68,7 +68,7 @@ const get = async (p) => {
 const post = async (p, body) => {
   const res = await fetch('http://127.0.0.1:' + port + p, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
     body: JSON.stringify(body),
   })
   return { status: res.status, body: await res.json() }

@@ -44,7 +44,7 @@ export function AboutPage({ app }) {
     <div class="col-7">
       <${Card} title="版本">
         <div class="row" style=${{ alignItems: 'baseline', gap: 10 }}>
-          <span class="num" style=${{ fontSize: 24, fontWeight: 700 }}>fox-dock ${boot.version || ''}</span>
+          <span class="num nowrap" style=${{ fontSize: 24, fontWeight: 700 }}>fox-dock ${boot.version || ''}</span>
           <${Badge} tone="info">pre-release</${Badge}>
           <span class="spacer"></span>
           <${Button} onClick=${checkUpdate} loading=${checking} icon="refresh">检查更新</${Button}>
@@ -67,8 +67,8 @@ export function AboutPage({ app }) {
           <tbody>
             ${adapters.map(
               (a) => html`<tr>
-                <td>${a.name}</td>
-                <td class="small muted">
+                <td class="truncate" title=${a.name}>${a.name}</td>
+                <td class="small muted" title=${[a.billing ? '计费' : '', a.context ? '上下文' : '', a.follow ? '跟随' : ''].filter(Boolean).join(' · ')}>
                   ${[a.billing ? '计费' : '', a.context ? '上下文' : '', a.follow ? '跟随' : ''].filter(Boolean).join(' · ')}
                 </td>
                 <td class="right"><${Badge} tone=${a.context ? 'ok' : 'neutral'}>${a.context ? '已接入' : '仅计费'}</${Badge}></td>

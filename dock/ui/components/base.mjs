@@ -1,4 +1,5 @@
 import { h } from '../vendor/preact.module.js'
+import { useEffect, useRef } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Icon } from './icons.mjs'
 
@@ -88,8 +89,44 @@ export function Skeleton({ height = 16, width = '100%' }) {
 }
 
 export function Dialog({ title, children, onClose, actions = null }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const previous = document.activeElement
+    const el = ref.current
+    const focusables = () =>
+      Array.from(el ? el.querySelectorAll('button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])') : []).filter(
+        (x) => !x.disabled && x.offsetParent !== null
+      )
+    const first = focusables()[0]
+    if (first) first.focus()
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        if (onClose) onClose()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const list = focusables()
+      if (!list.length) return
+      const idx = list.indexOf(document.activeElement)
+      if (e.shiftKey) {
+        if (idx <= 0) {
+          e.preventDefault()
+          list[list.length - 1].focus()
+        }
+      } else if (idx === list.length - 1 || idx === -1) {
+        e.preventDefault()
+        list[0].focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      if (previous && typeof previous.focus === 'function') previous.focus()
+    }
+  }, [])
   return html`<div class="overlay" onMouseDown=${(e) => e.target === e.currentTarget && onClose && onClose()}>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label=${title}>
+    <div class="dialog" ref=${ref} role="dialog" aria-modal="true" aria-label=${title}>
       <h2>${title}</h2>
       ${children}
       <div class="actions">${actions || html`<${Button} onClick=${onClose}>关闭</${Button}>`}</div>
@@ -98,7 +135,7 @@ export function Dialog({ title, children, onClose, actions = null }) {
 }
 
 export function Toasts({ items }) {
-  return html`<div class="toast-wrap" aria-live="polite">
+  return html`<div class="toast-wrap" role="status" aria-live="polite">
     ${items.map((t) => html`<div class=${'toast ' + (t.tone === 'bad' ? 'bad' : '')}>${t.text}</div>`)}
   </div>`
 }
@@ -114,7 +151,7 @@ export function Field({ label, hint, children }) {
 export function SearchBox({ value, onInput, placeholder = '搜索…' }) {
   return html`<div class="row" style=${{ position: 'relative' }}>
     <span style=${{ position: 'absolute', left: 8, color: 'var(--text-3)', display: 'flex' }}><${Icon} name="search" size=${15} /></span>
-    <input class="input search" style=${{ paddingLeft: 30 }} value=${value} placeholder=${placeholder} onInput=${(e) => onInput(e.currentTarget.value)} />
+    <input class="input search" aria-label=${placeholder} style=${{ paddingLeft: 30 }} value=${value} placeholder=${placeholder} onInput=${(e) => onInput(e.currentTarget.value)} />
   </div>`
 }
 

@@ -1,5 +1,11 @@
 // 展示格式化：金额/积分/百分比/时间。单位紧贴数字，千分位，24 小时制。
 
+// 隐藏金额（隐私模式）：只影响展示，不改任何数据。
+let HIDE_MONEY = false
+export function setHideMoney(value) {
+  HIDE_MONEY = value === true
+}
+
 export function currencySymbol(currency) {
   if (currency === 'CNY') return '¥'
   if (currency === 'USD') return '$'
@@ -8,6 +14,7 @@ export function currencySymbol(currency) {
 }
 
 export function fmtMoney(amount, currency = 'CNY') {
+  if (HIDE_MONEY) return '•••'
   const n = Number(amount)
   if (!Number.isFinite(n)) return '—'
   const digits = n !== 0 && Math.abs(n) < 0.01 ? 4 : 2
@@ -16,6 +23,7 @@ export function fmtMoney(amount, currency = 'CNY') {
 }
 
 export function fmtCredit(amount) {
+  if (HIDE_MONEY) return '•••'
   const n = Number(amount)
   if (!Number.isFinite(n)) return '—'
   return n.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' 积分'

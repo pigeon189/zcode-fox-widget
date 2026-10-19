@@ -23,11 +23,11 @@ export function Gauge({ pct, label = '', sub = '', size = 120, tone = '' }) {
       stroke-linecap="round" stroke-dasharray=${c} stroke-dashoffset=${c * (1 - v / 100)}
       transform=${'rotate(-90 ' + size / 2 + ' ' + size / 2 + ')'} />
     <text x="50%" y="47%" text-anchor="middle" dominant-baseline="middle" fill="var(--text)"
-      font-size=${Math.max(16, Math.round(size * 0.2))} font-weight="700" font-family="var(--font-num)">${fmtPct(v)}</text>
+      font-size=${Math.min(32, Math.max(16, Math.round(size * 0.2)))} font-weight="700" font-family="var(--font-num)">${fmtPct(v)}</text>
     ${label
       ? html`<text x="50%" y="64%" text-anchor="middle" fill="var(--text-3)" font-size="12">${label}</text>`
       : null}
-    ${sub ? html`<text x="50%" y="76%" text-anchor="middle" fill="var(--text-3)" font-size="11">${sub}</text>` : null}
+    ${sub ? html`<text x="50%" y="76%" text-anchor="middle" fill="var(--text-3)" font-size="12">${sub}</text>` : null}
   </svg>`
 }
 
@@ -53,7 +53,7 @@ export function StackedBar({ parts }) {
   if (!total) {
     return html`<div class="empty" style=${{ minHeight: 80 }}><span class="small">该宿主未提供构成明细</span></div>`
   }
-  return html`<div>
+  return html`<div role="img" aria-label=${'请求构成：' + list.map(([k, v]) => (BREAKDOWN_LABELS[k] || k) + ' ' + fmtNum(v)).join('，')}>
     <div style=${{ display: 'flex', height: 24, borderRadius: 8, overflow: 'hidden', gap: '2px', background: 'var(--surface-2)' }}>
       ${list.map(([k, v]) => html`<div title=${BREAKDOWN_LABELS[k] + ' ' + fmtNum(v)}
         style=${{ width: Math.max(0.4, (Number(v) / total) * 100) + '%', background: BREAKDOWN_COLORS[k] || 'var(--c5)' }}></div>`)}
@@ -90,18 +90,21 @@ export function AreaChart({ points, limit = null, warn = 80, danger = 92, height
     ${[0, 0.25, 0.5, 0.75, 1].map((f) => {
       const y = padT + ih * f
       return html`<line x1=${padL} y1=${y} x2=${width - padR} y2=${y} stroke="var(--border)" stroke-width="1" />
-        <text x=${padL - 8} y=${y + 3} text-anchor="end" fill="var(--text-3)" font-size="10">${fmtNum(Math.round(maxY * (1 - f)))}</text>`
+        <text x=${padL - 8} y=${y + 3} text-anchor="end" fill="var(--text-3)" font-size="12">${fmtNum(Math.round(maxY * (1 - f)))}</text>`
     })}
     ${[warn, danger].map((v) => {
       if (!(v > 0 && v < 100)) return null
       const y = yOf((maxY * v) / 100)
       return html`<line x1=${padL} y1=${y} x2=${width - padR} y2=${y} stroke=${v >= 92 ? 'var(--bad)' : 'var(--warn)'} stroke-width="1" stroke-dasharray="4 4" opacity="0.7" />
-        <text x=${width - padR} y=${y - 4} text-anchor="end" fill=${v >= 92 ? 'var(--bad)' : 'var(--warn)'} font-size="10">${v}%</text>`
+        <text x=${width - padR} y=${y - 4} text-anchor="end" fill=${v >= 92 ? 'var(--bad)' : 'var(--warn)'} font-size="12">${v}%</text>`
     })}
     <path d=${area} fill="color-mix(in srgb, var(--accent) 20%, transparent)" />
     <path d=${line} fill="none" stroke="var(--accent)" stroke-width="2" />
-    <text x=${padL} y=${height - 8} fill="var(--text-3)" font-size="10">${hhmm(x0)}</text>
-    <text x=${width - padR} y=${height - 8} text-anchor="end" fill="var(--text-3)" font-size="10">${hhmm(x1)}</text>
+    ${list.map((p) => html`<circle cx=${xOf(p.t)} cy=${yOf(p.used)} r="5" fill="transparent">
+      <title>${hhmm(p.t)} · ${fmtNum(p.used)}${limit ? ' / ' + fmtNum(limit) : ''}</title>
+    </circle>`)}
+    <text x=${padL} y=${height - 8} fill="var(--text-3)" font-size="12">${hhmm(x0)}</text>
+    <text x=${width - padR} y=${height - 8} text-anchor="end" fill="var(--text-3)" font-size="12">${hhmm(x1)}</text>
   </svg>`
 }
 
@@ -119,7 +122,7 @@ export function ColumnChart({ data, height = 200, valueLabel = (v) => fmtNum(v) 
   const barW = Math.max(6, Math.min(28, slot - 10))
   return html`<svg class="chart" viewBox=${'0 0 ' + width + ' ' + height} preserveAspectRatio="none" role="img" aria-label="每日用量柱图">
     ${[0, 0.5, 1].map((f) => html`<line x1=${padL} y1=${padT + ih * f} x2=${width - padR} y2=${padT + ih * f} stroke="var(--border)" />
-      <text x=${padL - 6} y=${padT + ih * f + 3} text-anchor="end" fill="var(--text-3)" font-size="10">${f === 0 ? valueLabel(max) : f === 1 ? '0' : ''}</text>`)}
+      <text x=${padL - 6} y=${padT + ih * f + 3} text-anchor="end" fill="var(--text-3)" font-size="12">${f === 0 ? valueLabel(max) : f === 1 ? '0' : ''}</text>`)}
     ${list.map((d, i) => {
       const h = (Number(d.value) || 0) / max * ih
       const x = padL + slot * i + (slot - barW) / 2
@@ -127,14 +130,14 @@ export function ColumnChart({ data, height = 200, valueLabel = (v) => fmtNum(v) 
         <rect x=${x} y=${padT + ih - h} width=${barW} height=${Math.max(1, h)} rx="4" fill=${d.today ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 45%, transparent)'}>
           <title>${d.label + '：' + valueLabel(Number(d.value) || 0)}</title>
         </rect>
-        <text x=${x + barW / 2} y=${height - 8} text-anchor="middle" fill=${d.today ? 'var(--text)' : 'var(--text-3)'} font-size="10">${d.label}</text>
+        <text x=${x + barW / 2} y=${height - 8} text-anchor="middle" fill=${d.today ? 'var(--text)' : 'var(--text-3)'} font-size="12">${d.label}</text>
       </g>`
     })}
   </svg>`
 }
 
 export function MiniBar({ pct, tone = '' }) {
-  return html`<div class=${'progress ' + tone} style=${{ height: 6, minWidth: 80 }}>
+  return html`<div class=${'progress ' + tone} role="img" aria-label=${'占用 ' + (Math.round((Number(pct) || 0) * 10) / 10) + '%'} style=${{ height: 6, minWidth: 80 }}>
     <span style=${{ width: clampPct(pct) + '%' }}></span>
   </div>`
 }

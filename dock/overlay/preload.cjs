@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   getBounds() {
     return ipcRenderer.invoke('bounds')
   },
+  getToken() {
+    return ipcRenderer.invoke('daemon-token')
+  },
   // 命中查询走主进程：拖拽期间渲染进程的网络会被挂起
   hit(x, y, exclude) {
     return ipcRenderer.invoke('hit', { x, y, exclude })

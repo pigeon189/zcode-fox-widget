@@ -283,7 +283,7 @@ export function normalizeContext(raw, ctx = {}) {
     : CONTEXT_REASONS.includes(String(r.reason || ''))
       ? String(r.reason)
       : 'no-data'
-  const used = supported ? Math.max(0, Math.round(finiteOrNull(r.used) || 0)) : null
+  const used = supported ? finiteOrNull(r.used) : null
   const limit = supported ? finiteOrNull(r.limit) : null
   const points = Array.isArray(r.points)
     ? r.points

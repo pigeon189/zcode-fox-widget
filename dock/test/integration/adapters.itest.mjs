@@ -41,7 +41,7 @@ const get = async (p) => {
 const post = async (p, body) => {
   const res = await fetch('http://127.0.0.1:' + port + p, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
     body: JSON.stringify(body),
   })
   return { status: res.status, body: await res.json() }
@@ -161,7 +161,7 @@ test('/settings：默认值可读，PUT 合并且丢弃未知字段', async () =
   const put = async (patch) => {
     const res = await fetch('http://127.0.0.1:' + port + '/settings', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
       body: JSON.stringify(patch),
     })
     return { status: res.status, body: await res.json() }
@@ -225,7 +225,7 @@ test('2.0 /resolve：Kimi Code 与 dsh 的 exe 能命中各自适配器', async 
 test('2.0 /bind：返回 roleDefault/accent，客户端仍不能伪造适配器', async () => {
   const res = await fetch('http://127.0.0.1:' + port + '/bind', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
     body: JSON.stringify({
       exe: 'E:\\KimiCode\\Kimi Code\\Kimi Code.exe',
       pid: 9876,
@@ -274,7 +274,7 @@ test('2.0 /settings：主题/主数字/自动换角色/按宿主角色都能写�
   const put = async (patch) => {
     const res = await fetch('http://127.0.0.1:' + port + '/settings', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
       body: JSON.stringify(patch),
     })
     return { status: res.status, body: await res.json() }

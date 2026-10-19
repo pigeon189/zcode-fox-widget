@@ -162,6 +162,10 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!String(url).startsWith('file://')) event.preventDefault()
+  })
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.loadFile(path.join(UI_DIR, 'console.html'), {
     query: { port: String(daemonPort || ''), dataDirPresent: dataDir ? '1' : '0' },
   })

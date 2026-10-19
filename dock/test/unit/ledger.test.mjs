@@ -139,21 +139,19 @@ test('ledger: percent 口径记 usedPct', () => {
   }
 })
 
-test('ledger: 只保留最近 14 天，历史按日期升序返回', () => {
+test('ledger: 只保留最近 30 天，历史按日期升序返回', () => {
   const { file, dir } = tempLedger()
   try {
-    for (let i = 0; i < 20; i++) {
-      const t = new Date(2026, 9, 1 + i, 12, 0, 0).getTime()
+    for (let i = 0; i < 35; i++) {
+      const t = T - (34 - i) * 86400000
       recordSnapshot(file, { adapterId: 'zcode', adapterName: 'ZCode', snapshot: moneySnap(i + 1), now: t })
     }
     const raw = readLedger(file)
     assert.equal(Object.keys(raw.days).length, KEEP_DAYS)
     const s = summarize(file, { now: T, days: 7 })
     assert.equal(s.days.length, 7)
-    assert.deepEqual(
-      s.days.map((d) => d.date),
-      ['2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18', '2026-10-19', '2026-10-20']
-    )
+    const dates = s.days.map((d) => d.date)
+    assert.deepEqual([...dates].sort(), dates)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

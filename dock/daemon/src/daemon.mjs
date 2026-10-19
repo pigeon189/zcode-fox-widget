@@ -31,6 +31,7 @@ import { createContextHistory } from './context-history.mjs'
 import { createContextService } from './context-service.mjs'
 import { createContextScheduler } from './scheduler.mjs'
 import { createVault } from './vault.mjs'
+import { installLauncher, uninstallLauncher, launcherPaths, startupDir } from './install.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
 import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
@@ -38,6 +39,7 @@ import { Win32Bridge } from './win32.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const UPDATE_PUBKEY = path.join(HERE, '..', '..', 'keys', 'update-pub.pem')
+const CLI_PATH = path.join(HERE, '..', '..', 'tools', 'fox-dock.mjs')
 let updateCheckCache = null
 
 function isEntry() {
@@ -118,6 +120,13 @@ function readBody(req, limit = 8192) {
     })
     req.on('error', reject)
   })
+}
+
+// 旧路由也要有与 /v1 相同的边界：读接口只接受环回 Host，写接口另需令牌。
+function legacyHostAllowed(req, port) {
+  const host = String(req.headers.host || '').toLowerCase()
+  if (!host) return true
+  return host === '127.0.0.1:' + port || host === 'localhost:' + port || host === '[::1]:' + port
 }
 
 function timingSafeEqual(a, b) {
@@ -234,6 +243,15 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     contextHistory,
     engines,
     vault,
+    setAutoStart: (enabled) => {
+      if (enabled) {
+        installLauncher({ dataDir: paths.dir, nodePath: process.execPath, scriptPath: CLI_PATH, command: 'start', format: 'vbs' })
+      } else {
+        uninstallLauncher()
+      }
+      return { enabled, installed: fs.existsSync(launcherPaths(startupDir()).vbs) }
+    },
+    getAutoStart: () => fs.existsSync(launcherPaths(startupDir()).vbs),
     log,
   })
 
@@ -257,6 +275,18 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       return
     }
     res.setHeader('X-Fox-Deprecated', '1')
+
+    const legacyPort = server.address() ? server.address().port : 0
+    if (!legacyHostAllowed(req, legacyPort)) {
+      sendJson(res, 403, { ok: false, error: 'bad-host' })
+      return
+    }
+    const legacyWrite = req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE'
+    const legacyProtected = p === '/settings' || p === '/bind'
+    if (legacyWrite && legacyProtected && !timingSafeEqual(req.headers['x-fox-token'], token)) {
+      sendJson(res, 403, { ok: false, error: 'bad-token' })
+      return
+    }
 
     if (p === '/health') {
       sendJson(res, 200, {

@@ -128,7 +128,7 @@ async function compare() {
           }
         }
         const ratio = diff / (a.width * a.height)
-        if (ratio > 0.002) {
+        if (ratio > 0.001) {
           bad++
           fs.mkdirSync(DIFF, { recursive: true })
           fs.writeFileSync(path.join(DIFF, name), PNG.sync.write(out))
@@ -141,7 +141,7 @@ async function compare() {
     console.error('视觉回归失败：' + bad + ' / ' + total + ' 张（差异图在 __diff__）')
     return 1
   }
-  console.log('✅ 视觉回归通过：' + total + ' 张（阈值 0.2%）')
+  console.log('✅ 视觉回归通过：' + total + ' 张（阈值 0.1%）')
   return 0
 }
 

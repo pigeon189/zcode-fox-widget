@@ -12,11 +12,6 @@ const RANGES = [
   { value: '7d', label: '近 7 天' },
   { value: '30d', label: '近 30 天' },
 ]
-const GROUPS = [
-  { value: 'agent', label: '按 Agent' },
-  { value: 'vendor', label: '按厂商' },
-  { value: 'model', label: '按模型' },
-]
 const METRICS = [
   { value: 'money', label: '金额 / 积分' },
   { value: 'tokens', label: 'Token' },
@@ -132,15 +127,14 @@ export function UsagePage({ app }) {
   return html`<div data-testid="page.usage">
     <div class="row wrap" style=${{ marginBottom: 16 }}>
       <${Segmented} value=${range} options=${RANGES} onChange=${setRange} />
-      <${Segmented} value=${groupBy} options=${GROUPS} onChange=${setGroupBy} />
       <${Segmented} value=${metric} options=${METRICS} onChange=${setMetric} />
       <${SearchBox} value=${search} onInput=${setSearch} placeholder="搜索 Agent / 日期" />
       ${keys.length > 1
         ? html`<${Segmented} value=${active} options=${keys.map((k) => ({ value: k, label: k.endsWith('|CREDIT') ? '积分' : k.split('|')[1] }))} onChange=${setSel} label="币种" />`
         : null}
       <span class="spacer"></span>
-      <${Button} icon="download" onClick=${() => download('fox-dock-usage.csv', toCsv(filtered), 'text/csv')}>CSV</${Button}>
-      <${Button} icon="download" onClick=${() => download('fox-dock-usage.json', JSON.stringify({ range, groupBy, metric, rows: filtered }, null, 2), 'application/json')}>JSON</${Button}>
+      <${Button} icon="download" onClick=${() => download('fox-dock-usage.csv', toCsv(rowsCur), 'text/csv')}>CSV</${Button}>
+      <${Button} icon="download" onClick=${() => download('fox-dock-usage.json', JSON.stringify({ range, groupBy, metric, rows: rowsCur }, null, 2), 'application/json')}>JSON</${Button}>
     </div>
 
     ${error ? html`<div class="alert-bar bad">${error}</div>` : null}
@@ -168,7 +162,7 @@ export function UsagePage({ app }) {
       </div>
       <div class="col-5">
         <${Card} title="缓存命中率">
-          <${EmptyState} icon="chart" title="暂无逐请求缓存明细" hint="ZCode/WorkBuddy 的库只保留最后一次请求的分桶；该项在 M8 接入逐条用量后显示" />
+          <${EmptyState} icon="chart" title="暂无逐请求缓存明细" hint="暂不支持逐请求缓存明细，后续版本提供" />
         </${Card}>
       </div>
       <div class="col-12">

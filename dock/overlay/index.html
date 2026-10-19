@@ -3,15 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline'; script-src 'self'" />
     <title>fox-dock overlay</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="say" hidden>
+    <div id="say" role="status" aria-live="polite" hidden>
       <span id="say-text"></span>
     </div>
 
-    <div id="bubble" hidden>
+    <div id="bubble" role="status" aria-live="polite" hidden>
       <div class="bubble-main"><span id="bubble-text"></span></div>
       <div class="bubble-sub" id="bubble-sub"></div>
     </div>

@@ -13,7 +13,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const KEEP_DAYS = 14
+export const KEEP_DAYS = 30
 
 export function dayKeyOf(ms) {
   const d = new Date(Number(ms) || Date.now())

@@ -4,7 +4,7 @@ import { render } from './vendor/preact.module.js'
 import htm from './vendor/htm.module.js'
 import { Icon } from './components/icons.mjs'
 import { Badge, IconButton, Segmented, Skeleton, Toasts } from './components/base.mjs'
-import { fmtPct, fmtReset, fmtTime, agentName, reasonText, pctTone } from './lib/format.mjs'
+import { fmtPct, fmtReset, fmtTime, agentName, reasonText, pctTone, setHideMoney } from './lib/format.mjs'
 import { OverviewPage } from './pages/overview.mjs'
 import { ContextPage } from './pages/context.mjs'
 import { UsagePage } from './pages/usage.mjs'
@@ -261,6 +261,10 @@ function App() {
 
   // 兜底轮询：SSE 正常时也每 15 秒校正一次（防漏事件）
   useEffect(() => {
+    setHideMoney(!!(settings && settings.hideMoney))
+  }, [settings && settings.hideMoney])
+
+  useEffect(() => {
     const timer = setInterval(() => {
       reloadState().catch(() => setConnected(false))
       setRefreshAt(Date.now())
@@ -353,6 +357,8 @@ function App() {
 
   function roleIdForAgent(id) {
     if (profile && id === viewAgent && profile.roleId) return profile.roleId
+    const agent = (state && state.agents || []).find((a) => a.id === id)
+    if (agent && agent.roleDefault) return agent.roleDefault
     const byDefault = roles.find((r) => (r.defaultFor || []).includes(id))
     if (byDefault) return byDefault.id
     if (settings && settings.rolesByAdapter && settings.rolesByAdapter[id]) return settings.rolesByAdapter[id]
@@ -426,19 +432,17 @@ function App() {
           (g) => html`<div class="nav-group">
             <div class="nav-title">${g}</div>
             ${PAGES.filter((p) => p.group === g).map(
-              (p) => html`<button class="nav-item" aria-current=${page === p.id ? 'page' : undefined} onClick=${() => navigate(p.id)} data-testid=${'nav.' + p.id}>
+              (p) => html`<button class="nav-item" aria-current=${page === p.id ? 'page' : undefined} onClick=${() => navigate(p.id)} aria-label=${p.label} title=${p.label} data-testid=${'nav.' + p.id}>
                 <${Icon} name=${p.icon} size=${18} /><span>${p.label}</span>
               </button>`
             )}
           </div>`
         )}
-        <div class="nav-group">
-          <button class="nav-item" aria-current=${page === 'about' ? 'page' : undefined} onClick=${() => navigate('about')} data-testid="nav.about">
+        <div class="sidebar-footer">
+          <button class="nav-item" aria-current=${page === 'about' ? 'page' : undefined} onClick=${() => navigate('about')} aria-label="关于与诊断" title="关于与诊断" data-testid="nav.about">
             <${Icon} name="info" size=${18} /><span>关于与诊断</span>
           </button>
-        </div>
-        <div class="sidebar-footer">
-          <div class="row"><span class=${'dot ' + (online ? '' : 'offline')}></span>${online ? '在线' : '离线'} · v${boot ? boot.version : ''}</div>
+          <div class="row sidebar-status"><span class=${'dot ' + (online ? '' : 'offline')}></span>${online ? '在线' : '离线'} · v${boot ? boot.version : ''}</div>
         </div>
       </aside>
       <main class="main">

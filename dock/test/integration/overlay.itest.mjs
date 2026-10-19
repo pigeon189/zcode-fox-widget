@@ -108,6 +108,7 @@ let cdp = null
 let fakeCdp = null
 let dropPos = null // 拖拽落点（狐狸左上角，CSS px）
 let port = 0
+let token = ''
 let fakeWin = null
 let binding = null
 let geo = null
@@ -158,6 +159,7 @@ before(async (t) => {
     'daemon health'
   )
   port = health.h.port
+  token = health.lock.token
 
   fake = spawn(ELECTRON, [FAKE_AGENT, '--no-sandbox', '--disable-gpu', '--remote-debugging-port=0'], {
     stdio: ['ignore', 'ignore', 'pipe'],
@@ -196,7 +198,7 @@ before(async (t) => {
 
   overlay = spawn(
     ELECTRON,
-    [OVERLAY, '--no-sandbox', '--disable-gpu', '--no-click-through', ignoreArg, '--daemon-port=' + port, '--remote-debugging-port=0'],
+    [OVERLAY, '--no-sandbox', '--disable-gpu', '--no-click-through', ignoreArg, '--daemon-port=' + port, '--data-dir=' + dir, '--remote-debugging-port=0'],
     { stdio: ['ignore', 'ignore', 'pipe'], env: electronEnv() }
   )
   let stderr = ''
@@ -1045,7 +1047,7 @@ test('roles: 六张角色卡 + 点击换角色 + 按宿主落盘', async (t) => 
   // 复位，避免影响后续用例
   await fetch('http://127.0.0.1:' + port + '/settings', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
     body: JSON.stringify({ roleId: 'fox', rolesByAdapter: {}, displayMode: 'auto' }),
   })
   await cdp.eval("settings.rolesByAdapter={};boundKey='';boundAdapter=null;applyRole('fox')")
@@ -1071,7 +1073,7 @@ test('theme: 深色主题立即生效，auto 跟随系统', async (t) => {
   assert.match(out.auto, /light|dark/)
   await fetch('http://127.0.0.1:' + port + '/settings', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
     body: JSON.stringify({ theme: 'auto' }),
   })
 })

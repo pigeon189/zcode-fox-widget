@@ -80,7 +80,7 @@ export async function testTemplate(templateId) {
   if (!key) return { ok: false, reason: 'no-credential', source }
   if (tpl.kind === 'relay' || tpl.kind === 'cmdgo' || tpl.kind === 'local-log') {
     // 这三类由各自的取数器负责（relays/cmdgo/plan-balance 自带缓存与错误归一）
-    return { ok: true, reason: 'credential-present', source, note: '已配置凭据；刷新厂商页查看取数结果' }
+    return { ok: true, reason: 'credential-present', source, skipped: true, note: '已检测到凭据；未发起网络测试，刷新厂商页查看取数结果' }
   }
   if (tpl.kind === 'tokens') return { ok: true, reason: 'credential-present', source }
   const r = await fetchFromTemplate(tpl, key)

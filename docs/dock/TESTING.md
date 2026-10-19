@@ -42,7 +42,7 @@
 ## 4. 截图与基线
 
 - 截图输出在 `test/visual/__shots__/`（不入库），联系表 `index.html` 可点击放大。
-- 视觉基线尚未接入逐像素比对；当前以「截图人工过目 + ui-check 结构断言」为门禁。
+- 视觉基线已接入逐像素比对：`npm run visual` 对 32 张（8 页 × 双主题 × 两视口）按 0.1% 阈值比较；`npm run visual:update` 更新基线。
 - 接基线时：只在固定机器/固定 Edge 版本生成，基线入库，动态内容用 `data-visual-mask` 遮罩；
   环境不符要标 `ENV-MISMATCH`，不得直接更新基线。
 

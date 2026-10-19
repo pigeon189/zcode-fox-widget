@@ -172,7 +172,7 @@ test('watchdog: 连续 8 次强杀都能拉起，绑定不丢', async () => {
     const key = 'c:/x/fake.exe|1|1700000000000|abc'
     await fetch('http://127.0.0.1:' + cur.health.port + '/bind', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-fox-token': cur.lock.token },
       body: JSON.stringify({
         exe: 'C://x//fake.exe',
         pid: 1,

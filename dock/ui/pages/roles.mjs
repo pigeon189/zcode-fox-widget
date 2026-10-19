@@ -170,7 +170,7 @@ export function RolesPage({ app }) {
               (r) => html`<div class="role-wrap">
                 <button type="button" role="radio" aria-checked=${current === r.id}
                   class=${'role-card ' + (current === r.id ? 'selected' : '')} onClick=${() => pick(r.id)}>
-                  ${app.roleImageUrl(r.id) ? html`<img src=${app.roleImageUrl(r.id)} alt=${r.name} />` : html`<div class="avatar" style=${{ width: 96, height: 96 }}>${r.name.slice(0, 1)}</div>`}
+                  ${app.roleImageUrl(r.id) ? html`<img src=${app.roleImageUrl(r.id)} alt="" />` : html`<div class="avatar" style=${{ width: 96, height: 96 }}>${r.name.slice(0, 1)}</div>`}
                   <span style=${{ fontWeight: 600 }}>${r.name}</span>
                   ${r.builtin ? null : html`<${Badge} tone="info">导入</${Badge}>`}
                 </button>
@@ -236,7 +236,7 @@ export function RolesPage({ app }) {
     ${dialog
       ? html`<${Dialog} title="气泡模板 JSON" onClose=${() => setDialog(false)}
           actions=${html`<${Button} onClick=${() => setDialog(false)}>取消</${Button}><${Button} variant="primary" onClick=${saveTemplates}>保存</${Button}>`}>
-          <textarea class="textarea" rows="16" style=${{ width: '100%' }} value=${json} onInput=${(e) => setJson(e.currentTarget.value)}></textarea>
+          <textarea class="textarea" aria-label="气泡模板 JSON" rows="16" style=${{ width: '100%' }} value=${json} onInput=${(e) => setJson(e.currentTarget.value)}></textarea>
           <div class="small muted">格式与旧挂件兼容；保存后由控制台与宠物层共同使用。</div>
         </${Dialog}>`
       : null}

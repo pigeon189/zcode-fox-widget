@@ -1221,6 +1221,7 @@ html[data-theme="dark"] {
   backdrop-filter: blur(16px);
 }
 
+#bubble.open { pointer-events: auto; }
 #bubble[hidden] {
   display: none;
 }
@@ -1233,7 +1234,7 @@ html[data-theme="dark"] {
 #bubble::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: var(--arrow-left, 50%);
   bottom: -6px;
   margin-left: -6px;
   border: 6px solid transparent;

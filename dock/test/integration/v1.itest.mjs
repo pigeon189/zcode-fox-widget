@@ -147,7 +147,7 @@ test('v1: 宠物命令走三态并持久化', async () => {
   const attach = await fetch(base + '/v1/pet/attach', {
     method: 'POST',
     headers: auth(),
-    body: JSON.stringify({ agentId: 'zcode', hwnd: '0x123', rect: { x: 1, y: 2, width: 3, height: 4 } }),
+    body: JSON.stringify({ exe: 'C:/Program Files/ZCode/ZCode.exe', title: 'ZCode', hwnd: '0x123', rect: { x: 1, y: 2, width: 3, height: 4 } }),
   })
   const a = await attach.json()
   assert.equal(a.pet.mode, 'attached')
@@ -276,7 +276,7 @@ test('v1: 泡泡队列与导入来源接口可用', async () => {
   const got = await (await fetch(base + '/v1/bubbles/queue')).json()
   assert.deepEqual(got.queue.map((x) => (typeof x === 'string' ? x : x.text)), ['第一句', '第二句'])
   const sources = await (await fetch(base + '/v1/import/sources')).json()
-  assert.equal(sources.categories.length, 6)
+  assert.equal(sources.categories.length, 5)
 })
 
 test('v1: 宿主事件需要 token 并进入诊断包', async () => {

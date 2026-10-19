@@ -94,6 +94,8 @@ let bubbleTimer = null
 // 按压泡泡队列：每点一次气泡推进一条；空队列时点击只关闭气泡。
 let pressQueue = []
 let pressQueueIndex = 0
+let DAEMON_TOKEN = ''
+let hideMoney = false
 let activeTab = 'detail'
 let filterText = ''
 let lastSummary = null
@@ -247,6 +249,7 @@ function positionSay() {
 }
 
 function showSay(text, ms, big) {
+  if (settings.dnd) return
   if (!text) return
   sayText.textContent = text
   // 「挑经句」很短，放大成一句有存在感的开场白；普通台词保持 13px。
@@ -358,10 +361,13 @@ function positionBubble() {
   x = Math.max(8, Math.min(x, window.innerWidth - bw - 8))
   bubble.style.left = Math.round(x) + 'px'
   bubble.style.top = Math.round(y) + 'px'
+  const arrowLeft = Math.max(14, Math.min(bw - 14, left + fw / 2 - x))
+  bubble.style.setProperty('--arrow-left', Math.round(arrowLeft) + 'px')
 }
 
 // ms 省略 = 一直显示（调用方自己隐藏，预算提醒走这条路）
 function showBubble(text, sub, opts) {
+  if (settings.dnd) return
   if (!settings.alertBubble && opts && opts.warn) return
   bubbleText.textContent = text
   bubbleSub.textContent = sub || ''
@@ -411,6 +417,10 @@ function hideBubble() {
 
 // ---------- 设置（daemon 持久化） ----------
 
+function writeHeaders() {
+  return { 'Content-Type': 'application/json', 'x-fox-token': DAEMON_TOKEN }
+}
+
 async function loadSettings() {
   if (!base) return
   try {
@@ -432,7 +442,7 @@ async function saveSettings(patch) {
     const r = await (
       await fetch(base + '/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: writeHeaders(),
         body: JSON.stringify(patch),
       })
     ).json()
@@ -445,6 +455,13 @@ async function saveSettings(patch) {
 }
 
 function applySettings() {
+  hideMoney = !!settings.hideMoney
+  const menuBtn = document.getElementById('pet-menu')
+  if (menuBtn) {
+    menuBtn.style.display = settings.menuButton === 'hidden' ? 'none' : ''
+    menuBtn.style.opacity = settings.menuButton === 'always' ? '1' : ''
+    document.body.dataset.menuButton = settings.menuButton || 'hover'
+  }
   applyScale()
   applyTheme()
   const wantedRole = boundAdapter ? roleForAdapter(boundAdapter.id) : settings.roleId
@@ -564,13 +581,14 @@ function fmtNum(n) {
 }
 
 function fmtMoney(m) {
+  if (hideMoney) return '•••'
   if (!m || typeof m.amount !== 'number') return ''
   const sym = m.currency === 'CNY' ? '¥' : m.currency === 'USD' ? '$' : m.currency === 'CREDIT' ? '' : (m.currency || '') + ' '
   const tail = m.currency === 'CREDIT' ? ' 积分' : ''
   const abs = Math.abs(m.amount)
   // 极小的一轮（<1 分）保留 4 位，避免显示成 ¥0.00 让人以为没花钱
   const digits = abs > 0 && abs < 0.01 ? 4 : 2
-  return sym + m.amount.toFixed(digits) + tail
+  return sym + m.amount.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + tail
 }
 
 function fmtPct(n) {
@@ -1151,7 +1169,7 @@ function renderDetail() {
   if (snap && snap.supported && snap.ok) {
     const grid = document.createElement('div')
     grid.className = 'metric-grid'
-    grid.appendChild(metricCard('今日', snap.today ? fmtMoney(snap.today) || fmtNum(snap.today.amount) + ' 积分' : '—', snap.today && snap.usage ? fmtTokens(snap.usage.todayTokens) + ' tokens' : ''))
+    grid.appendChild(metricCard('今日 tokens', snap.usage ? fmtTokens(snap.usage.todayTokens) : '—', '今日调用'))
     grid.appendChild(metricCard('上一轮', snap.turn ? fmtMoney(snap.turn) || fmtNum(snap.turn.amount) + ' 积分' : '—', snap.usage ? fmtTokens(snap.usage.turnTokens) + ' tokens' : ''))
     const q = snap.quota || {}
     grid.appendChild(
@@ -1305,7 +1323,9 @@ function renderQuota() {
 function pct01(v) {
   const n = Number(v)
   if (!Number.isFinite(n)) return null
-  return Math.max(0, Math.min(100, Math.round(n * 1000) / 10))
+  // 兼容两种口径：0–1 的比例与 0–100 的百分数；大于 1 视为已经是百分数。
+  const pct = n <= 1 ? n * 100 : n
+  return Math.max(0, Math.min(100, Math.round(pct * 10) / 10))
 }
 
 function vendorKindLabel(v) {
@@ -1423,7 +1443,7 @@ async function loadVendors(adapter, force) {
   vendorState.error = ''
   if (panelOpen && activeTab === 'vendors') renderPanel(lastSummary, lastBindings)
   try {
-    const q = '/vendors?adapter=' + encodeURIComponent(adapter) + (force ? '&force=1' : '')
+    const q = '/v1/vendors?adapter=' + encodeURIComponent(adapter) + (force ? '&force=1' : '')
     const r = await (await fetch(base + q, { cache: 'no-store' })).json()
     if (seq !== vendorSeq) return
     vendorState.loading = false
@@ -1588,7 +1608,7 @@ function renderUsage() {
       btn.disabled = b.key === boundKey
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
-        fetch(base + '/bind?key=' + encodeURIComponent(b.key), { method: 'DELETE' })
+        fetch(base + '/bind?key=' + encodeURIComponent(b.key), { method: 'DELETE', headers: writeHeaders() })
           .then(() => refreshSummary())
           .catch(() => {})
       })
@@ -1753,7 +1773,7 @@ function renderDetailList() {
       btn.textContent = '解绑'
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
-        fetch(base + '/bind?key=' + encodeURIComponent(b.key), { method: 'DELETE' })
+        fetch(base + '/bind?key=' + encodeURIComponent(b.key), { method: 'DELETE', headers: writeHeaders() })
           .then(() => refreshSummary())
           .catch(() => {})
       })
@@ -1890,7 +1910,7 @@ function renderSettings() {
         settings.scale,
         (v) => saveSettings({ scale: Number(v) })
       ),
-      '标准档约 123px 高（128px 容器）；立绘为 610×610，内容高 587。'
+      '标准档约 250px（小屏自动回落到 122px）。'
     )
   )
   panelBody.appendChild(
@@ -2445,7 +2465,7 @@ async function bind(win) {
   try {
     const res = await fetch(base + '/bind', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: writeHeaders(),
       body: JSON.stringify({
         hwnd: win.hwnd,
         pid: win.pid,
@@ -2490,7 +2510,7 @@ async function bind(win) {
 async function unbind() {
   if (!boundKey || !base) return
   try {
-    await fetch(base + '/bind?key=' + encodeURIComponent(boundKey), { method: 'DELETE' })
+    await fetch(base + '/bind?key=' + encodeURIComponent(boundKey), { method: 'DELETE', headers: writeHeaders() })
   } catch (err) {}
   boundKey = ''
   boundHwnd = ''
@@ -2748,11 +2768,21 @@ applyTheme()
 applyAccent(roleId)
 place(window.innerWidth - foxSize() - 28, window.innerHeight - foxSize() - 96)
 applyScale()
+try {
+  if (window.foxOverlay && typeof window.foxOverlay.getToken === 'function') {
+    window.foxOverlay.getToken().then((t) => (DAEMON_TOKEN = String(t || ''))).catch(() => {})
+  }
+} catch (err) {}
+
 loadSettings().then(() => {
   restoreBinding()
   refreshAgents()
   loadPressQueue()
 })
+// 控制台/托盘改设置后，浮层在 1 秒内重新读取并应用（不再要求重启浮层）。
+setInterval(() => {
+  if (!document.hidden) loadSettings()
+}, 1000)
 setInterval(() => {
   if (!boundKey) refreshAgents()
 }, 20000)
