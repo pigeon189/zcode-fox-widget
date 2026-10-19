@@ -1,0 +1,11 @@
+{
+  "name": "fox-dock-tests",
+  "private": true,
+  "type": "module",
+  "description": "fox-dock 的 E2E / 视觉 / 可访问性测试工具链（仅开发依赖，不随运行时包分发）",
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
+    "pngjs": "7.0.0"
+  }
+}

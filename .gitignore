@@ -15,3 +15,9 @@ desktop-runtime/
 Thumbs.db
 .idea/
 .vscode/
+
+# 视觉测试产物（基线入库，实拍与差异图不入库）
+dock/test/visual/__shots__/
+dock/test/visual/__diff__/
+dock/test/playwright-report/
+dock/test/test-results/

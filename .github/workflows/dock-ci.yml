@@ -41,5 +41,8 @@ jobs:
       - name: 价目内核同步检查
         run: npm run check:sync
 
+      - name: 静态守卫
+        run: npm run lint
+
       - name: 单元测试
         run: npm test

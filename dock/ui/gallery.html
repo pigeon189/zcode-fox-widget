@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fox-dock 组件画廊</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 var(--font-ui);
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 20px;
+        font-weight: 700;
+      }
+      h2 {
+        margin: 24px 0 12px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        padding: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>fox-dock 组件画廊</h1>
+    <p>占位页：M4 将在这里展示全部组件 × 状态 × 双主题。当前用于验证截图基建。</p>
+    <h2>设计令牌</h2>
+    <div class="grid">
+      <div class="card">主文字 --text</div>
+      <div class="card" style="color: var(--text-2)">次要 --text-2</div>
+      <div class="card" style="color: var(--text-3)">辅助 --text-3</div>
+      <div class="card" style="color: var(--ok)">成功 --ok</div>
+      <div class="card" style="color: var(--warn)">警告 --warn</div>
+      <div class="card" style="color: var(--bad)">错误 --bad</div>
+    </div>
+  </body>
+</html>
