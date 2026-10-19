@@ -48,7 +48,6 @@ const quickCtxPct = document.getElementById('quick-ctx-pct')
 const quickCtxAbs = document.getElementById('quick-ctx-abs')
 const quickWindows = document.getElementById('quick-windows')
 const quickRefresh = document.getElementById('quick-refresh')
-const quickMore = document.getElementById('quick-more')
 const menu = document.getElementById('menu')
 const dragHint = document.getElementById('drag-hint')
 
@@ -416,14 +415,7 @@ function placeAll() {
   document.body.dataset.cornerH = half.h
   document.body.dataset.cornerV = half.v
   fox.classList.toggle('mirror', shouldMirror())
-  // 胶囊贴角色，靠近屏幕边缘时向内收
-  const chipW = chip.offsetWidth || 180
-  let cx = half.h === 'left' ? pos.x + 6 : pos.x + s - chipW - 6
-  cx = Math.max(6, Math.min(window.innerWidth - chipW - 6, cx))
-  let cy = half.v === 'bottom' ? pos.y + s - 44 : pos.y + 8
-  cy = Math.max(6, Math.min(window.innerHeight - 40, cy))
-  chip.style.left = cx + 'px'
-  chip.style.top = cy + 'px'
+  positionChip()
   if (quickOpen) positionQuick()
   if (menuOpen) positionMenu()
   positionBubble()
@@ -619,7 +611,8 @@ function agentAccent(id) {
 }
 
 function renderChip() {
-  const visible = !!(bound.agentId || state.pet.mode === 'floating') && settings.showChip
+  // 大浮窗与小胶囊共用角色侧边的同一块位置：打开大浮窗时收起小胶囊。
+  const visible = !!(bound.agentId || state.pet.mode === 'floating') && settings.showChip && !quickOpen
   chip.hidden = !visible
   chip.classList.toggle('open', visible)
   chipUnlink.hidden = state.pet.mode !== 'floating'
@@ -661,7 +654,7 @@ function renderQuick() {
   quickCtxPct.textContent = pct == null ? '—' : pctText(pct)
   quickCtxAbs.textContent = context && context.supported ? tokensText(context.used) + (context.limit ? ' / ' + tokensText(context.limit) : '') : '暂无'
   quickWindows.replaceChildren()
-  const windows = snapshot && snapshot.quotaCard && Array.isArray(snapshot.quotaCard.windows) ? snapshot.quotaCard.windows.slice(0, 2) : []
+  const windows = snapshot && snapshot.quotaCard && Array.isArray(snapshot.quotaCard.windows) ? snapshot.quotaCard.windows.slice(0, 3) : []
   for (const w of windows) {
     const row = document.createElement('div')
     row.className = 'quick-window'
@@ -686,17 +679,38 @@ function renderQuick() {
   positionQuick()
 }
 
+// 角色侧边的横向位置：优先放在角色右边，放不下换左边，最后在视口内夹住。
+// 小胶囊和大浮窗共用同一套落点，所以点开大浮窗时视觉上是「在原地展开」。
+function sideX(width) {
+  // 用实际渲染宽度而不是 foxSize()：样式变量尚未写入时两者可能短暂不一致，
+  // 会让胶囊压到角色边缘。
+  const rect = fox.getBoundingClientRect()
+  const s = rect.width || foxSize()
+  const half = screenHalf()
+  let x = half.h === 'right' ? pos.x - width - 12 : pos.x + s + 12
+  if (x < 8) x = pos.x + s + 12
+  if (x + width > window.innerWidth - 8) x = pos.x - width - 12
+  return Math.max(8, Math.min(window.innerWidth - width - 8, x))
+}
+
+function positionChip() {
+  if (chip.hidden) return
+  const w = chip.offsetWidth || 180
+  const h = chip.offsetHeight || 32
+  const foxH = fox.getBoundingClientRect().height || foxSize()
+  const x = sideX(w)
+  const y = Math.max(8, Math.min(window.innerHeight - h - 8, pos.y + foxH / 2 - h / 2))
+  chip.style.left = Math.round(x) + 'px'
+  chip.style.top = Math.round(y) + 'px'
+}
+
 function positionQuick() {
   if (quick.hidden) return
-  const s = foxSize()
-  const half = screenHalf()
   const w = quick.offsetWidth || 320
   const h = quick.offsetHeight || 300
-  let x = half.h === 'right' ? pos.x - w - 12 : pos.x + s + 12
-  if (x < 8) x = pos.x + s + 12
-  if (x + w > window.innerWidth - 8) x = pos.x - w - 12
-  x = Math.max(8, Math.min(window.innerWidth - w - 8, x))
-  const y = Math.max(8, Math.min(window.innerHeight - h - 8, pos.y + s / 2 - h / 2))
+  const foxH = fox.getBoundingClientRect().height || foxSize()
+  const x = sideX(w)
+  const y = Math.max(8, Math.min(window.innerHeight - h - 8, pos.y + foxH / 2 - h / 2))
   quick.style.left = Math.round(x) + 'px'
   quick.style.top = Math.round(y) + 'px'
 }
@@ -704,6 +718,8 @@ function positionQuick() {
 function toggleQuick(open) {
   quickOpen = typeof open === 'boolean' ? open : !quickOpen
   quick.hidden = !quickOpen
+  // 大浮窗打开时收起小胶囊，两者占同一个侧边位置，不叠在角色身上。
+  renderChip()
   if (quickOpen) {
     closeMenu()
     renderQuick()
@@ -1178,11 +1194,6 @@ bubble.addEventListener('click', async (e) => {
   hideBubble()
 })
 quickRefresh.addEventListener('click', () => refreshAgentData(true))
-quickMore.addEventListener('click', (e) => {
-  e.stopPropagation()
-  const r = quickMore.getBoundingClientRect()
-  openMenu(r.left - 180, r.bottom + 4)
-})
 menu.addEventListener('pointerdown', (e) => e.stopPropagation())
 document.addEventListener('mousedown', (e) => {
   if (quickOpen && !isInside(quick, e.clientX, e.clientY) && !isInside(fox, e.clientX, e.clientY)) toggleQuick(false)
@@ -1215,6 +1226,8 @@ async function boot() {
   await ensureOrigin()
   const s = await read('/v1/settings')
   if (s && s.ok && s.settings) settings = { ...settings, ...s.settings }
+  // 先应用尺寸/主题，再等角色库（导入角色可能稍慢），避免首帧用旧尺寸。
+  applySettings()
   await loadRoleCatalog()
   applySettings()
   await refreshState()

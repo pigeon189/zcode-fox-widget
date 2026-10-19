@@ -268,6 +268,21 @@ test('pet: 拖到 agent 窗口吸附并显示胶囊', async () => {
   assert.equal(st.pet.agentId, 'generic')
   await waitFor(async () => (await cdp.eval("!document.getElementById('chip').hidden")), 5000, 'chip visible')
   assert.match(await cdp.eval("document.getElementById('chip-value').textContent"), /—|¥|积分|%/)
+  // 小胶囊在角色侧边，不能压在角色身上。
+  const geom = JSON.parse(
+    await cdp.eval(
+      "(function(){var f=document.getElementById('fox').getBoundingClientRect();var c=document.getElementById('chip').getBoundingClientRect();return JSON.stringify({fox:{l:f.left,t:f.top,r:f.right,b:f.bottom},chip:{l:c.left,t:c.top,r:c.right,b:c.bottom}})})()"
+    )
+  )
+  const overlap = geom.chip.r > geom.fox.l && geom.chip.l < geom.fox.r && geom.chip.b > geom.fox.t && geom.chip.t < geom.fox.b
+  assert.equal(overlap, false, '胶囊不应遮挡角色：' + JSON.stringify(geom))
+  // 点开大浮窗：小胶囊收起，大浮窗里不再有重复的省略号按钮。
+  await mouse(cdp, (geom.fox.l + geom.fox.r) / 2, (geom.fox.t + geom.fox.b) / 2)
+  await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 4000, 'quick open for chip test')
+  assert.equal(await cdp.eval("document.getElementById('chip').hidden"), true, '大浮窗打开时小胶囊应隐藏')
+  assert.equal(await cdp.eval("document.getElementById('quick-more')===null"), true, '大浮窗不再重复放省略号')
+  await cdp.eval('window.__pet.closeQuick()')
+  await waitFor(async () => (await cdp.eval("!document.getElementById('chip').hidden")), 3000, 'chip back after quick close')
   assert.equal(await cdp.eval('window.__pet.alphaMaskLoaded()'), true, '默认角色也要加载 alpha 掩码')
   const bindings = await (await fetch('http://127.0.0.1:' + port + '/v1/bindings')).json()
   assert.ok(bindings.bindings.length >= 1, 'attach 后应写入绑定表')
@@ -357,6 +372,22 @@ test('pet: 气泡点击推进队列，队列结束关闭', async () => {
   await waitFor(async () => (await cdp.eval("document.getElementById('bubble-text').textContent")) === '第一句', 3000, 'queue 1')
   await mouse(cdp, rect.x, rect.y)
   await waitFor(async () => (await cdp.eval("document.getElementById('bubble-text').textContent")) === '第二句', 3000, 'queue 2')
+})
+
+test('pet: 大浮窗并列三档额度，顺序 5 小时 → 本周 → 月度池', async () => {
+  await cdp.eval(
+    "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:null," +
+      "balance:{amount:46,currency:'USD'},quota:{remainingPct:31.8,usedPct:68.2}," +
+      "quotaCard:{kind:'windows',plan:'GOAT',preferBalance:true,windows:[" +
+      "{label:'5 小时',usedPct:68.2,remainingPct:31.8},{label:'本周',usedPct:67.3,remainingPct:32.7},{label:'月度池',usedPct:33.7,remainingPct:66.3}]}});" +
+      "window.__pet.debugFloat('generic',400,300);window.__pet.openQuick()"
+  )
+  await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 3000, 'quick with 3 windows')
+  const labels = await cdp.eval(
+    "[...document.querySelectorAll('#quick-windows .quick-window .label')].map(function(x){return x.textContent}).join(',')"
+  )
+  assert.equal(labels, '5 小时,本周,月度池')
+  await cdp.eval('window.__pet.closeQuick()')
 })
 
 test('pet: 菜单换角色，吸附只有一个总开关', async () => {

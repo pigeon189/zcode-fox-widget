@@ -69,9 +69,10 @@ function windowOf(label, w) {
 function windowsOfVendor(v) {
   if (!v) return []
   const out = []
-  if (v.monthly) out.push(windowOf('月度池', v.monthly))
+  // 并列顺序与旧挂件一致：5 小时 → 本周 → 月度池。
   if (v.fiveHour) out.push(windowOf('5 小时', v.fiveHour))
   if (v.weekly) out.push(windowOf('本周', v.weekly))
+  if (v.monthly) out.push(windowOf('月度池', v.monthly))
   if (Array.isArray(v.windows) && !out.length) {
     for (const w of v.windows) {
       // 中转站的窗口字段是 percentUsed（0–100），cmdgo 是 percent（0–1）。

@@ -20,15 +20,7 @@ const SORTS = [
 function windowsOf(v) {
   if (v.kind === 'cmdgo') {
     const out = []
-    if (v.monthly) {
-      out.push({
-        label: '月度池',
-        usedPct: Number(v.monthly.percent) * 100,
-        remaining: v.monthly.remaining,
-        total: v.monthly.total,
-        resetAt: v.monthly.resetAt,
-      })
-    }
+    // 并列顺序：5 小时 → 本周 → 月度池（与旧挂件一致）。
     if (v.fiveHour) {
       out.push({
         label: '5 小时',
@@ -45,6 +37,15 @@ function windowsOf(v) {
         remaining: v.weekly.remaining,
         total: v.weekly.cap,
         resetAt: v.weekly.resetAt,
+      })
+    }
+    if (v.monthly) {
+      out.push({
+        label: '月度池',
+        usedPct: Number(v.monthly.percent) * 100,
+        remaining: v.monthly.remaining,
+        total: v.monthly.total,
+        resetAt: v.monthly.resetAt,
       })
     }
     return out.filter((w) => Number.isFinite(w.usedPct))
