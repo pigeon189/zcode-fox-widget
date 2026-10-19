@@ -42,7 +42,8 @@ test('ledger: 记录后今日汇总包含该适配器', () => {
       unit: 'money',
       currency: 'CNY',
       amount: 1.23,
-      adapters: [{ id: 'zcode', name: 'ZCode', amount: 1.23 }],
+      tokens: 0,
+      adapters: [{ id: 'zcode', name: 'ZCode', amount: 1.23, tokens: 0 }],
     })
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })

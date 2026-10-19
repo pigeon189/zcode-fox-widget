@@ -13,7 +13,7 @@ import path from 'node:path'
 import { normalizeContext } from '../../adapters/contracts.mjs'
 import { resolveAdapter } from '../../adapters/registry.mjs'
 import { readBindings } from './bindings.mjs'
-import { getProfile, readSettings, writePet, writeProfile, writeSettings } from './settings.mjs'
+import { getProfile, readSettings, resetSettings, writePet, writeProfile, writeSettings } from './settings.mjs'
 import { recordSnapshot, summarize } from './ledger.mjs'
 import { transition } from './state-machine.mjs'
 
@@ -134,6 +134,7 @@ export function createV1Router(deps) {
     getPort,
     readUpdateState,
     contextService,
+    contextHistory,
     engines,
     vault,
     log = () => {},
@@ -511,6 +512,25 @@ export function createV1Router(deps) {
         if (events.length > 200) events.shift()
         if (sse) sse.broadcast('event', ev)
         sendJson(res, 200, { ok: true, event: ev })
+        return true
+      }
+
+      // ---------- 维护 ----------
+      if (p === '/v1/maintenance/reset-settings' && method === 'POST') {
+        const r = resetSettings(paths.settings)
+        await broadcastState()
+        sendJson(res, 200, { ok: true, settings: r.settings, backup: r.backup })
+        return true
+      }
+
+      if (p === '/v1/maintenance/clear-usage' && method === 'POST') {
+        for (const file of [paths.ledger, paths.contextHistory]) {
+          try {
+            fs.unlinkSync(file)
+          } catch (err) {}
+        }
+        if (contextHistory && typeof contextHistory.clear === 'function') contextHistory.clear()
+        sendJson(res, 200, { ok: true })
         return true
       }
 

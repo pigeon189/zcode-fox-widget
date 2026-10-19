@@ -109,3 +109,25 @@ CHANGELOG.md 与各版本 tag。2026-10-05 起以「ZCode狐娘小挂件（zcode
 
     Copyright (c) 2026 pigeon189（ZCode狐娘小挂件 / zcode-fox-widget）
     MIT License（见本目录 LICENSE）
+
+fox-dock 的第三方前端组件
+=========================
+
+1. Preact 10.29.2（MIT）
+   https://preactjs.com
+   Copyright (c) 2015-present Jason Miller
+   以源码形式放在 dock/ui/vendor/preact.module.js、hooks.module.js，未修改；
+   许可证见 dock/ui/vendor/LICENSE-preact。
+
+2. htm 3.1.1（Apache-2.0）
+   https://github.com/developit/htm
+   Copyright 2018 Google LLC
+   以源码形式放在 dock/ui/vendor/htm.module.js（仅把 import 路径指向同目录的
+   preact.module.js），未修改其它内容；许可证见 dock/ui/vendor/LICENSE-htm。
+
+3. Lucide 图标（ISC）
+   https://lucide.dev
+   只摘用到的 SVG path 数据进 dock/ui/components/icons.mjs，未打包图标库。
+
+测试依赖（不随运行时包分发）：@playwright/test（Apache-2.0）、
+@axe-core/playwright（MPL-2.0）、pngjs（MIT）。

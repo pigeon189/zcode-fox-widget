@@ -231,6 +231,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     getPort: () => actualPort,
     readUpdateState: readUpdateStateSafe,
     contextService,
+    contextHistory,
     engines,
     vault,
     log,

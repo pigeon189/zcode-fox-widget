@@ -127,6 +127,12 @@ export function createContextHistory({ file, now = () => Date.now(), maxBytes = 
       return entry ? entry.points.slice() : []
     },
 
+    clear() {
+      data = { version: 1, sessions: {} }
+      loaded = true
+      flush()
+    },
+
     flush,
     _data: () => data,
   }

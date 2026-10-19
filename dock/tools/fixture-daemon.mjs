@@ -15,6 +15,16 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+}
+
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..')
 
@@ -55,6 +65,31 @@ function pick(name, fallback) {
   return typeof fallback === 'function' ? fallback() : fallback
 }
 
+function contextOf(id) {
+  const table = scene.contexts
+  if (table && table[id]) return table[id]
+  return pick('context', { supported: false, confidence: 'unavailable', reason: 'no-session', points: [] })
+}
+
+function serveStatic(req, res, p) {
+  const clean = path.normalize(p).replace(/^(\.\.[/\\])+/, '')
+  const file = path.join(ROOT, clean)
+  if (!file.startsWith(ROOT)) {
+    sendJson(res, 403, { ok: false, error: 'forbidden' })
+    return true
+  }
+  let stat
+  try {
+    stat = fs.statSync(file)
+  } catch (err) {
+    return false
+  }
+  if (!stat.isFile()) return false
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' })
+  fs.createReadStream(file).pipe(res)
+  return true
+}
+
 function stateBody() {
   return {
     ok: true,
@@ -87,19 +122,22 @@ const server = http.createServer(async (req, res) => {
   const snapMatch = p.match(/^\/v1\/agents\/([^/]+)\/snapshot$/)
   if (snapMatch) {
     const id = decodeURIComponent(snapMatch[1])
-    sendJson(res, 200, { ok: true, adapterId: id, snapshot: pick('snapshot', null) })
+    const snaps = pick('snapshots', null)
+    sendJson(res, 200, { ok: true, adapterId: id, snapshot: snaps ? snaps[id] || null : pick('snapshot', null), context: contextOf(id) })
     return
   }
 
   const ctxMatch = p.match(/^\/v1\/agents\/([^/]+)\/context$/)
   if (ctxMatch) {
-    sendJson(res, 200, { ok: true, context: pick('context', { supported: false, confidence: 'unavailable', reason: 'no-session', points: [] }) })
+    sendJson(res, 200, { ok: true, context: contextOf(decodeURIComponent(ctxMatch[1])) })
     return
   }
 
   const sessMatch = p.match(/^\/v1\/agents\/([^/]+)\/sessions$/)
   if (sessMatch) {
-    sendJson(res, 200, { ok: true, sessions: pick('sessions', []) })
+    const table = pick('sessions', null)
+    const id = decodeURIComponent(sessMatch[1])
+    sendJson(res, 200, { ok: true, sessions: Array.isArray(table) ? table : (table && table[id]) || [] })
     return
   }
 
@@ -125,6 +163,27 @@ const server = http.createServer(async (req, res) => {
   const profMatch = p.match(/^\/v1\/profiles\/([^/]+)$/)
   if (profMatch) {
     sendJson(res, 200, { ok: true, profile: pick('profiles', {})[decodeURIComponent(profMatch[1])] || null })
+    return
+  }
+
+  if (p === '/v1/diag/bundle') {
+    sendJson(res, 200, {
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      app: 'fox-dock',
+      version: '2.0.0-fixture',
+      runtime: { node: process.version, platform: process.platform, arch: process.arch, pid: process.pid, port, uptimeSec: Math.round((Date.now() - startedAt) / 1000) },
+      paths: { dataDir: '%LOCALAPPDATA%\\fox-dock' },
+      adapters: scene.adapters || [],
+      bindings: scene.bindings || [],
+      update: scene.update || { history: [] },
+      ...pick('diag', {}),
+    })
+    return
+  }
+
+  if (p === '/update/check') {
+    sendJson(res, 200, { ok: false, reason: 'manifest-not-configured', current: '2.0.0-fixture', error: '未配置更新清单地址。' })
     return
   }
 
@@ -167,6 +226,9 @@ const server = http.createServer(async (req, res) => {
     setTimeout(() => process.exit(0), 20)
     return
   }
+
+  // 静态文件：只用于视觉/E2E 测试（/ui、/overlay 等），不参与生产路径
+  if ((req.method === 'GET' || req.method === 'HEAD') && serveStatic(req, res, p)) return
 
   sendJson(res, 404, { ok: false, error: 'not-found', path: p })
 })

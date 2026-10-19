@@ -1,0 +1,157 @@
+{
+  "state": {
+    "pet": { "mode": "attached", "agentId": "zcode", "lastAgentId": "zcode", "profileOf": "zcode", "hwnd": "0x1", "rect": null, "display": null },
+    "agents": [
+      { "id": "zcode", "name": "ZCode", "running": true, "windows": [{ "hwnd": "0x1", "pid": 100, "title": "TianShu v0.2" }], "accent": "#f0a04b", "roleDefault": "fox" },
+      { "id": "workbuddy", "name": "WorkBuddy", "running": true, "windows": [{ "hwnd": "0x2", "pid": 200, "title": "WorkBuddy" }], "accent": "#22b8a0", "roleDefault": "xiaoke" },
+      { "id": "kimi", "name": "Kimi Code", "running": false, "windows": [], "accent": "#8b5cf6", "roleDefault": "kimi" },
+      { "id": "dsh", "name": "DeepSeek Harness", "running": false, "windows": [], "accent": "#4d6bfe", "roleDefault": "whale" }
+    ],
+    "daemon": { "version": "2.0.0-fixture", "uptime": 3600, "port": 39490 }
+  },
+  "snapshots": {
+    "zcode": {
+      "ok": true, "adapterId": "zcode", "adapterName": "ZCode", "supported": true, "capturedAt": 1792400000000,
+      "unit": "money",
+      "today": { "amount": 12.34, "currency": "CNY", "byCurrency": { "CNY": 12.34 } },
+      "turn": { "amount": 0.28, "currency": "CNY", "byCurrency": { "CNY": 0.28 } },
+      "balance": null, "quota": null,
+      "quotaCard": { "kind": "plan", "title": "ZCode", "subtitle": "按厂商口径计费", "plan": "ZCode", "note": "余额/套餐取决于当前 provider。", "windows": [] },
+      "plan": "ZCode", "account": "", "details": [{ "label": "今日调用", "value": "38 次" }, { "label": "今日 tokens", "value": "2.4M" }],
+      "usage": { "todayTokens": 2400000, "turnTokens": 12000 }, "source": "zcode:db.sqlite", "error": null
+    },
+    "workbuddy": {
+      "ok": true, "adapterId": "workbuddy", "adapterName": "WorkBuddy", "supported": true, "capturedAt": 1792400000000,
+      "unit": "credit",
+      "today": { "amount": 193.5, "currency": "CREDIT", "byCurrency": { "CREDIT": 193.5 } },
+      "turn": { "amount": 3.2, "currency": "CREDIT", "byCurrency": { "CREDIT": 3.2 } },
+      "balance": null, "quota": null,
+      "quotaCard": { "kind": "plan", "title": "WorkBuddy", "subtitle": "订阅积分", "plan": "WorkBuddy 订阅", "note": "积分由 WorkBuddy 托管。", "windows": [] },
+      "plan": "WorkBuddy 订阅", "account": "", "details": [{ "label": "今日调用", "value": "12 次" }],
+      "usage": { "todayTokens": 890000, "turnTokens": 42000 }, "source": "workbuddy:transcripts", "error": null
+    },
+    "kimi": {
+      "ok": true, "adapterId": "kimi", "adapterName": "Kimi Code", "supported": true, "capturedAt": 1792400000000,
+      "unit": "percent",
+      "today": null, "turn": null, "balance": null,
+      "quota": { "usedPct": 47.5, "remainingPct": 52.5 },
+      "quotaCard": {
+        "kind": "windows", "title": "Kimi Code", "subtitle": "Kimi For Coding 套餐", "plan": "Kimi For Coding", "account": "paper",
+        "windows": [
+          { "key": "limit-5h", "label": "5 小时", "usedPct": 47.5, "remainingPct": 52.5, "resetAt": 1792410000000, "detail": "" },
+          { "key": "limit-7d", "label": "7 天", "usedPct": 18, "remainingPct": 82, "resetAt": 1792600000000, "detail": "" }
+        ],
+        "note": "额度来自 Kimi Code /coding/v1/usages。"
+      },
+      "plan": "Kimi For Coding", "account": "paper", "details": [], "usage": { "todayTokens": 0, "turnTokens": 0 }, "source": "kimi:/coding/v1/usages", "error": null
+    },
+    "dsh": {
+      "ok": true, "adapterId": "dsh", "adapterName": "DeepSeek Harness", "supported": true, "capturedAt": 1792400000000,
+      "unit": "money",
+      "today": { "amount": 1.08, "currency": "CNY", "byCurrency": { "CNY": 1.08 } },
+      "turn": { "amount": 0.12, "currency": "CNY", "byCurrency": { "CNY": 0.12 } },
+      "balance": { "amount": 63.2, "currency": "CNY", "byCurrency": { "CNY": 63.2 } }, "quota": null,
+      "quotaCard": { "kind": "balance", "title": "DeepSeek Harness", "subtitle": "DeepSeek 余额", "balance": { "amount": 63.2, "currency": "CNY" }, "windows": [], "note": "余额来自 DeepSeek API。" },
+      "plan": "", "account": "", "details": [], "usage": { "todayTokens": 420000, "turnTokens": 8000 }, "source": "dsh:sessions", "error": null
+    }
+  },
+  "contexts": {
+    "zcode": {
+      "ok": true, "adapterId": "zcode", "adapterName": "ZCode", "supported": true, "confidence": "exact",
+      "sessionId": "s1", "title": "重构 billing 适配器", "model": "deepseek-v4.1-flash",
+      "limit": 1000000, "limitSource": "host", "used": 475318, "pct": 47.5,
+      "breakdown": { "cacheRead": 292100, "input": 147000, "cacheWrite": 4000, "output": 32000, "reasoning": 218 },
+      "compaction": { "count": 1, "lastAt": 1792390000000, "shadowedTokens": 188765, "derived": false },
+      "points": [
+        { "t": 1792384000000, "used": 120000 }, { "t": 1792387000000, "used": 168000 },
+        { "t": 1792390000000, "used": 210000 }, { "t": 1792393000000, "used": 255000 },
+        { "t": 1792396000000, "used": 310000 }, { "t": 1792399000000, "used": 366000 },
+        { "t": 1792400000000, "used": 475318 }
+      ],
+      "updatedAt": 1792400000000
+    },
+    "workbuddy": {
+      "ok": true, "adapterId": "workbuddy", "adapterName": "WorkBuddy", "supported": true, "confidence": "exact",
+      "sessionId": "w1", "title": "继续执行剩余计划任务", "model": "deepseek-v4.1-flash",
+      "limit": 1000000, "limitSource": "host", "used": 475318, "pct": 47.5, "points": [], "updatedAt": 1792400000000
+    },
+    "kimi": { "ok": true, "adapterId": "kimi", "adapterName": "Kimi Code", "supported": false, "confidence": "unavailable", "reason": "not-running", "points": [] },
+    "dsh": {
+      "ok": true, "adapterId": "dsh", "adapterName": "DeepSeek Harness", "supported": true, "confidence": "exact",
+      "sessionId": "d1", "title": "调优上下文压缩", "model": "claude-sonnet-5-5",
+      "limit": 1000000, "limitSource": "host", "used": 8733, "pct": 0.9,
+      "breakdown": { "cacheRead": 5000, "input": 2400, "cacheWrite": 200, "output": 1000, "reasoning": 133 },
+      "compaction": { "count": 1, "lastAt": 1792395000000, "shadowedTokens": 32000, "derived": false },
+      "points": [{ "t": 1792398000000, "used": 6200 }, { "t": 1792400000000, "used": 8733 }],
+      "updatedAt": 1792400000000
+    }
+  },
+  "sessions": {
+    "zcode": [
+      { "id": "s1", "title": "重构 billing 适配器", "model": "deepseek-v4.1-flash", "used": 475318, "limit": 1000000, "pct": 47.5, "requests": 38, "updatedAt": 1792400000000 },
+      { "id": "s2", "title": "修复流式响应截断", "model": "glm-5.3", "used": 210000, "limit": 200000, "pct": 100, "requests": 12, "updatedAt": 1792380000000 },
+      { "id": "s3", "title": "部署脚本与文档", "model": "claude-sonnet-5-5", "used": 88000, "limit": 1000000, "pct": 8.8, "requests": 6, "updatedAt": 1792300000000 }
+    ],
+    "workbuddy": [{ "id": "w1", "title": "继续执行剩余计划任务", "model": "deepseek-v4.1-flash", "used": 475318, "limit": 1000000, "pct": 47.5, "requests": 0, "updatedAt": 1792400000000 }],
+    "kimi": [],
+    "dsh": [{ "id": "d1", "title": "调优上下文压缩", "model": "claude-sonnet-5-5", "used": 8733, "limit": 1000000, "pct": 0.9, "requests": 0, "updatedAt": 1792400000000 }]
+  },
+  "usage": {
+    "today": { "date": "2026-10-19", "groups": [
+      { "unit": "money", "currency": "CNY", "amount": 12.34, "tokens": 2400000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 12.34, "tokens": 2400000 }, { "id": "dsh", "name": "DeepSeek Harness", "amount": 1.08, "tokens": 420000 }] },
+      { "unit": "credit", "currency": "CREDIT", "amount": 193.5, "tokens": 890000, "adapters": [{ "id": "workbuddy", "name": "WorkBuddy", "amount": 193.5, "tokens": 890000 }] }
+    ] },
+    "days": [
+      { "date": "2026-10-13", "groups": [{ "unit": "money", "currency": "CNY", "amount": 3.2, "tokens": 600000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 3.2, "tokens": 600000 }] }] },
+      { "date": "2026-10-14", "groups": [{ "unit": "money", "currency": "CNY", "amount": 5.4, "tokens": 900000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 5.4, "tokens": 900000 }] }] },
+      { "date": "2026-10-15", "groups": [{ "unit": "money", "currency": "CNY", "amount": 4.1, "tokens": 700000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 4.1, "tokens": 700000 }] }] },
+      { "date": "2026-10-16", "groups": [{ "unit": "money", "currency": "CNY", "amount": 8.8, "tokens": 1500000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 8.8, "tokens": 1500000 }] }] },
+      { "date": "2026-10-17", "groups": [{ "unit": "money", "currency": "CNY", "amount": 2.5, "tokens": 400000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 2.5, "tokens": 400000 }] }] },
+      { "date": "2026-10-18", "groups": [{ "unit": "money", "currency": "CNY", "amount": 9.1, "tokens": 1700000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 9.1, "tokens": 1700000 }] }] },
+      { "date": "2026-10-19", "groups": [
+        { "unit": "money", "currency": "CNY", "amount": 12.34, "tokens": 2400000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 12.34, "tokens": 2400000 }, { "id": "dsh", "name": "DeepSeek Harness", "amount": 1.08, "tokens": 420000 }] },
+        { "unit": "credit", "currency": "CREDIT", "amount": 193.5, "tokens": 890000, "adapters": [{ "id": "workbuddy", "name": "WorkBuddy", "amount": 193.5, "tokens": 890000 }] }
+      ] }
+    ]
+  },
+  "vendors": [
+    { "id": "deepseek", "name": "DeepSeek", "kind": "balance", "currency": "CNY", "available": true, "balance": 63.2, "todayUsage": 1.08, "configured": true, "status": "ok", "keyMasked": "sk-••••8c5", "keySource": "zcode-provider" },
+    { "id": "zcode-plan", "name": "GLM Plan 配额", "kind": "local-log", "currency": "CNY", "available": true, "percentRemaining": 72, "remaining": 720, "total": 1000, "configured": true, "status": "ok" },
+    { "id": "commandcode", "name": "CommandCode", "kind": "cmdgo", "currency": "USD", "available": true, "monthly": { "percent": 42 }, "fiveHour": { "percent": 18 }, "weekly": { "percent": 30 }, "configured": true, "status": "ok" },
+    { "id": "moonshot-kimi", "name": "Kimi", "kind": "balance", "currency": "CNY", "available": true, "balance": 21.5, "configured": true, "status": "ok", "keyMasked": "sk-••••YtN" },
+    { "id": "relay-packycode", "name": "PackyCode", "kind": "relay", "currency": "USD", "available": false, "reason": "未配置凭据", "configured": false, "status": "unavailable" },
+    { "id": "openai", "name": "OpenAI", "kind": "balance", "currency": "USD", "available": false, "reason": "未配置凭据", "configured": false, "status": "unavailable" }
+  ],
+  "roles": [
+    { "id": "fox", "name": "嘎啦嘛", "accent": "#f0a04b", "defaultFor": ["zcode"], "image": "assets/roles/fox.png", "builtin": true },
+    { "id": "whale", "name": "大肥鱼", "accent": "#4d6bfe", "defaultFor": ["dsh"], "image": "assets/roles/whale.png", "builtin": true },
+    { "id": "gpt", "name": "GPT娘", "accent": "#10a37f", "defaultFor": [], "image": "assets/roles/gpt.png", "builtin": true },
+    { "id": "kimi", "name": "kimi娘", "accent": "#b07cff", "defaultFor": ["kimi"], "image": "assets/roles/kimi.png", "builtin": true },
+    { "id": "xiaoke", "name": "小克", "accent": "#22b8a0", "defaultFor": ["workbuddy"], "image": "assets/roles/xiaoke.png", "builtin": true },
+    { "id": "gemini", "name": "哈基米", "accent": "#4285f4", "defaultFor": [], "image": "assets/roles/gemini.png", "builtin": true }
+  ],
+  "settings": {
+    "schema": 2, "roleId": "fox", "chatterMs": 300000, "scale": 1, "showChip": true, "showStyle": "chip", "menuButton": "hover",
+    "followMs": 500, "scrollGap": 17, "turnBubble": true, "turnBubbleMs": 5000, "budgetMoney": 20, "weeklyBudget": 100, "monthlyBudget": 300,
+    "quotaWarnPct": 20, "balanceWarnMoney": 10, "contextWarnPct": 80, "costAnomalyX": 2, "alertBubble": true,
+    "theme": "auto", "displayMode": "auto", "autoRole": true, "rolesByAdapter": {}, "showWeek": true, "petMode": false,
+    "autoAttachNewAgent": false, "reattachOnRestart": true, "floatingData": "last", "hideMoney": false, "dnd": false,
+    "soundEnabled": false, "soundVolume": 0.5, "confirmAlert": true, "autoStart": true, "language": "zh-CN",
+    "updateManifestUrl": "", "autoUpdate": false, "updateChannel": "prerelease",
+    "hotkeys": { "toggle": "Ctrl+Alt+F", "console": "Ctrl+Alt+D", "hideMoney": "Ctrl+Alt+H" },
+    "profiles": { "zcode": { "roleId": "fox" } },
+    "pet": { "mode": "attached", "agentId": "zcode", "lastAgentId": "zcode", "profileOf": "zcode", "hwnd": "0x1", "rect": null, "display": null }
+  },
+  "profiles": { "zcode": { "roleId": "fox", "accent": "", "displayMode": "auto", "turnBubble": true, "turnBubbleMs": 5000, "chatterMs": 300000, "alertBubble": true, "dnd": false, "dataSource": "last" } },
+  "bubbles": [],
+  "adapters": [
+    { "id": "zcode", "name": "ZCode", "billing": true, "context": true, "follow": true },
+    { "id": "workbuddy", "name": "WorkBuddy", "billing": true, "context": true, "follow": true },
+    { "id": "kimi", "name": "Kimi Code", "billing": true, "context": true, "follow": true },
+    { "id": "dsh", "name": "DeepSeek Harness", "billing": true, "context": true, "follow": true }
+  ],
+  "bindings": [
+    { "key": "zcode.exe|100|1792400000000|0x1", "adapterId": "zcode", "window": { "title": "TianShu v0.2", "hwnd": "0x1" }, "at": 1792400000000 }
+  ],
+  "update": { "history": [] }
+}

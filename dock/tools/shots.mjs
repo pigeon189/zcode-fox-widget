@@ -30,6 +30,7 @@ function list(v) {
 }
 
 const pages = list(arg('--page', 'gallery'))
+const consolePages = list(arg('--console-pages', 'overview'))
 const themes = list(arg('--theme', 'light,dark'))
 const viewports = list(arg('--viewport', '960x680,760x560')).map((v) => {
   const m = v.match(/^(\d+)x(\d+)$/)
@@ -48,12 +49,12 @@ async function loadPlaywright() {
   return import(pathToFileURL(candidate).href)
 }
 
-function pageUrl(name) {
+function pageUrl(name, hash = '') {
   if (name === 'gallery') {
     return base ? base.replace(/\/$/, '') + '/ui/gallery.html' : pathToFileURL(path.join(ROOT, 'ui', 'gallery.html')).href
   }
   if (name === 'console') {
-    return (base || '') + '/ui/console.html'
+    return (base || '') + '/ui/console.html' + (hash ? '#' + hash : '')
   }
   if (name === 'pet') {
     return (base || '') + '/ui/pet.html'
@@ -68,10 +69,12 @@ async function main() {
   const shots = []
 
   for (const page of pages) {
-    for (const theme of themes) {
-      for (const vp of viewports) {
-        for (const dpr of dprs) {
-          const name = [page, theme, vp.name, 'dpr' + dpr].join('-')
+    const variants = page === 'console' ? consolePages : ['']
+    for (const variant of variants) {
+      for (const theme of themes) {
+        for (const vp of viewports) {
+          for (const dpr of dprs) {
+          const name = [page, variant, theme, vp.name, 'dpr' + dpr].filter(Boolean).join('-')
           const ctx = await browser.newContext({
             viewport: { width: vp.width, height: vp.height },
             deviceScaleFactor: dpr,
@@ -79,7 +82,7 @@ async function main() {
             reducedMotion: 'reduce',
           })
           const p = await ctx.newPage()
-          const url = pageUrl(page)
+          const url = pageUrl(page, variant)
           await p.goto(url, { waitUntil: 'networkidle' })
           // 视觉确定性：主题由页面读取 localStorage/query，这里显式写主题类。
           await p.evaluate((t) => {
@@ -89,10 +92,11 @@ async function main() {
           await p.waitForTimeout(150)
           const file = path.join(outDir, name + '.png')
           await p.screenshot({ path: file, fullPage: false })
-          shots.push({ name, page, theme, viewport: vp.name, dpr, file })
+          shots.push({ name, page: variant ? page + '/' + variant : page, theme, viewport: vp.name, dpr, file })
           await ctx.close()
         }
       }
+    }
     }
   }
 

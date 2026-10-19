@@ -75,6 +75,8 @@ export function recordSnapshot(file, { adapterId, adapterName, snapshot, now }) 
     name: String(adapterName || adapterId),
     unit,
     amounts,
+    // token 是同一口径下的量纲补充（金额/积分/百分比仍各自成组）
+    tokens: Math.max(0, Math.round(Number(snapshot.usage && snapshot.usage.todayTokens) || 0)),
     at: Number(now) || Date.now(),
   }
   prune(ledger, now)
@@ -89,11 +91,12 @@ function groupsOf(dayEntry) {
       const key = row.unit + '|' + cur
       let g = groups.get(key)
       if (!g) {
-        g = { unit: row.unit, currency: cur, amount: 0, adapters: [] }
+        g = { unit: row.unit, currency: cur, amount: 0, tokens: 0, adapters: [] }
         groups.set(key, g)
       }
       g.amount += Number(amt) || 0
-      g.adapters.push({ id, name: row.name, amount: Number(amt) || 0 })
+      g.tokens += Number(row.tokens) || 0
+      g.adapters.push({ id, name: row.name, amount: Number(amt) || 0, tokens: Number(row.tokens) || 0 })
     }
   }
   return [...groups.values()]

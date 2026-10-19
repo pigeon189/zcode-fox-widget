@@ -393,6 +393,22 @@ export function writeSettings(file, patch) {
   return next
 }
 
+// 重置：先备份再写默认值。返回 { settings, backup }。
+export function resetSettings(file) {
+  let backup = ''
+  try {
+    if (fs.existsSync(file)) {
+      backup = file + '.bak-' + Date.now()
+      fs.copyFileSync(file, backup)
+    }
+  } catch (err) {
+    backup = ''
+  }
+  const settings = normalizeSettings({})
+  writeAtomic(file, settings)
+  return { settings, backup }
+}
+
 export function writeProfile(file, agentId, patch) {
   const id = String(agentId || '')
   if (!ADAPTER_IDS.includes(id)) throw new Error('unknown agent: ' + id)

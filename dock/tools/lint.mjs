@@ -50,6 +50,8 @@ const FORBIDDEN_UI = [
 ]
 for (const file of files) {
   if (!file.includes(path.sep + 'ui' + path.sep)) continue
+  // vendored 第三方源码按原样保留，不套用我们自己的 DOM 禁令
+  if (file.includes(path.sep + 'vendor' + path.sep)) continue
   if (!/\.(mjs|cjs|js|html)$/.test(file)) continue
   const text = fs.readFileSync(file, 'utf8')
   for (const rule of FORBIDDEN_UI) {

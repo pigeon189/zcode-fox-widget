@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isProcessAlive, readLock } from '../../daemon/src/lock.mjs'
-import { costOfUsage } from '../../adapters/zcode/pricing.mjs'
+import { costOfUsage } from '../../engines/pricing.mjs'
 
 const require = createRequire(import.meta.url)
 const { DatabaseSync } = require('node:sqlite')
