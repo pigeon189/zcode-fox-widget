@@ -69,10 +69,31 @@ let settings = {
   petMode: false,
   updateManifestUrl: '',
   autoUpdate: false,
+  soundEnabled: false,
+  soundVolume: 0.5,
+}
+
+// 按压/松开音效（默认关；资源在 dock/assets/sounds）。播放失败静默，不影响交互。
+const soundPool = {
+  press: new Audio('../assets/sounds/Ya1.mp3'),
+  release: new Audio('../assets/sounds/Ya2.mp3'),
+}
+function playSound(kind) {
+  if (!settings.soundEnabled) return
+  const audio = soundPool[kind]
+  if (!audio) return
+  try {
+    audio.currentTime = 0
+    audio.volume = Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
+    audio.play().catch(() => {})
+  } catch (err) {}
 }
 let followTimer = null
 let lastBoundRect = null
 let bubbleTimer = null
+// 按压泡泡队列：每点一次气泡推进一条；空队列时点击只关闭气泡。
+let pressQueue = []
+let pressQueueIndex = 0
 let activeTab = 'detail'
 let filterText = ''
 let lastSummary = null
@@ -355,6 +376,28 @@ function showBubble(text, sub, opts) {
   if (Number.isFinite(ms) && ms > 0) {
     bubbleTimer = setTimeout(() => hideBubble(), ms)
   }
+}
+
+async function loadPressQueue() {
+  if (!base) return
+  try {
+    const r = await (await fetch(base + '/v1/bubbles/queue', { cache: 'no-store' })).json()
+    pressQueue = r && r.ok && Array.isArray(r.queue) ? r.queue : []
+    pressQueueIndex = 0
+  } catch (err) {
+    pressQueue = []
+  }
+}
+
+function playPressBubble() {
+  if (!pressQueue.length) return false
+  const item = pressQueue[pressQueueIndex % pressQueue.length]
+  pressQueueIndex++
+  const text = typeof item === 'string' ? item : String((item && (item.text || item.content)) || '')
+  const sub = item && typeof item === 'object' ? String(item.sub || item.subtitle || '') : ''
+  if (!text.trim()) return false
+  showBubble(text, sub, { ms: 5000 })
+  return true
 }
 
 function hideBubble() {
@@ -2273,6 +2316,7 @@ function isOverUI(x, y) {
   if (isInside(petMenu, x, y)) return true
   if (isInside(foxBadge, x, y)) return true
   if (isInside(chip, x, y)) return true
+  if (!bubble.hidden && isInside(bubble, x, y)) return true
   if (panelOpen && isInside(panel, x, y)) return true
   return false
 }
@@ -2491,6 +2535,12 @@ setInterval(async () => {
   } catch (err) {}
 }, 50)
 
+bubble.addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (playPressBubble()) return
+  hideBubble()
+})
+
 fox.addEventListener('pointerdown', (e) => {
   // 只响应左键：右键/中键不拖拽、不换台词、不开关面板。
   if (e.button !== 0) return
@@ -2501,6 +2551,7 @@ fox.addEventListener('pointerdown', (e) => {
 
   // 先不进入拖拽：移动超过阈值才算拖，否则松开就是「点击开面板」
   pressing = { x: e.clientX, y: e.clientY, at: performance.now() }
+  playSound('press')
   window.__foxDebug.downs++
   setArmed(false)
   setInteractive(true)
@@ -2538,6 +2589,7 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('pointerup', async (e) => {
   if (!pressing) return
+  playSound('release')
   if (e.button !== 0) {
     // 左键按住时又点了别的键：取消这次点击，不触发面板/台词。
     pressing = null
@@ -2699,6 +2751,7 @@ applyScale()
 loadSettings().then(() => {
   restoreBinding()
   refreshAgents()
+  loadPressQueue()
 })
 setInterval(() => {
   if (!boundKey) refreshAgents()

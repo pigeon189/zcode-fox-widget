@@ -1,7 +1,7 @@
 import { h } from '../vendor/preact.module.js'
 import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
-import { Button, Card, Input, SearchBox, Segmented, Select, Toggle } from '../components/base.mjs'
+import { Button, Card, Dialog, EmptyState, Input, SearchBox, Segmented, Select, Toggle } from '../components/base.mjs'
 import { fmtNum } from '../lib/format.mjs'
 
 const html = htm.bind(h)
@@ -17,6 +17,11 @@ function Row({ label, hint, children, hidden = false }) {
 export function SettingsPage({ app }) {
   const s = app.settings || {}
   const [search, setSearch] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importData, setImportData] = useState(null)
+  const [importSource, setImportSource] = useState('')
+  const [importCats, setImportCats] = useState([])
+  const [busy, setBusy] = useState(false)
 
   // 设置行是「标签 + 控件」两栏结构，<label> 无法直接包住控件；
   // 渲染后按行把标签文字补成控件的 aria-label（axe 的 label 规则要求可访问名称）。
@@ -33,6 +38,34 @@ export function SettingsPage({ app }) {
 
   function save(patch) {
     app.saveSettings(patch)
+  }
+
+  async function openImport() {
+    try {
+      const d = await app.api('/v1/import/sources')
+      setImportData(d)
+      const first = (d.sources || [])[0]
+      setImportSource(first ? first.id : '')
+      setImportCats(first ? Object.keys(first.categories || {}) : [])
+      setImportOpen(true)
+    } catch (e) {
+      app.toast(String(e.message || e), 'bad')
+    }
+  }
+
+  async function doImport() {
+    setBusy(true)
+    try {
+      const r = await app.api('/v1/import', { method: 'POST', body: { source: importSource, categories: importCats } })
+      const parts = Object.entries(r.summary || {}).map(([k, v]) => k + ' ' + v.count)
+      app.toast('导入完成' + (parts.length ? '：' + parts.join('，') : ''))
+      setImportOpen(false)
+      app.refresh()
+    } catch (e) {
+      app.toast('导入失败：' + String(e.message || e), 'bad')
+    } finally {
+      setBusy(false)
+    }
   }
   function visible(label, hint = '') {
     const q = search.trim().toLowerCase()
@@ -155,8 +188,9 @@ export function SettingsPage({ app }) {
             <${Row} label="成本异常提醒（今日 > 7 日均值 ×）" hint="0 = 关闭" hidden=${!has('成本异常')}>
               <${Input} type="number" value=${s.costAnomalyX || ''} onInput=${(v) => save({ costAnomalyX: Number(v) || 0 })} style=${{ width: 90 }} />
             </${Row}>
-            <${Row} label="按压音效" hidden=${!has('按压音效')}>
+            <${Row} label="按压音效" hint="默认关；音量 0–100%" hidden=${!has('按压音效')}>
               <${Toggle} checked=${s.soundEnabled} onChange=${(v) => save({ soundEnabled: v })} />
+              <${Input} type="range" aria-label="音效音量" min="0" max="100" value=${Math.round((s.soundVolume || 0.5) * 100)} onInput=${(v) => save({ soundVolume: Number(v) / 100 })} style=${{ width: 110 }} />
             </${Row}>
             <${Row} label="等确认提醒" hint="仅 ZCode 有 PermissionRequest 钩子；WorkBuddy 档案下不生效" hidden=${!has('等确认提醒')}>
               <${Toggle} checked=${s.confirmAlert} onChange=${(v) => save({ confirmAlert: v })} />
@@ -209,7 +243,7 @@ export function SettingsPage({ app }) {
               <${Button} onClick=${() => window.foxDock && window.foxDock.openDataDir()}>打开</${Button}>
             </${Row}>
             <${Row} label="从旧挂件导入…" hint="读取旧挂件的角色/模板/余额校正；只读源目录" hidden=${!has('从旧挂件导入')}>
-              <${Button} onClick=${() => app.toast('导入向导在 M7 提供')}>打开向导</${Button}>
+              <${Button} onClick=${openImport}>打开向导</${Button}>
             </${Row}>
             <${Row} label="清空用量缓存" hidden=${!has('清空用量缓存')}>
               <${Button} variant="danger" onClick=${() => app.clearUsage()}>清空</${Button}>
@@ -224,5 +258,40 @@ export function SettingsPage({ app }) {
         </div>` : null}
       </div>
     </div>
+
+    ${importOpen
+      ? html`<${Dialog} title="从旧挂件导入" onClose=${() => setImportOpen(false)}
+          actions=${html`<${Button} onClick=${() => setImportOpen(false)}>取消</${Button}><${Button} variant="primary" onClick=${doImport} loading=${busy} disabled=${!importSource || !importCats.length}>导入选中项</${Button}>`}>
+          ${!importData || !importData.sources || !importData.sources.length
+            ? html`<${EmptyState} title="没有找到旧挂件数据" hint="确认旧挂件安装过，或设置 FOX_DOCK_IMPORT_DIRS 指向数据目录" />`
+            : html`<div style=${{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div class="field">
+                  <label>来源</label>
+                  <${Select} aria-label="导入来源" value=${importSource} options=${importData.sources.map((x) => ({ value: x.id, label: x.label }))}
+                    onChange=${(id) => {
+                      setImportSource(id)
+                      const src = importData.sources.find((x) => x.id === id)
+                      setImportCats(src ? Object.keys(src.categories || {}) : [])
+                    }} />
+                  <span class="small muted mono">${(importData.sources.find((x) => x.id === importSource) || {}).dir || ''}</span>
+                </div>
+                <div class="field">
+                  <label>导入内容</label>
+                  ${(importData.categories || []).map((c) => {
+                    const src = importData.sources.find((x) => x.id === importSource)
+                    const available = src && src.categories && src.categories[c.id]
+                    return html`<label class="row" style=${{ gap: 8, opacity: available ? 1 : 0.5 }}>
+                      <input type="checkbox" checked=${importCats.includes(c.id)} disabled=${!available}
+                        onChange=${(e) => setImportCats(e.currentTarget.checked ? [...importCats, c.id] : importCats.filter((x) => x !== c.id))} />
+                      <span>${c.label}</span>
+                      <span class="spacer"></span>
+                      <span class="small muted">${available ? (typeof available === 'number' ? available + ' 个' : '可导入') : '源里没有'}</span>
+                    </label>`
+                  })}
+                </div>
+                <div class="small muted">只读源目录，不会修改旧挂件数据；厂商配置只导入 key 引用与中转站令牌，API Key 请用「厂商与密钥」导入保险库。</div>
+              </div>`}
+        </${Dialog}>`
+      : null}
   </div>`
 }

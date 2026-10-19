@@ -264,6 +264,21 @@ test('v1: 余额校正写入/读取/删除', async () => {
   assert.equal(del.status, 200)
 })
 
+test('v1: 泡泡队列与导入来源接口可用', async () => {
+  const bad = await fetch(base + '/v1/bubbles/queue', { method: 'POST', body: '{}' })
+  assert.equal(bad.status, 403)
+  const put = await fetch(base + '/v1/bubbles/queue', {
+    method: 'POST',
+    headers: auth(),
+    body: JSON.stringify({ queue: ['第一句', { text: '第二句', sub: '副标题' }] }),
+  })
+  assert.equal(put.status, 200)
+  const got = await (await fetch(base + '/v1/bubbles/queue')).json()
+  assert.deepEqual(got.queue.map((x) => (typeof x === 'string' ? x : x.text)), ['第一句', '第二句'])
+  const sources = await (await fetch(base + '/v1/import/sources')).json()
+  assert.equal(sources.categories.length, 6)
+})
+
 test('v1: 宿主事件需要 token 并进入诊断包', async () => {
   const bad = await fetch(base + '/v1/events', { method: 'POST', body: '{"type":"turn-start"}' })
   assert.equal(bad.status, 403)

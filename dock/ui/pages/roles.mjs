@@ -17,6 +17,9 @@ export function RolesPage({ app }) {
   const [templates, setTemplates] = useState(null)
   const [dialog, setDialog] = useState(false)
   const [json, setJson] = useState('')
+  const [queue, setQueue] = useState([])
+  const [queueDialog, setQueueDialog] = useState(false)
+  const [queueJson, setQueueJson] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [pending, setPending] = useState(null)
   const [roleName, setRoleName] = useState('')
@@ -33,6 +36,10 @@ export function RolesPage({ app }) {
     app
       .api('/v1/bubbles/templates')
       .then((d) => alive && setTemplates(d.templates || []))
+      .catch(() => {})
+    app
+      .api('/v1/bubbles/queue')
+      .then((d) => alive && setQueue(d.queue || []))
       .catch(() => {})
     return () => {
       alive = false
@@ -138,6 +145,19 @@ export function RolesPage({ app }) {
     }
   }
 
+  async function saveQueue() {
+    try {
+      const parsed = JSON.parse(queueJson)
+      if (!Array.isArray(parsed)) throw new Error('队列必须是数组')
+      const d = await app.api('/v1/bubbles/queue', { method: 'POST', body: { queue: parsed.slice(0, 12) } })
+      setQueue(d.queue || [])
+      setQueueDialog(false)
+      app.toast('按压泡泡队列已保存')
+    } catch (e) {
+      app.toast('队列无效：' + String(e.message || e), 'bad')
+    }
+  }
+
   const roles = app.roles || []
   const current = (profile && profile.roleId) || ''
 
@@ -203,6 +223,13 @@ export function RolesPage({ app }) {
             <${Button} onClick=${() => { setJson(JSON.stringify(templates || [], null, 2)); setDialog(true) }}>编辑 JSON</${Button}>
           </div>
         </${Card}>
+        <${Card} title="按压泡泡队列" class="group">
+          <div class="row">
+            <span class="small muted">${queue.length ? queue.length + ' 步（点击气泡推进）' : '未设置队列'}</span>
+            <span class="spacer"></span>
+            <${Button} onClick=${() => { setQueueJson(JSON.stringify(queue || [], null, 2)); setQueueDialog(true) }}>编辑队列</${Button}>
+          </div>
+        </${Card}>
       </div>
     </div>
 
@@ -211,6 +238,14 @@ export function RolesPage({ app }) {
           actions=${html`<${Button} onClick=${() => setDialog(false)}>取消</${Button}><${Button} variant="primary" onClick=${saveTemplates}>保存</${Button}>`}>
           <textarea class="textarea" rows="16" style=${{ width: '100%' }} value=${json} onInput=${(e) => setJson(e.currentTarget.value)}></textarea>
           <div class="small muted">格式与旧挂件兼容；保存后由控制台与宠物层共同使用。</div>
+        </${Dialog}>`
+      : null}
+
+    ${queueDialog
+      ? html`<${Dialog} title="按压泡泡队列" onClose=${() => setQueueDialog(false)}
+          actions=${html`<${Button} onClick=${() => setQueueDialog(false)}>取消</${Button}><${Button} variant="primary" onClick=${saveQueue}>保存</${Button}>`}>
+          <textarea class="textarea" rows="12" style=${{ width: '100%' }} aria-label="泡泡队列 JSON" value=${queueJson} onInput=${(e) => setQueueJson(e.currentTarget.value)}></textarea>
+          <div class="small muted">最多 12 步；每项可以是字符串，或 {"text":"…","sub":"…"}。点击宠物气泡按顺序推进。</div>
         </${Dialog}>`
       : null}
 

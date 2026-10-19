@@ -18,6 +18,7 @@ import { recordSnapshot, summarize } from './ledger.mjs'
 import { transition } from './state-machine.mjs'
 import { deleteRole, importRole, listRoleLibrary, renameRole, suggestRoleId } from './roles.mjs'
 import { addAdjustment, adjustmentSummary, applyAdjustments, listAdjustments, removeAdjustment } from './balance-adjustments.mjs'
+import { CATEGORIES, importCategories, inspectSources } from './import-old.mjs'
 
 function sendJson(res, code, obj) {
   res.writeHead(code, {
@@ -546,6 +547,32 @@ export function createV1Router(deps) {
         return true
       }
 
+      // ---------- 旧挂件数据导入 ----------
+      if (p === '/v1/import/sources' && method === 'GET') {
+        sendJson(res, 200, { ok: true, sources: inspectSources(), categories: CATEGORIES })
+        return true
+      }
+
+      if (p === '/v1/import' && method === 'POST') {
+        const body = await readBody(req)
+        try {
+          const r = importCategories({
+            source: body.source,
+            categories: body.categories,
+            paths,
+            env: process.env,
+          })
+          if (r.settingsPatch && Object.keys(r.settingsPatch).length) {
+            writeSettings(paths.settings, r.settingsPatch)
+            await broadcastState()
+          }
+          sendJson(res, 200, { ok: true, ...r })
+        } catch (err) {
+          sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+        }
+        return true
+      }
+
       // ---------- 维护 ----------
       if (p === '/v1/maintenance/reset-settings' && method === 'POST') {
         const r = resetSettings(paths.settings)
@@ -623,6 +650,21 @@ export function createV1Router(deps) {
 
       if (p === '/v1/bubbles/templates' && method === 'GET') {
         sendJson(res, 200, { ok: true, templates: listBubbleTemplates(paths) })
+        return true
+      }
+
+      if (p === '/v1/bubbles/queue' && method === 'GET') {
+        const raw = readJsonFile(paths.bubbleQueue, [])
+        const queue = Array.isArray(raw) ? raw : Array.isArray(raw && raw.queue) ? raw.queue : []
+        sendJson(res, 200, { ok: true, queue: queue.slice(0, 12) })
+        return true
+      }
+
+      if (p === '/v1/bubbles/queue' && method === 'POST') {
+        const body = await readBody(req)
+        const queue = (Array.isArray(body.queue) ? body.queue : []).slice(0, 12)
+        writeJsonFile(paths.bubbleQueue, queue)
+        sendJson(res, 200, { ok: true, queue })
         return true
       }
 

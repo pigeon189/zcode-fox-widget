@@ -294,8 +294,8 @@ dock/
 | M3 厂商引擎 | ✅ | `dock/engines/`、DPAPI 保险库、导入、`parity:engines` |
 | M4 前端基座 | ✅ | vendored Preact/htm、令牌、组件、SVG 图表、console 窗口 |
 | M5 控制台页面 | ✅ | 八页 + 页面自检（布局/可访问名称/axe） |
-| M5b 宠物层新设计 | ⏳ | 快览卡、四象限镜像、新胶囊尚未替换旧浮层 |
-| M6 功能回归 | ⏳ | 角色导入/余额校正已做；气泡队列执行、音效未做 |
-| M7 宿主 shim | ⏳ | 旧两线的 dock 感知版本尚未发布（按规范在各自分支做） |
-| M8 厚测试/真机 | ⏳ | 视觉基线、Electron E2E、soak 与真机清单未完成 |
-| M9 文档/打包 | ⏳ | README/CHANGELOG/DECISIONS/ADAPTERS/UI-SPEC/TESTING 已更新；未打 tag |
+| M5b 宠物层新设计 | ⏳ | 音效/按压队列已接入旧浮层；快览卡、四象限镜像、新胶囊仍未替换 |
+| M6 功能回归 | ✅ | 角色导入、余额校正、气泡队列、音效 |
+| M7 宿主 shim | ✅ | ZCode/main `2bf1c16`、WB/workbuddy `1d5607d`；数据导入向导已接 |
+| M8 厚测试/真机 | ◐ | 视觉基线 32 张、控制台 Electron 冒烟已入库；soak 与真机清单待人工 |
+| M9 文档/打包 | ◐ | 文档齐备；打包签名等发版放行，未打 tag |
