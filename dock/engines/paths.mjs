@@ -27,12 +27,15 @@ export function pluginVersion() {
 
 export const ZCODE_HOME = process.env.ZCODE_HOME || path.join(os.homedir(), '.zcode')
 
+// FOX_DOCK_DATA 是**完整数据目录**（daemon 把 --data-dir 解析后的值写进来），
+// 不能再拼一层 fox-dock；只有没设时才用平台默认目录 + fox-dock。
 function defaultDataDir() {
+  const direct = String(process.env.FOX_DOCK_DATA || '').trim()
+  if (direct) return path.resolve(direct)
   const base =
-    process.env.FOX_DOCK_DATA ||
-    (process.platform === 'win32' && process.env.LOCALAPPDATA
+    process.platform === 'win32' && process.env.LOCALAPPDATA
       ? process.env.LOCALAPPDATA
-      : path.join(os.homedir(), '.local', 'share'))
+      : path.join(os.homedir(), '.local', 'share')
   return path.join(base, 'fox-dock')
 }
 

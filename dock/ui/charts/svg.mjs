@@ -124,12 +124,15 @@ export function ColumnChart({ data, height = 200, valueLabel = (v) => fmtNum(v) 
     ${[0, 0.5, 1].map((f) => html`<line x1=${padL} y1=${padT + ih * f} x2=${width - padR} y2=${padT + ih * f} stroke="var(--border)" />
       <text x=${padL - 6} y=${padT + ih * f + 3} text-anchor="end" fill="var(--text-3)" font-size="12">${f === 0 ? valueLabel(max) : f === 1 ? '0' : ''}</text>`)}
     ${list.map((d, i) => {
-      const h = (Number(d.value) || 0) / max * ih
+      const value = Number(d.value) || 0
+      const h = (value > 0 ? value : 0) / max * ih
       const x = padL + slot * i + (slot - barW) / 2
       return html`<g>
-        <rect x=${x} y=${padT + ih - h} width=${barW} height=${Math.max(1, h)} rx="4" fill=${d.today ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 45%, transparent)'}>
-          <title>${d.label + '：' + valueLabel(Number(d.value) || 0)}</title>
-        </rect>
+        ${h > 0
+          ? html`<rect x=${x} y=${padT + ih - h} width=${barW} height=${Math.max(1, h)} rx="4" fill=${d.today ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 45%, transparent)'}>
+              <title>${d.label + '：' + valueLabel(value)}</title>
+            </rect>`
+          : null}
         <text x=${x + barW / 2} y=${height - 8} text-anchor="middle" fill=${d.today ? 'var(--text)' : 'var(--text-3)'} font-size="12">${d.label}</text>
       </g>`
     })}

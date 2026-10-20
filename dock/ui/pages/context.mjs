@@ -70,14 +70,17 @@ export function ContextPage({ app }) {
   }, [app.viewAgent, app.refreshAt, session, range])
 
   const est = ctx ? estimate(ctx) : null
-  const title = ctx && ctx.supported ? ctx.title || '当前会话' : '上下文'
+  const sessionOptions = [
+    { value: '', label: '最近会话' },
+    ...sessions.map((s) => ({
+      value: s.id,
+      label: (s.title || s.id).slice(0, 40) + ' · ' + (s.pct == null ? '—' : fmtPct(s.pct)),
+    })),
+  ]
 
   return html`<div data-testid="page.context">
     <div class="row" style=${{ marginBottom: 16 }}>
-      <select class="select" style=${{ width: 280 }} value=${session} onChange=${(e) => setSession(e.currentTarget.value)} aria-label="选择会话">
-        <option value="">最近会话</option>
-        ${sessions.map((s) => html`<option value=${s.id}>${(s.title || s.id).slice(0, 40)} · ${s.pct == null ? '—' : fmtPct(s.pct)}</option>`)}
-      </select>
+      <${Select} value=${session} options=${sessionOptions} onChange=${setSession} ariaLabel="选择会话" />
       <span class="spacer"></span>
       ${confidenceBadge(ctx)}
       <span class="small muted">${loading ? '更新中…' : ctx && ctx.updatedAt ? fmtDateTime(ctx.updatedAt) : ''}</span>

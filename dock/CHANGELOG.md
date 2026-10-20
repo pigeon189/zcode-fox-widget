@@ -31,7 +31,9 @@
 
 ### 变更
 
-- **CommandCode 套餐额度（2026-10-20）**：GOAT 月度 credits 新账户为 $80；2026-10-20 前创建的订阅保留 $70，额度卡会标注「老账户」。
+- **角色导入持久化**：导入角色（含 GIF）可以写入档案并立即在浮层生效；设置层接受安全导入 id，非法 id 仍回落内置角色。
+- **数据目录统一**：`FOX_DOCK_DATA` 按完整数据目录解释，daemon 在引擎静态求值前解析 `--data-dir`；无 `ZCODE_DATA_BASE_DIR` 时也能从自身 `runtime-env.json` 找到 ZCode 数据目录。
+- **CommandCode 套餐额度（2026-10-20）**：GOAT 月度 credits 新账户为 $80；2026-10-20 前创建的订阅保留 $70，额度卡会标注「老账户」；本地池/缺少创建时间时默认按新 80 档。
 - **价目复核（2026-10-20）**：Anthropic / Kimi / DeepSeek 在售清单与单价与现表一致；补充 `gpt-daybreak-*` 与 `claude-mythos-preview` 同价别名；MiMo v2.5 系列按官方计划于 2026-10-21 下线，过渡期保留。
 - 设置文件升级到 schema 2：全局默认 + 每个 agent 一份档案；旧设置自动备份为 `settings.json.v1.bak`。
 - 主题的「跟随 ZCode」改为「跟随系统」；浮层菜单按钮可设为悬停显示/始终显示/隐藏。

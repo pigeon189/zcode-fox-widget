@@ -9,7 +9,8 @@ const html = htm.bind(h)
 
 function vendorPercent(v) {
   if (v.kind === 'cmdgo') {
-    const w = v.weekly || v.fiveHour || v.monthly
+    // 迷你卡的主数字是月度池剩余，进度条也用月度池，避免「数字月度、进度条周」。
+    const w = v.monthly || v.weekly || v.fiveHour
     return w && Number.isFinite(Number(w.percent)) ? Number(w.percent) * 100 : null
   }
   if (v.percentRemaining != null) return 100 - Number(v.percentRemaining)

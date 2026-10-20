@@ -15,6 +15,13 @@ import path from 'node:path'
 export const SCHEMA = 2
 
 export const ROLES = ['fox', 'whale', 'gpt', 'kimi', 'xiaoke', 'gemini']
+// 角色 id 也允许用户导入的 id（roles.mjs 同款安全字符集）；未知/不存在的 id
+// 由 UI 回落到默认角色，但设置层必须先把选择保存下来，否则导入角色永远选不中。
+const IMPORTED_ROLE_ID = /^[a-z0-9-]{2,24}$/
+export function isRoleId(value) {
+  const id = String(value || '')
+  return ROLES.includes(id) || IMPORTED_ROLE_ID.test(id)
+}
 export const THEMES = ['light', 'dark', 'auto']
 export const DISPLAY_MODES = ['auto', 'today', 'balance', 'quota']
 export const ADAPTER_IDS = ['generic', 'zcode', 'workbuddy', 'kimi', 'dsh']
@@ -84,8 +91,7 @@ export const DEFAULTS = {
   floatingData: 'last',
   hideMoney: false,
   dnd: false,
-  // 音效默认关；事件音（消耗/提问/授权）不做
-  soundEnabled: false,
+  // 音效不再单独开关：随「勿扰」静音（D031）；音量保留默认 0.5
   soundVolume: 0.5,
   confirmAlert: true,
   autoStart: true,
@@ -139,7 +145,7 @@ export function normalizeProfile(raw, fallback = DEFAULT_PROFILE) {
   const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
   const f = fallback && typeof fallback === 'object' ? fallback : DEFAULT_PROFILE
   const roleRaw = String(r.roleId || f.roleId || '')
-  const roleId = ROLES.includes(roleRaw) ? roleRaw : ''
+  const roleId = isRoleId(roleRaw) ? roleRaw : ''
   const accent = /^#[0-9a-fA-F]{6}$/.test(String(r.accent || '')) ? String(r.accent).toLowerCase() : ''
   return {
     roleId,
@@ -185,7 +191,7 @@ export function normalizeProfilePatch(raw) {
   const out = {}
   if ('roleId' in r) {
     const role = String(r.roleId || '')
-    if (ROLES.includes(role) || role === '') out.roleId = role
+    if (isRoleId(role) || role === '') out.roleId = role
   }
   if ('accent' in r) out.accent = /^#[0-9a-fA-F]{6}$/.test(String(r.accent || '')) ? String(r.accent).toLowerCase() : ''
   if ('displayMode' in r && DISPLAY_MODES.includes(String(r.displayMode || ''))) out.displayMode = String(r.displayMode)
@@ -245,7 +251,7 @@ export function normalizeSettings(raw) {
   const followRaw = clampNum(r.followMs, 200, 5000, DEFAULTS.followMs)
   const followMs = nearest(followRaw, [250, 500, 1000])
   const roleRaw = String(r.roleId || '')
-  const roleId = ROLES.includes(roleRaw) ? roleRaw : DEFAULTS.roleId
+  const roleId = isRoleId(roleRaw) ? roleRaw : DEFAULTS.roleId
   const chatterRaw = clampNum(r.chatterMs, 0, 600000, DEFAULTS.chatterMs)
   const chatterMs = nearest(chatterRaw, CHATTER_MS)
   const theme = pickEnum(r.theme, THEMES, DEFAULTS.theme)
@@ -283,7 +289,6 @@ export function normalizeSettings(raw) {
     floatingData: pickEnum(r.floatingData, FLOATING_DATA, DEFAULTS.floatingData),
     hideMoney: bool(r.hideMoney, DEFAULTS.hideMoney),
     dnd: bool(r.dnd, DEFAULTS.dnd),
-    soundEnabled: bool(r.soundEnabled, DEFAULTS.soundEnabled),
     soundVolume: Math.round(clampNum(r.soundVolume, 0, 1, DEFAULTS.soundVolume) * 100) / 100,
     confirmAlert: bool(r.confirmAlert, DEFAULTS.confirmAlert),
     autoStart: bool(r.autoStart, DEFAULTS.autoStart),
@@ -329,7 +334,7 @@ export function normalizeRolesByAdapter(raw) {
   const out = {}
   for (const [adapter, role] of Object.entries(raw)) {
     if (!ADAPTER_IDS.includes(adapter)) continue
-    if (!ROLES.includes(String(role || ''))) continue
+    if (!isRoleId(role)) continue
     out[adapter] = String(role)
   }
   return out

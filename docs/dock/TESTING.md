@@ -10,7 +10,7 @@
 | 页面 E2E（结构部分） | `npm run test:e2e` | 同上，关闭 axe |
 | 控制台真窗口冒烟 | `npm run test:electron:console` | 启动夹具 + Electron console，CDP 断言并截图 |
 | 视觉回归 | `npm run visual` / `npm run visual:update` | 32 张基线（8 页 × 双主题 × 两视口）；ENV-MISMATCH 直接失败 |
-| 宠物层截图 | `npm run shots:pet -- --theme light,dark --viewport 1280x720` | 四角/自由位置/悬浮/快览卡/菜单/气泡/台词/隐藏金额，共 40 张 |
+| 宠物层截图 | `npm run test:pet` | 四角/自由位置/悬浮/快览卡/菜单/气泡/台词/隐藏金额，双主题双视口共 44 张 |
 | 截图矩阵 | `npm run shots -- --page console --console-pages overview,context,usage,quota,vendors,roles,settings,about --theme light,dark --base http://127.0.0.1:39490` | 先启动夹具 daemon |
 | 真机上下文对账 | `npm run verify:context` | PASS / SKIPPED（not-running / no-session）/ UNAVAILABLE |
 | 真机计费对账 | `npm run verify:zcode` / `verify:workbuddy` | 与宿主/旧挂件口径比对 |
@@ -79,6 +79,6 @@
 
 - `npm run lint`：UI 禁止 `innerHTML/eval/new Function`（vendored 第三方除外）、
   `overlay/main.cjs` 的 `type:'toolbar'` 守卫、Electron 入口沙箱配置、密钥模式扫描。
-- 角色导入：PNG 签名 + 全 chunk CRC + ≤3MB + ≤2048² + id 白名单 + 内置不可删。
+- 角色导入：PNG/GIF 签名与结构校验（PNG 全 chunk CRC、GIF 图像描述符与结束符）+ ≤3MB + ≤2048² + id 白名单 + 内置不可删。
 - 凭据：保险库 DPAPI 往返/篡改报错/掩码；接口与诊断包不得出现完整 key。
 - 出站：`blocked-host` 拒绝环回/私有/保留地址；Kimi 与 CommandCode 的固定环回例外只对专用客户端生效。

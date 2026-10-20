@@ -66,7 +66,7 @@ test('settings v2: 档案缺省继承全局，覆盖只影响该 agent', () => {
     turnBubbleMs: 7000,
     profiles: {
       zcode: { roleId: 'whale', turnBubbleMs: 9000 },
-      workbuddy: { roleId: 'evil' },
+      workbuddy: { roleId: 'bad id!' },
       unknown: { roleId: 'kimi' },
     },
   })

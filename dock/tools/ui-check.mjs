@@ -108,6 +108,8 @@ async function main() {
         if (layout.overflow) problems.push(page + '/' + theme + '/' + vp.width + ' 出现横向滚动')
         if (layout.small.length) problems.push(page + '/' + theme + '/' + vp.width + ' 字号 <12：' + layout.small.slice(0, 4).join(', '))
         if (layout.unnamed.length) problems.push(page + '/' + theme + '/' + vp.width + ' 无可访问名称：' + layout.unnamed.slice(0, 4).join(', '))
+        const nativeSelects = await p.evaluate(() => document.querySelectorAll('select').length)
+        if (nativeSelects) problems.push(page + '/' + theme + '/' + vp.width + ' 仍有原生 select x' + nativeSelects)
 
         // 设置页左侧分组按钮只能滚内容区，不能把整个窗口（标题栏/侧边栏）滚上去。
         if (page === 'settings') {

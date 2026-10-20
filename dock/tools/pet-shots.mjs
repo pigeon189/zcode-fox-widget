@@ -45,6 +45,7 @@ const STATES = [
   { id: 'left-bottom', run: () => window.__pet.debugAttach('zcode', '0x1', { x: 100, y: 180, w: 960, h: 620 }, { h: 'left', v: 'bottom' }) },
   { id: 'right-top', run: () => window.__pet.debugAttach('zcode', '0x1', { x: 200, y: 80, w: 960, h: 620 }, { h: 'right', v: 'top' }) },
   { id: 'left-top', run: () => window.__pet.debugAttach('zcode', '0x1', { x: 100, y: 80, w: 960, h: 620 }, { h: 'left', v: 'top' }) },
+  { id: 'free', run: () => window.__pet.debugAttach('zcode', '0x1', { x: 100, y: 80, w: 960, h: 620 }, { h: null, v: null, hOff: 120, vOff: 90 }) },
   { id: 'floating', run: () => window.__pet.debugFloat('zcode', 760, 360) },
   { id: 'quick', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openQuick() } },
   { id: 'menu', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openMenu(700, 220) } },

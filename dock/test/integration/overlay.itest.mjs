@@ -229,6 +229,11 @@ test('pet: 启动后显示角色，胶囊默认隐藏', async () => {
   assert.equal(await cdp.eval("!!document.getElementById('fox-img')"), true)
   assert.match(await cdp.eval("document.getElementById('fox-img').src"), /roles\/fox\.png/)
   assert.equal(await cdp.eval("document.getElementById('chip').hidden"), true)
+  // 宿主白名单只认四个 exe；QQ / 输入体验等普通窗口不得进入吸附分支。
+  assert.equal(await cdp.eval("window.__pet.isAgentWindow({exe:'C:/Apps/ZCode/ZCode.exe'})"), true)
+  assert.equal(await cdp.eval("window.__pet.isAgentWindow({exe:'C:/Apps/Kimi Code/Kimi Code.exe'})"), true)
+  assert.equal(await cdp.eval("window.__pet.isAgentWindow({exe:'C:/QQ/QQ.exe'})"), false)
+  assert.equal(await cdp.eval("window.__pet.isAgentWindow({exe:'C:/Windows/SystemApps/TextInputHost.exe'})"), false)
 })
 
 test('pet: 单击角色打开快览卡，再点角色保持打开', async () => {

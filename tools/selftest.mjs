@@ -1087,11 +1087,11 @@ function check(name, ok, detail) {
     },
   })
   check(
-    'CommandCode 本地池：/health 快照按帽对恢复套餐（14/35 → GOAT $70），月度已用比例与窗口一致',
+    'CommandCode 本地池：/health 快照按帽对恢复套餐（14/35 → GOAT 新档 $80），月度已用比例与窗口一致',
     poolShaped &&
       poolShaped.plan === 'GOAT' &&
-      poolShaped.monthly.total === 70 &&
-      Math.abs(poolShaped.monthly.percent - (70 - 45.08) / 70) < 1e-9 &&
+      poolShaped.monthly.total === 80 &&
+      Math.abs(poolShaped.monthly.percent - (80 - 45.08) / 80) < 1e-9 &&
       Math.abs(poolShaped.fiveHour.percent - 0.6 / 14) < 1e-9 &&
       Math.abs(poolShaped.weekly.percent - 0.67 / 35) < 1e-9 &&
       poolShaped.userName === 'GOAT 账号 1',

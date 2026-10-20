@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { DEFAULTS, normalizeSettings, readSettings, writeSettings } from '../../daemon/src/settings.mjs'
+import { DEFAULTS, getProfile, normalizeSettings, readSettings, writeProfile, writeSettings } from '../../daemon/src/settings.mjs'
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'fox-dock-set-'))
@@ -59,9 +59,27 @@ test('settings: 数值越界夹回，布尔接受字符串', () => {
   assert.equal(s.alertBubble, true)
 })
 
-test('settings: 角色只认内置 id，未知值回落 fox', () => {
+test('settings: 导入角色的安全 id 可以写入档案并重读', () => {
+  assert.equal(normalizeSettings({ roleId: 'my-gif' }).roleId, 'my-gif')
+  assert.equal(normalizeSettings({ roleId: '../evil' }).roleId, 'fox')
+  assert.equal(normalizeSettings({ roleId: 'Evil!' }).roleId, 'fox')
+  const dir = tempDir()
+  try {
+    const file = path.join(dir, 'settings.json')
+    writeProfile(file, 'zcode', { roleId: 'my-gif' })
+    const settings = readSettings(file)
+    assert.equal(settings.profiles.zcode.roleId, 'my-gif')
+    assert.equal(getProfile(settings, 'zcode').roleId, 'my-gif')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('settings: 角色接受内置或安全导入 id，非法值回落 fox', () => {
   assert.equal(normalizeSettings({ roleId: 'kimi' }).roleId, 'kimi')
-  assert.equal(normalizeSettings({ roleId: 'evil' }).roleId, 'fox')
+  assert.equal(normalizeSettings({ roleId: 'my-gif' }).roleId, 'my-gif')
+  assert.equal(normalizeSettings({ roleId: 'Evil!' }).roleId, 'fox')
+  assert.equal(normalizeSettings({ roleId: '../evil' }).roleId, 'fox')
   assert.equal(normalizeSettings({ roleId: null }).roleId, 'fox')
   // 随机台词间隔只留 0 / 3 / 5 / 10 分钟四档
   assert.equal(normalizeSettings({ chatterMs: 0 }).chatterMs, 0)
@@ -103,18 +121,18 @@ test('settings: 主题 / 主数字 / 自动换角色 / 7 天开关只认枚举',
   assert.equal(normalizeSettings({ showWeek: false }).showWeek, false)
 })
 
-test('settings: rolesByAdapter 只接受已知宿主与已知角色', () => {
+test('settings: rolesByAdapter 只接受已知宿主与安全角色 id', () => {
   const s = normalizeSettings({
     rolesByAdapter: {
       zcode: 'whale',
       kimi: 'kimi',
-      workbuddy: 'evil',
-      dsh: 'fox',
+      workbuddy: 'my-gif',
+      dsh: 'bad id!',
       unknown: 'fox',
       __proto__: 'x',
     },
   })
-  assert.deepEqual(s.rolesByAdapter, { zcode: 'whale', kimi: 'kimi', dsh: 'fox' })
+  assert.deepEqual(s.rolesByAdapter, { zcode: 'whale', kimi: 'kimi', workbuddy: 'my-gif' })
   assert.deepEqual(normalizeSettings({ rolesByAdapter: 'bad' }).rolesByAdapter, {})
   assert.deepEqual(normalizeSettings({ rolesByAdapter: [1, 2] }).rolesByAdapter, {})
 })

@@ -80,6 +80,10 @@ export function inspectGif(buf) {
   const height = buf.readUInt16LE(8)
   if (!width || !height) throw new Error('GIF 尺寸无效')
   if (width > MAX_ROLE_DIM || height > MAX_ROLE_DIM) throw new Error('图片尺寸超过 2048×2048')
+  // 至少要有一个图像描述符（0x2C）和结束符（0x3B）；只有文件头的 13 字节
+  // 不是可显示图片，浏览器打开会得到空白角色。
+  if (!buf.includes(0x2c)) throw new Error('GIF 缺少图像数据')
+  if (buf[buf.length - 1] !== 0x3b) throw new Error('GIF 不完整（缺少结束符）')
   return { ok: true, format: 'gif', width, height }
 }
 

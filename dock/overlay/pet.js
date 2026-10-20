@@ -1292,7 +1292,6 @@ async function boot() {
   setInterval(() => (quickOpen ? 0 : refreshSettings()), 2000)
   setInterval(() => (quickOpen ? 0 : refreshAgentData(false)), 3000)
   setInterval(loadRoleCatalog, 30000)
-  setInterval(loadRoleCatalog, 30000)
   restartFollowTimer()
   setInterval(loadQueue, 15000)
   if (BASE) {
@@ -1324,6 +1323,7 @@ window.__pet = {
   get lastAttach() { return lastAttach },
   get roleCatalog() { return Object.keys(roleCatalog) },
   roleFor: (id) => roleForAgent(id),
+  isAgentWindow: (w) => isAgentWindow(w),
   get currentRole() { return roleId },
   syncRole: () => syncRole(),
   alphaMaskLoaded: () => !!alphaMask,

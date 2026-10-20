@@ -5,12 +5,15 @@ export const DEFAULT_PORT = 39401
 export const MAX_PORT_TRIES = 10
 
 // 数据目录与两个挂件（~/.zcode、~/.workbuddy）完全分开：卸载/清理时互不影响。
+// FOX_DOCK_DATA 是完整数据目录（daemon 启动后会把 --data-dir 的实际值写进去）；
+// 只有未设置时才用平台默认目录再拼 fox-dock。
 export function defaultDataDir() {
+  const direct = String(process.env.FOX_DOCK_DATA || '').trim()
+  if (direct) return path.resolve(direct)
   const base =
-    process.env.FOX_DOCK_DATA ||
-    (process.platform === 'win32' && process.env.LOCALAPPDATA
+    process.platform === 'win32' && process.env.LOCALAPPDATA
       ? process.env.LOCALAPPDATA
-      : path.join(os.homedir(), '.local', 'share'))
+      : path.join(os.homedir(), '.local', 'share')
   return path.join(base, 'fox-dock')
 }
 

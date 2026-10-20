@@ -123,6 +123,10 @@ export function UsagePage({ app }) {
     .slice(0, 8)
   const rankMax = Math.max(1, ...rank.map((r) => (metric === 'tokens' ? r.tokens : r.amount)))
   const total = sumValue(rowsCur, metric)
+  // 预付池（CommandCode / 订阅套餐）的逐轮金额按 0 计，但 tokens 照常统计；
+  // 只看金额会以为「今天没花钱」，给一条口径提示。
+  const prepaidOnly =
+    metric === 'money' && rowsCur.length > 0 && rowsCur.every((r) => !r.amount) && rowsCur.some((r) => r.tokens)
 
   return html`<div data-testid="page.usage">
     <div class="row wrap" style=${{ marginBottom: 16 }}>
@@ -143,6 +147,7 @@ export function UsagePage({ app }) {
       <div class="col-12">
         <${Card} title="每日用量" testid="usage.chart" actions=${html`<span class="small muted">${metric === 'tokens' ? 'Token' : currency}</span>`}>
           ${chart.length ? html`<${ColumnChart} data=${chart} height=${240} valueLabel=${(v) => (metric === 'tokens' ? fmtTokens(v) : fmt(v))} />` : html`<${EmptyState} title="还没有用量记录" hint="dock 只记录它观察到的时间段" />`}
+          ${prepaidOnly ? html`<div class="small muted" style=${{ marginTop: 8 }}>该区间金额为 0：预付池（CommandCode / 套餐）按 0 计费，Token 照常统计；可切换「Token」查看。</div>` : null}
         </${Card}>
       </div>
       <div class="col-7">

@@ -61,13 +61,16 @@ export const CMDGO_PLANS = [
 
 // 新 GOAT 月度 credit 的生效日（老订阅按 createdAt 判断，保留 70）。
 export const CMDGO_GOAT_CREDITS_FROM = Date.UTC(2026, 9, 20)
+// 2026-10-20 实测到的老 GOAT Stripe price id（$70 档）。官方接口不返回金额，
+// 当订阅缺少 createdAt 时，只有已知老 priceId 才判老账户；其余一律按新 80 档，
+// 避免把新账户/本地池默认误判成 70。
+const LEGACY_GOAT_PRICE_IDS = new Set(['price_1U0sTYDSZgxV3MJKUKHcvFxc'])
 
-function isLegacyGoat(sub, fiveHourCap, weeklyCap) {
+function isLegacyGoat(sub) {
   const created = isRecord(sub) && typeof sub.createdAt === 'string' ? Date.parse(sub.createdAt) : NaN
   if (Number.isFinite(created)) return created < CMDGO_GOAT_CREDITS_FROM
-  // 没有 createdAt（本地池）时，老帽对 14/35 视为 70 档；新 GOAT 若改成
-  // 16/40，exact planId 仍会命中 GOAT，不受这条兜底影响。
-  return Math.abs(fiveHourCap - 14) < 0.01 && Math.abs(weeklyCap - 35) < 0.01
+  const priceId = isRecord(sub) ? str(sub.priceId) : undefined
+  return !!priceId && LEGACY_GOAT_PRICE_IDS.has(priceId)
 }
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
@@ -125,7 +128,7 @@ export function shapeCmdgoUsage(credits, subscription, whoami) {
   const planId = isRecord(sub) ? str(sub.planId) : undefined
   const plan = resolveCmdgoPlan(planId, fiveHour?.cap, weekly?.cap)
   // 老 GOAT 账户保留 $70 月度池；新账户用 $80。createdAt 缺失时按旧帽对判断。
-  const legacy = plan?.id === 'individual-goat' && isLegacyGoat(sub, fiveHour?.cap, weekly?.cap)
+  const legacy = plan?.id === 'individual-goat' && isLegacyGoat(sub)
   const total = legacy && plan.legacyMonthly ? plan.legacyMonthly : plan?.monthly
   // 月度窗口的重置时间：套餐周期的 currentPeriodEnd（ISO 串或毫秒/秒数）
   const rawEnd = isRecord(sub) ? sub.currentPeriodEnd : undefined
@@ -361,7 +364,7 @@ export function shapePoolQuota(account) {
   const weekly = windowOf(q.weekly)
   const monthlyRemaining = num(q.monthlyCredits)
   const plan = resolveCmdgoPlan(undefined, fiveHour?.cap, weekly?.cap)
-  const legacy = plan?.id === 'individual-goat' && isLegacyGoat(null, fiveHour?.cap, weekly?.cap)
+  const legacy = plan?.id === 'individual-goat' && isLegacyGoat(null)
   const total = legacy && plan.legacyMonthly ? plan.legacyMonthly : plan?.monthly
   const monthly =
     monthlyRemaining !== undefined && total

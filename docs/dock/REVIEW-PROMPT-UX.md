@@ -44,7 +44,7 @@
 3. `dock/ui/tokens.css`、`dock/ui/console.css`
 4. `dock/ui/console.html`、`dock/ui/console.mjs`
 5. `dock/ui/components/`、`dock/ui/charts/`、`dock/ui/pages/`
-6. `dock/overlay/index.html`、`dock/overlay/styles.css`、`dock/overlay/renderer.js`
+6. `dock/overlay/index.html`、`dock/overlay/pet.css`、`dock/overlay/pet.js`
 7. `docs/dock/TESTING.md` 的页面自检与夹具说明
 
 ## 4. 启动与取证环境

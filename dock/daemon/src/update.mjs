@@ -14,7 +14,9 @@ import { gunzipSync } from 'node:zlib'
 import { safeRelPath, stripTopDir, untar } from '../../shared/tar.mjs'
 import { verifyManifest } from '../../shared/manifest.mjs'
 
-export const DEFAULT_CHANNEL = 'feat/dock'
+// 预发布通道：独立分支 dock-pre，清单 docs/dock/update.json。
+// 旧挂件线只读 main 的 plugin.json 与 v* 正式 release，永远不会读这个分支。
+export const DEFAULT_CHANNEL = 'dock-pre'
 export const MAX_PACKAGE_BYTES = 32 * 1024 * 1024
 
 export function sha256(buf) {

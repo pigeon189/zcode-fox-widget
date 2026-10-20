@@ -9,6 +9,8 @@
 //
 // 退出码约定：0 = 正常停止（watchdog 不再拉起）；2 = 已有实例在跑；其它 = 异常。
 
+// 必须先于引擎/适配器的静态导入执行（见 bootstrap.mjs）。
+import './bootstrap.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'

@@ -5,15 +5,21 @@ name: dock-ci
 
 on:
   push:
-    branches: [feat/dock]
+    branches: [feat/dock, dock-pre]
     paths:
       - 'dock/**'
       - 'docs/dock/**'
+      - 'lib/pricing.mjs'
+      - 'lib/cmdgo.mjs'
+      - 'lib/relays.mjs'
       - '.github/workflows/dock-ci.yml'
   pull_request:
     paths:
       - 'dock/**'
       - 'docs/dock/**'
+      - 'lib/pricing.mjs'
+      - 'lib/cmdgo.mjs'
+      - 'lib/relays.mjs'
       - '.github/workflows/dock-ci.yml'
   workflow_dispatch:
 

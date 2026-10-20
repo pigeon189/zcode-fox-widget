@@ -34,7 +34,7 @@
 
 ## 3. 开工前必读（按顺序）
 
-1. `docs/dock/DECISIONS.md`（D001–D030）
+1. `docs/dock/DECISIONS.md`（D001–D031）
 2. `docs/dock/PLAN.md`（里程碑、优先级、退出条件）
 3. `docs/dock/UI-SPEC.md`、`docs/dock/TESTING.md`、`docs/dock/ADAPTERS.md`
 4. `docs/incidents/2026-10-overlay-host-freeze.md`

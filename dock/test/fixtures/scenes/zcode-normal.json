@@ -136,7 +136,7 @@
     "quotaWarnPct": 20, "balanceWarnMoney": 10, "contextWarnPct": 80, "costAnomalyX": 2, "alertBubble": true,
     "theme": "auto", "displayMode": "auto", "autoRole": true, "rolesByAdapter": {}, "showWeek": true, "petMode": false,
     "autoAttachNewAgent": false, "reattachOnRestart": true, "floatingData": "last", "hideMoney": false, "dnd": false,
-    "soundEnabled": false, "soundVolume": 0.5, "confirmAlert": true, "autoStart": true, "language": "zh-CN",
+    "soundVolume": 0.5, "confirmAlert": true, "autoStart": true, "language": "zh-CN",
     "updateManifestUrl": "", "autoUpdate": false, "updateChannel": "prerelease",
     "hotkeys": { "toggle": "Ctrl+Alt+F", "console": "Ctrl+Alt+D", "hideMoney": "Ctrl+Alt+H" },
     "profiles": { "zcode": { "roleId": "fox" } },

@@ -1,153 +1,109 @@
 # fox-dock 2.0 · 通用桌宠
 
-一只常驻桌面的角色，认识 ZCode、WorkBuddy、Kimi Code 与 DeepSeek Harness（dsh）四个 agent。
-把它拖到某个 agent 窗口上松手：自动识别宿主、吸附到窗口边缘、换成该宿主的角色，并把数字切成
-该宿主的余额 / 额度 / 今日消耗口径。
+一只常驻桌面的角色，认识 **ZCode / WorkBuddy / Kimi Code / DeepSeek Harness（dsh）** 四个 agent。
+把它拖到宿主窗口上松手，角色会吸附到窗口边缘、换成该宿主的形象，并把数字切换成对应的
+余额 / 额度 / 今日消耗口径。
 
-**状态：2.0.0-pre.1。** 已有：Win32 窗口桥 + doctor、常驻服务（单实例 / 健康检查 / 令牌停止）、
-watchdog、登录启动器、`fox-dock ensure` 幂等拉起、透明浮层「拖动 → 命中 → 绑定 → 吸附 → 跟随」、
-声明式适配器框架（不跑第三方 JS）、四宿主真实计费与**上下文统计**、统一账本与跨 agent 汇总、
-内置厂商引擎（45 个模板）与 DPAPI 凭据保险库、`/v1` API + SSE、独立控制台窗口、六个内置角色。
+> **当前版本：2.0.0-pre.1（预发布）**
+> 发布 tag 为 `dock-v*`，只走 GitHub prerelease + 独立分支 `dock-pre`。
+> 与 ZCode / WorkBuddy 两条旧挂件线完全隔离：旧挂件只读 `main` 的 `plugin.json`
+> 和 `v*` 正式 release，**不会收到这个版本**。不要把本包覆盖安装到旧挂件目录。
 
-### 控制台
+## 安装
 
-托盘菜单「打开控制台」、全局热键 `Ctrl+Alt+D`，或命令行 `node tools/fox-dock.mjs` 之后从托盘打开。
-控制台是与宠物层分开的可聚焦窗口：
+需要 Windows 10/11、Node.js 22.5+；Electron 运行时可复用已安装的挂件运行时。
 
-- **总览**：当前 agent 的主数字、上下文环、上一轮、今日 tokens、7 天用量、额度窗口、全部 agent 对比。
-- **上下文**：会话选择、占用环、最近一次请求构成、触顶估算、压缩记录、趋势图、最近会话。
-- **用量**：今日 / 7 天 / 30 天 × 按 Agent × 金额/Token，排名、搜索、CSV/JSON 导出。
-- **额度与余额**：单窗口大字百分比、多窗口进度条、余额卡、套餐卡；全部厂商卡片与筛选排序。
-- **厂商与密钥**：45 个内置模板、掩码密钥状态、配置/测试/删除、从宿主导入。
-- **角色与气泡**：六个内置角色、强调色、气泡开关与停留、台词间隔、气泡模板 JSON。
-- **设置**：主题、吸附、气泡与提醒、主数字口径、启动与更新、数据与隐私。
-- **关于与诊断**：版本、运行信息、适配器能力、绑定、更新检查、复制/导出诊断包。
+1. 从 [Releases](https://github.com/pigeon189/zcode-fox-widget/releases) 下载
+   `dock-2.0.0-pre.1.tar.gz` 并解压。
+2. 进入解压后的目录，双击 `launch\启动 fox-dock.vbs`；
+   或执行：
 
-控制台只通过主进程访问 daemon（`contextIsolation` + `sandbox`），令牌不会进入渲染层。
+   ```bat
+   node tools\fox-dock.mjs start
+   ```
 
-## 适配器
+3. 托盘菜单 / `Ctrl+Alt+D` 打开控制台；`Ctrl+Alt+F` 显示或隐藏角色。
 
-| id | 识别 | 主数字 | 数据源 |
+首次启动会在 `%LOCALAPPDATA%\fox-dock` 建立数据目录。停止用
+`launch\停止 fox-dock.vbs` 或 `node tools\fox-dock.mjs stop`。
+
+## 能做什么
+
+- **四宿主吸附**：只识别四个 agent 窗口；拖到桌面、QQ 或其它应用上会留在桌面，不会误绑。
+  支持窗口四角/边缘吸附和窗口内自由位置，贴左侧自动镜像。
+- **角色与气泡**：六个内置角色、导入 PNG / JPEG / WebP / GIF；单击角色打开快览卡，
+  右键打开菜单；气泡、台词、按压队列、隐藏金额、勿扰都可在控制台调整。
+- **控制台八页**：总览、上下文、用量、额度与余额、厂商与密钥、角色与气泡、设置、关于与诊断。
+- **多厂商余额**：内置 45 个厂商/订阅/中转站模板。当前 provider 的余额、CommandCode
+  月度/5 小时/周窗口、GLM Plan、DeepSeek、Kimi 等都能读取；旧账户的 GOAT 额度会标注「老账户」。
+- **上下文统计**：四宿主读取当前会话占用、上限、请求构成、压缩记录与趋势；读不到就显示
+  「暂无」，不补 0。
+- **安全**：API Key 存 Windows DPAPI 保险库，只显示掩码；宿主数据默认只读；`/v1` 写接口
+  需要本机令牌；角色导入有签名/结构/尺寸校验；更新清单必须通过 Ed25519 验签。
+
+## 四个宿主
+
+| 宿主 | 识别 | 主数字 | 数据源 |
 |---|---|---|---|
-| `zcode` | `ZCode.exe` | 今日金额（多币种不混加）、上一轮 | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` |
-| `workbuddy` | `WorkBuddy.exe` | 今日积分、上一轮 | `~/.workbuddy/projects/**/*.jsonl` 的 `rawUsage.credit` |
-| `kimi` | `Kimi Code.exe` | 套餐窗口剩余百分比；Free 账号显示套餐卡；有加油包时显示余额 | `~/.kimi-code/credentials/kimi-code.json` + `/coding/v1/usages`、`/me` |
-| `dsh` | `DeepSeek Harness.exe` | DeepSeek 余额 + 今日/上一轮 token 用量 | `~/.dsh/.credentials.yaml` + `~/.dsh/sessions/**/*.jsonl.zstd` |
-| `generic` | 兜底 | 不支持（只吸附与跟随，不猜数字） | — |
+| ZCode | `ZCode.exe` | 今日金额 / 当前 provider 余额 | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` |
+| WorkBuddy | `WorkBuddy.exe` | 今日积分 | `~/.workbuddy/projects/**/*.jsonl` |
+| Kimi Code | `Kimi Code.exe` | 套餐窗口 / 余额 | `~/.kimi-code` OAuth + `/coding/v1/usages` |
+| DeepSeek Harness | `DeepSeek Harness.exe` | DeepSeek 余额 + token 用量 | `~/.dsh` 凭据 + 多帧 zstd 会话 |
 
-口径与两条挂件线**逐日对齐**，用 `npm run verify:zcode` / `npm run verify:workbuddy` 现场对账
-（ZCode 用挂件线源码算基准；WorkBuddy 用新进程重算，避开运行中服务的 30s 缓存）。
-上下文统计用 `npm run verify:context` 对账；读不到就显示「暂无」，绝不补 0：
+Kimi Code 的 access token 只有 15 分钟，过期时按宿主同款流程刷新并原子写回；
+这是唯一会写回宿主数据的例外。
 
-| 宿主 | used 口径 | 上限来源 |
-|---|---|---|
-| ZCode | 主会话最后一条 completed 的 `computed_total_tokens` | `zcode-builtin.json` → `cc-models.txt` → `litellm.json` → 200k |
-| WorkBuddy | `session_usage.used`（最后请求的 prompt_tokens） | `session_usage.size`，缺失回落 `sessions.context_window` |
-| Kimi Code | 本地服务 `/sessions/:id/status` 的 `context_tokens` | `max_context_tokens`，兜底 `config.toml` |
-| dsh | 最近一次 usage 的 `totalTokens` | `request/context.contextWindow`，兜底 `cordis.patch.yml` |
+## 宠物层怎么用
 
-Kimi Code 的 OAuth access token 只有 15 分钟；挂件会在过期时按宿主同款流程刷新并原子写回
-凭据文件，不额外保存密钥。dsh 的会话日志是多帧 zstd，挂件逐帧解压；上一轮优先主会话，
-今日总额包含 subagent 调用。
+- **拖动**到宿主窗口：吸附到最近的四角/边缘；窗口中间松手则保留相对位置。
+- **拖到桌面空白**：进入悬浮，保留上一个 agent 的角色和余额口径。
+- **单击角色**：说一句并打开快览卡；再点角色不会关掉卡片，点外部关闭。
+- **右键角色 / 右上角「⋯」**：打开菜单，只有一个「吸附到 agent 窗口」总开关。
+- 小胶囊显示宿主名与主数字；打开快览卡时胶囊收起，快览卡灰色副标题显示当前厂商。
 
-厂商引擎已内置（`dock/engines/`），不再依赖挂件线服务在跑；凭据优先级是
-环境变量 → DPAPI 保险库 → 宿主发现 → 旧挂件配置（只读导入）。密钥只以掩码出现在界面、
-日志与诊断包里。旧挂件的 `vendorKeys` 可在控制台「厂商与密钥 → 查看并导入」一次性复制进保险库。
+只支持一块屏（默认光标所在屏幕）；跨屏拖动尚未支持。
 
+## 更新
 
-## 与现有挂件的关系
+本线只跟随 `dock-pre` 分支的签名清单：
 
-- 同一个 git 仓库，独立分支 `feat/dock` 与独立 worktree（`E:\WorkSpace\fox-dock`）。
-- 现有 `lib/`、`desktop/`、`hooks/` 在本分支上**不改动**；新代码全部在 `dock/`。
-- 2.0 是通用桌宠线，发布 tag `dock-v*`，与 ZCode/WB 两条挂件线互不影响。
-
-## 直接试（不用命令行）
-
-打开 `dock\launch\`：
-
-| 文件 | 作用 |
-|---|---|
-| **启动 fox-dock.vbs** | 双击：后台服务 + 浮层一起起来，不闪黑框 |
-| **停止 fox-dock.vbs** | 双击：两个一起收掉 |
-| status.cmd | 看是否在跑（端口、浮层 pid） |
-
-启动失败会弹一个框，日志在 `launch\last-start.log`。
-
-刚开始的 10 秒可以这么试：
-
-1. 桌面上出现角色（默认嘎啦嘛，右下角）；右上角会提示「检测到 N 个 agent」
-2. 把角色拖到 WorkBuddy 窗口上松手 → 吸到窗口边缘，角色换成小克，显示「今日 xxx 积分」；
-   窗口中间松手则保留自由位置（窗口移动/缩放时一起走）
-3. 拖到 ZCode → 换成嘎啦嘛，显示「今日 ¥x.xx」；拖到 Kimi Code → kimi 娘 + 套餐卡；
-   拖到 DeepSeek Harness → 大肥鱼 + DeepSeek 余额
-4. 单击角色或胶囊 → 说一句话并打开 **快览卡**：宿主/吸附状态、主数字、上一轮、
-   上下文进度、最多两个额度窗口，以及刷新按钮；再次点击角色不会把快览卡关掉。
-   右键角色或点右上角「⋯」打 **菜单**：换角色、大小、吸附到 agent 窗口、隐藏金额、勿扰、
-   隐藏角色、退出。完整的用量/厂商/角色/设置页在独立控制台里。
-5. 关掉「吸附到 agent 窗口」→ 不再吸附/跟随，角色可以随意摆在屏幕上
-6. 关掉再启动 → 角色自己回到上次绑定的窗口（窗口还在的话）
-7. 双击「停止」→ 角色消失，任务管理器里没有残留
-
-> 只支持一块屏（默认光标所在那块）。跨屏拖动还没做，见 D011。
-
-## 目录
-
-```
-dock/
-  shared/      身份键等纯函数（无 Windows 依赖，可在任意平台跑）
-  daemon/      常驻服务（Win32 桥 / 绑定 / 适配器 / 账本 / 窗口生命周期）
-  adapters/    zcode / workbuddy / kimi / dsh / generic
-  overlay/     Electron 浮层（角色 + 胶囊 + 气泡 + 快览卡 + 菜单）
-  test/
-    unit/      纯函数、适配器、设置、契约
-    integration/ 真 HTTP + 假 agent + 真 Electron 拖拽
-    e2e/       Playwright（Electron）
-    visual/    截图基线 + 像素对比
-docs/dock/     决策记录与计划（仓库根）
+```text
+https://raw.githubusercontent.com/pigeon189/zcode-fox-widget/dock-pre/docs/dock/update.json
 ```
 
-## 本地命令
+```bat
+node tools\fox-dock.mjs update --check
+node tools\fox-dock.mjs update --apply
+node tools\fox-dock.mjs update --history
+```
 
-```bash
+默认验签（`keys/update-pub.pem`），校验 sha256，落盘失败自动回滚。旧挂件不会读这个清单。
+
+## 开发与测试
+
+```bat
 cd dock
-npm run check          # 语法检查
-npm run check:sync     # 价目内核与挂件线是否逐字节一致
-npm test               # 单元测试
-npm run test:it        # 集成测试（真实窗口 + 真服务 + watchdog + 浮层拖拽，需要桌面会话与 Electron）
-npm run test:all       # 全部
-
-npm run verify:zcode      # 与 ZCode 挂件线源码逐日对账（今日 + 近 7 天）
-npm run verify:workbuddy  # 与 WorkBuddy 挂件线逐日对账（新进程重算，避开缓存）
-npm run e2e:real          # 真机端到端：把狐狸拖到真正的 ZCode / WorkBuddy 窗口上（不代替人工）
-
-npm run doctor   # 打印当前桌面窗口、命中的窗口与识别到的适配器（不启动服务）
-npm run adapters # 列出内置适配器与匹配规则
-npm start        # 启动 watchdog + 浮层（加 --no-overlay 只起后台服务）
-npm run status
-npm run stop
-npm run install-app  # 写登录启动项（默认到真实启动文件夹，可用 --startup-dir 覆盖）
-
-node tools/fox-dock.mjs update --check    # 检查更新（默认清单在 feat/dock 分支的 docs/dock/update.json）
-node tools/fox-dock.mjs update --apply    # 下载 + 校验 sha256 + 落盘（失败自动回滚）
-node tools/fox-dock.mjs update --history  # 最近的更新记录
-
-npm run keygen   # 生成发布密钥：私钥写到 %USERPROFILE%\fox-dock-release-key.pem，公钥入库
-npm run pack -- --version 0.2.0-pre.1 --url <下载地址> --sign --notes "…"
-                 # 打包 dist/dock-<version>.tar.gz 并生成、签名 docs/dock/update.json
-npm run sign -- --version 0.2.0-pre.1 --package dist/dock-0.2.0-pre.1.tar.gz --url <下载地址>
-                 # 只签名（包已经打好时用）
+npm run check          :: 语法检查
+npm run check:sync     :: 引擎副本与挂件线逐字节一致
+npm test               :: 单元测试
+npm run test:it        :: 集成测试（真窗口 + daemon + Electron）
+npm run test:all       :: 全部
+npm run test:ui        :: 控制台布局 / 可访问名称 / axe
+npm run visual         :: 32 张控制台视觉基线
+npm run test:pet       :: 44 张宠物层截图
+npm run test:electron:console
+npm run doctor         :: 查看当前窗口与适配器命中
+npm run start / stop / status / install-app
 ```
 
-更新清单必须带 Ed25519 签名（`keys/update-pub.pem` 是公钥，私钥只在发布机上）。
-`update --check` 默认验签，验不过直接拒绝；`--no-verify` 只给本地调试。
+目录：`daemon/` 常驻服务；`adapters/` 四宿主；`overlay/` 宠物层；`ui/` + `console/`
+控制台；`engines/` 厂商/计价；`test/` 单测、集成、视觉基线。
 
-浮层「设置 → 更新清单地址」与「关于 → 检查更新」共用同一个 `/update/check`：
-默认清单为空（还没发布 `dock-v*`），会明确提示「未配置更新源」；填入签名清单地址后
-可以检查版本，真正落盘仍走 `update --apply`。自动检查只检查，不会自动替换文件。
+## 文档
 
-浮层用法：**单击**角色打开快览卡；**拖动**到宿主窗口上松开即吸附，拖到桌面空白进入
-「悬浮」并保留上一个 agent 的角色/气泡设置；吸附后按跟随间隔贴住窗口四角，贴左侧时镜像。
-复杂页面在控制台窗口里（托盘/`Ctrl+Alt+D`）。
-
-集成测试不进 CI：它需要真实的桌面会话（GitHub runner 的交互桌面行为不稳定），
-CI 只跑单元测试；集成在本地/真机上跑。
+- [变更记录](./CHANGELOG.md)
+- [决策记录](../docs/dock/DECISIONS.md)
+- [适配器契约](../docs/dock/ADAPTERS.md)
+- [测试说明](../docs/dock/TESTING.md)
+- [UI 规格](../docs/dock/UI-SPEC.md)
+- [迁移说明](../docs/dock/MIGRATION.md)

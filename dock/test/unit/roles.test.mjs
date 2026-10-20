@@ -41,11 +41,20 @@ function makePng(width = 2, height = 2) {
 }
 
 function makeGif(width = 4, height = 6) {
-  const buf = Buffer.alloc(14)
+  const buf = Buffer.alloc(28)
   buf.write('GIF89a', 0, 'ascii')
   buf.writeUInt16LE(width, 6)
   buf.writeUInt16LE(height, 8)
-  buf[13] = 0x3b
+  // 逻辑屏幕描述符之后至少一个图像描述符和结束符；inspectGif 会检查这两项。
+  buf[13] = 0x2c
+  buf.writeUInt16LE(width, 18)
+  buf.writeUInt16LE(height, 20)
+  buf[22] = 0x02
+  buf[23] = 0x02
+  buf[24] = 0x44
+  buf[25] = 0x01
+  buf[26] = 0x00
+  buf[27] = 0x3b
   return buf
 }
 
@@ -106,6 +115,12 @@ test('roles: GIF 导入保留动画格式，列表/删除按扩展名找到', ()
   assert.equal(inspectImage(gif).format, 'gif')
   assert.equal(inspectImage(makePng()).format, 'png')
   assert.throws(() => inspectImage(Buffer.from('RIFF....WEBP')), /PNG \/ GIF/)
+  // 只有文件头、没有图像描述符/结束符的 13 字节文件不能当成可显示 GIF
+  const headerOnly = Buffer.alloc(13)
+  headerOnly.write('GIF89a', 0, 'ascii')
+  headerOnly.writeUInt16LE(4, 6)
+  headerOnly.writeUInt16LE(6, 8)
+  assert.throws(() => inspectGif(headerOnly), /图像数据|结束符/)
   const r = importRole({ rolesDir, indexFile, id: 'my-gif', name: '动图角色', buffer: gif })
   assert.equal(r.format, 'gif')
   assert.ok(fs.existsSync(path.join(rolesDir, 'my-gif.gif')))

@@ -284,7 +284,7 @@ test('2.0 /settings：主题/主数字/自动换角色/按宿主角色都能写�
     displayMode: 'quota',
     autoRole: false,
     showWeek: false,
-    rolesByAdapter: { kimi: 'whale', zcode: 'fox', evil: 'fox', dsh: 'nope' },
+    rolesByAdapter: { kimi: 'whale', zcode: 'fox', evil: 'fox', dsh: 'bad id!' },
   })
   assert.equal(r.status, 200)
   assert.equal(r.body.settings.theme, 'dark')
