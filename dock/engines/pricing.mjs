@@ -6,7 +6,9 @@
 // （此前 GLM 轮次会被兜底按 DeepSeek 价折算出看似精确实则失真的金额；DeepSeek 价
 // 只在模型名含 deepseek 时使用，仅 provider 名字沾边的不再套 DeepSeek 价）。
 //
-// 各家口径（2026-10-10 全量复核官网，单位均为「每百万 token」）：
+// 各家口径（2026-10-10 全量复核；2026-10-20 复核 CommandCode 套餐与
+// Anthropic/Kimi/DeepSeek 在售清单，单价未变；OpenAI/GLM/Qwen/MiniMax/MiMo/
+// Gemini 官方页本次不可达，沿用 2026-10-10 快照。单位均为「每百万 token」）：
 // - DeepSeek：峰谷价。工作日北京时间 9–12、14–18 为高峰，其余空闲；
 //   2026-08-23 起周末全天谷价。在售收敛为 deepseek-flash（V4.1-Flash）与
 //   deepseek-v4-pro 两个名字，旧名 v4-flash / v4-flash-vision-exp 退役、由
@@ -160,6 +162,10 @@ const VENDOR_TABLES = {
         { maxIn: 272000, name: '<=272K', hit: 0.1, miss: 2, out: 10, cw: 2.5 },
         { name: '>272K', hit: 0.2, miss: 4, out: 15, cw: 5 },
       ]),
+      // Daybreak 别名（LiteLLM 2026-10-20）：blue 与 gpt-5.6 同价、red 与
+      // gpt-5.6-cyber 同价；官方页未单独列出，按同价别名收录
+      'gpt-daybreak-blue': T([{ hit: 0.4, miss: 4, out: 20, cw: 5 }]),
+      'gpt-daybreak-red': T([{ hit: 1.25, miss: 12.5, out: 75, cw: 15.625 }]),
       'gpt-6-luna': T([
         { maxIn: 272000, name: '<=272K', hit: 0.01, miss: 0.1, out: 0.5, cw: 0.125 },
         { name: '>272K', hit: 0.02, miss: 0.2, out: 0.75, cw: 0.25 },
@@ -230,6 +236,8 @@ const VENDOR_TABLES = {
       // 同价（fable-5-1/fable-5 各自对齐）
       'claude-mythos-5-1': T([{ hit: 0.25, miss: 10, out: 50, cw: 12.5 }]),
       'claude-mythos-5': T([{ hit: 1, miss: 10, out: 50, cw: 12.5 }]),
+      // preview 别名（LiteLLM 2026-10-20）：与 mythos-5 同价
+      'claude-mythos-preview': T([{ hit: 1, miss: 10, out: 50, cw: 12.5 }]),
       'claude-opus-5-5': T([{ hit: 0.2, miss: 4, out: 20, cw: 5 }]),
       'claude-opus-5': T([{ hit: 0.5, miss: 5, out: 25, cw: 6.25 }]),
       'claude-opus-4-8': T([{ hit: 0.5, miss: 5, out: 25, cw: 6.25 }]),
