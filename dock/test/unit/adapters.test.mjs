@@ -115,6 +115,14 @@ test('contracts: normalizeSnapshot 金额取 4 位、百分比夹紧、NaN 归 n
   assert.deepEqual(s.quota, { usedPct: 100, remainingPct: 0 })
 })
 
+test('contracts: 回合时间戳透传（浮层用它判断是否新回合）', () => {
+  const s = normalizeSnapshot(
+    { supported: true, unit: 'money', turn: { amount: 1.23, currency: 'CNY', at: 1792463882196 } },
+    { adapterId: 'zcode', adapterName: 'ZCode' }
+  )
+  assert.equal(s.turn.at, 1792463882196)
+})
+
 test('contracts: normalizeSnapshot 透传 error 并标记 ok=false', () => {
   const s = normalizeSnapshot({ supported: true, unit: 'money', error: 'db locked' }, { adapterId: 'x' })
   assert.equal(s.ok, false)

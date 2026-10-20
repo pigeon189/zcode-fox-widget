@@ -148,7 +148,12 @@ function normalizeMoney(v, unit) {
     }
   }
   if (!Object.keys(byCurrency).length) byCurrency[currency] = Math.round(amount * 10000) / 10000
-  return { amount: Math.round(amount * 10000) / 10000, currency, byCurrency }
+  const out = { amount: Math.round(amount * 10000) / 10000, currency, byCurrency }
+  // 回合身份：浮层用它判断「这是一轮新的消耗」，不能拿今日金额当触发条件，
+  // 否则回合内每次调用都会重弹气泡并把自动关闭计时重新拉满。
+  const at = finiteOrNull(v.at)
+  if (at !== null && at > 0) out.at = at
+  return out
 }
 
 // 额度卡：前端只消费这个结构，不再猜各家字段。

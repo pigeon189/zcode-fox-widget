@@ -166,7 +166,28 @@ test('zcode: 上一轮取最近 completed 的 turn', () => {
     assert.equal(r.ok, true)
     assert.ok(r.lastTurn, 'lastTurn missing')
     assert.equal(r.lastTurn.calls, 2)
+    assert.equal(r.lastTurn.at, OFFPEAK + 10_000)
     assert.ok(Math.abs(r.lastTurn.amount - 10) < 1e-6)
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('zcode: 回合进行中按最新一次调用切厂商，不等回合结束', () => {
+  const { file, dir } = makeDb(
+    [
+      bigRow({ turn: 'prev', provider: 'cmdgo-bridge', startedAt: OFFPEAK }),
+      bigRow({ turn: 'active', provider: 'deepseek', startedAt: OFFPEAK + 60_000 }),
+    ],
+    [{ turn: 'prev', startedAt: OFFPEAK, completedAt: OFFPEAK + 10_000 }]
+  )
+  try {
+    const r = readUsage({ dbFile: file, now: NOON })
+    assert.equal(r.ok, true)
+    // 最近 completed 的回合仍是 CommandCode，但当前调用已经换成 DeepSeek
+    assert.equal(r.lastTurn && r.lastTurn.provider, 'cmdgo-bridge')
+    assert.equal(r.lastProvider, 'deepseek')
+    assert.equal(r.lastModel, 'deepseek-flash')
   } finally {
     cleanup(dir)
   }

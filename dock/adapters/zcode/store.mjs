@@ -81,6 +81,16 @@ function openDb(file) {
          ORDER BY COALESCE(completed_at, started_at) DESC
          LIMIT 1`
       ),
+      // 回合进行中 turn_usage 还没有 completed 行，但 model_usage 已经按每次
+      // 调用逐条写入；当前厂商必须以这条最新调用为准，否则会沿用上一个完成
+      // 回合的厂商（表现为对话中余额卡停在旧厂商，回合结束才切换）。
+      latestModel: conn.prepare(
+        `SELECT provider_id, model_id
+         FROM model_usage
+         WHERE status = 'completed' AND computed_total_tokens > 0
+         ORDER BY started_at DESC
+         LIMIT 1`
+      ),
       turnRows: conn.prepare(
         `SELECT model_id, provider_id, started_at,
            input_tokens, output_tokens, reasoning_tokens,
@@ -208,14 +218,23 @@ export function readUsage(opts = {}) {
     lastTurn = null
   }
 
+  // 当前厂商取「最近一次真实调用」，而不是最近一个 completed 回合：
+  // 进行中的回合还没有 completed 的 turn_usage 行，但新厂商的第一次调用
+  // 已经落进 model_usage，余额卡应当在对话中就切换。
+  let live = null
+  try {
+    const m = stmts.latestModel.get()
+    if (m && m.provider_id) live = { provider: String(m.provider_id), model: String(m.model_id || '') }
+  } catch (err) {
+    // 读不到就退回回合/今日口径，不影响主数字
+  }
+
   return {
     ok: true,
     today,
     lastTurn,
-    // 当前正在使用的 provider：优先用上一轮（最新一次真实调用），
-    // 没有上一轮时退回今日最后一行。
-    lastProvider: (lastTurn && lastTurn.provider) || today.lastProvider || '',
-    lastModel: (lastTurn && lastTurn.model) || today.lastModel || '',
+    lastProvider: (live && live.provider) || (lastTurn && lastTurn.provider) || today.lastProvider || '',
+    lastModel: (live && live.model) || (lastTurn && lastTurn.model) || today.lastModel || '',
     dbFile: file,
   }
 }

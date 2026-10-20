@@ -284,6 +284,7 @@ export const zcodeAdapter = {
                 amount: r.lastTurn.amount,
                 currency: r.lastTurn.currency,
                 byCurrency: { [r.lastTurn.currency]: r.lastTurn.amount },
+                at: r.lastTurn.at,
               }
             : null
 

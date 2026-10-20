@@ -105,6 +105,7 @@ let appliedRoleSrc = ''
 let quickOpen = false
 let menuOpen = false
 let bubbleTimer = null
+let bubbleKind = ''
 let sayTimer = null
 let queue = []
 let queueIndex = 0
@@ -112,6 +113,7 @@ let hideMoney = false
 let alphaMask = null
 let alphaRole = ''
 let lastSnapshotFingerprint = ''
+let lastSnapshotAt = 0
 let followTimer = null
 let followEvery = 0
 let chatterTimer = null
@@ -124,28 +126,72 @@ let lastHitAt = 0
 let startSnapshotSeen = false
 let placedOnce = false
 
-// 单音轨播放：切 src 会立刻停掉上一段，避免按下/松开两个 Audio 同时响。
-const soundEl = new Audio()
+// 与旧挂件一致：按下和松开各用一条音轨。短按松手时，松开音等到按下音
+// 播到只剩 100ms 再起播（几乎无缝，又不会两个音从头叠在一起）；长按则在
+// 松手时立刻补播。单音轨切 src 会把按下音截断，快按就只剩一半声音。
 const SOUND_SRC = { press: '../assets/sounds/Ya1.mp3', release: '../assets/sounds/Ya2.mp3' }
-let soundAt = 0
-let pressAt = 0
-function playSound(kind) {
+const pressAudio = new Audio(SOUND_SRC.press)
+const releaseAudio = new Audio(SOUND_SRC.release)
+let pressEnded = false
+let releasePlayed = false
+let releaseTimer = null
+
+function soundVolume() {
+  return Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
+}
+
+function playPress() {
   if (settings.dnd) return
-  const src = SOUND_SRC[kind]
-  if (!src) return
-  const now = performance.now()
-  if (now - soundAt < 30) return
-  // 快速点击（按下后 120ms 内松开）只播按下音；两个音轨没有机会叠加。
-  if (kind === 'release' && now - pressAt < 120) return
-  soundAt = now
-  if (kind === 'press') pressAt = now
   try {
-    soundEl.pause()
-    soundEl.currentTime = 0
-    soundEl.src = src
-    soundEl.volume = Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
-    soundEl.play().catch(() => {})
+    if (releaseTimer) {
+      clearTimeout(releaseTimer)
+      releaseTimer = null
+    }
+    releaseAudio.pause()
+    releaseAudio.currentTime = 0
+    pressEnded = false
+    releasePlayed = false
+    pressAudio.onended = () => {
+      pressEnded = true
+      // 时长未知时的兜底：短按 → 按下音播完立刻接松开音
+      if (!pressing && !releasePlayed) playRelease()
+    }
+    pressAudio.currentTime = 0
+    pressAudio.volume = soundVolume()
+    pressAudio.play().catch(() => {})
   } catch (err) {}
+}
+
+function playRelease() {
+  if (settings.dnd || releasePlayed) return
+  releasePlayed = true
+  if (releaseTimer) {
+    clearTimeout(releaseTimer)
+    releaseTimer = null
+  }
+  try {
+    releaseAudio.currentTime = 0
+    releaseAudio.volume = soundVolume()
+    releaseAudio.play().catch(() => {})
+  } catch (err) {}
+}
+
+// pointerup：按下音已经播完 → 立刻补松开音；还没播完 → 排到结尾前 100ms。
+function releaseAfterPress() {
+  if (settings.dnd) return
+  if (pressEnded) {
+    playRelease()
+    return
+  }
+  let dur = 0
+  try {
+    dur = pressAudio.duration
+  } catch (err) {}
+  if (Number.isFinite(dur) && dur > 0) {
+    const remainMs = (dur - pressAudio.currentTime) * 1000
+    releaseTimer = setTimeout(playRelease, Math.max(0, remainMs - 100))
+  }
+  // duration 还不可用时，pressAudio.onended 会兜底补播
 }
 
 // ---------- API ----------
@@ -598,17 +644,32 @@ async function refreshAgentData(force) {
   }
   const d = await read('/v1/agents/' + encodeURIComponent(agentId) + '/snapshot' + (force ? '?force=1' : ''))
   if (!d || !d.ok) return
+  // 并发轮询/SSE 的旧响应晚到会覆盖新快照，也会让回合指纹倒退、重复弹泡。
+  const capturedAt = Number(d.snapshot && d.snapshot.capturedAt) || 0
+  if (capturedAt && capturedAt < lastSnapshotAt) return
+  lastSnapshotAt = capturedAt
   snapshot = d.snapshot
   context = d.context
-  const fp = snapshot ? [snapshot.today && snapshot.today.amount, snapshot.turn && snapshot.turn.amount, snapshot.ok].join('|') : ''
-  if (startSnapshotSeen && fp !== lastSnapshotFingerprint && settings.turnBubble && snapshot && snapshot.ok && snapshot.turn) {
+  // 只认回合身份（completed_at），不能把今日金额算进来：回合内每次工具调用
+  // 都会让今日金额变化，旧条件会把 5 秒气泡无限续期。
+  const fp = turnFingerprint(snapshot)
+  if (startSnapshotSeen && fp && fp !== lastSnapshotFingerprint && settings.turnBubble && snapshot.ok && snapshot.turn) {
     const v = moneyText(snapshot.turn, snapshot.unit)
-    showBubble('本轮 ' + v, ADAPTER_NAMES[agentId] || agentId, { ms: settings.turnBubbleMs })
+    showBubble('本轮 ' + v, ADAPTER_NAMES[agentId] || agentId, { ms: settings.turnBubbleMs, kind: 'turn' })
   }
   lastSnapshotFingerprint = fp
   startSnapshotSeen = true
   renderChip()
   if (quickOpen) renderQuick()
+}
+
+function turnFingerprint(snap) {
+  if (!snap || !snap.turn) return ''
+  const at = Number(snap.turn.at)
+  if (Number.isFinite(at) && at > 0) return 'at:' + at
+  // 没有回合时间戳的宿主退回「金额 + 币种 + 本轮 tokens」，仍是稳定的
+  // 回合级标识，不会随今日累计变化。
+  return ['amt', snap.turn.amount, snap.turn.currency, snap.usage && snap.usage.turnTokens].join('|')
 }
 
 async function loadQueue() {
@@ -855,6 +916,7 @@ function showBubble(text, sub, opts = {}) {
   if (hideMoney) return
   if (!text || !text.trim()) return
   if (bubbleTimer) clearTimeout(bubbleTimer)
+  bubbleKind = opts.kind === 'turn' ? 'turn' : 'queue'
   const wasOpen = !bubble.hidden && bubble.classList.contains('open')
   bubbleText.textContent = text
   bubbleSub.textContent = sub || ''
@@ -878,6 +940,7 @@ function showBubble(text, sub, opts = {}) {
 function hideBubble() {
   if (bubbleTimer) clearTimeout(bubbleTimer)
   bubbleTimer = null
+  bubbleKind = ''
   bubble.classList.remove('open')
   setTimeout(() => {
     if (!bubble.classList.contains('open')) bubble.hidden = true
@@ -891,7 +954,7 @@ function playQueueBubble() {
   const text = typeof item === 'string' ? item : String((item && (item.text || item.content)) || '')
   const sub = item && typeof item === 'object' ? String(item.sub || item.subtitle || '') : ''
   if (!text.trim()) return false
-  showBubble(text, sub, { ms: 6000 })
+  showBubble(text, sub, { ms: 6000, kind: 'queue' })
   return true
 }
 
@@ -1171,7 +1234,7 @@ fox.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return
   e.preventDefault()
   pressing = { x: e.clientX, y: e.clientY, moved: false }
-  playSound('press')
+  playPress()
   setInteractive(true)
 })
 
@@ -1222,10 +1285,10 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('pointerup', async (e) => {
   if (!pressing) return
-  playSound('release')
   const wasDragging = dragging
-  let target = currentTarget
   pressing = null
+  releaseAfterPress()
+  let target = currentTarget
   dragging = false
   currentTarget = null
   pointer = null
@@ -1268,6 +1331,11 @@ chip.addEventListener('click', (e) => {
 })
 bubble.addEventListener('click', async (e) => {
   e.stopPropagation()
+  // 本轮消耗气泡是通知，不是按压队列：点一下就是关掉它。
+  if (bubbleKind === 'turn') {
+    hideBubble()
+    return
+  }
   if (!queue.length) await loadQueue()
   if (playQueueBubble()) return
   hideBubble()
