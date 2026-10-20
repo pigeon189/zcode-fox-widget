@@ -4,7 +4,7 @@
 把它拖到宿主窗口上松手，角色会吸附到窗口边缘、换成该宿主的形象，并把数字切换成对应的
 余额 / 额度 / 今日消耗口径。
 
-> **当前版本：2.0.0-pre.2（预发布）**
+> **当前版本：2.0.0-pre.1（预发布）**
 > 发布 tag 为 `dock-v*`，只走 GitHub prerelease + 独立分支 `dock-pre`。
 > 与 ZCode / WorkBuddy 两条旧挂件线完全隔离：旧挂件只读 `main` 的 `plugin.json`
 > 和 `v*` 正式 release，**不会收到这个版本**。不要把本包覆盖安装到旧挂件目录。
@@ -14,7 +14,7 @@
 需要 Windows 10/11、Node.js 22.5+；Electron 运行时可复用已安装的挂件运行时。
 
 1. 从 [Releases](https://github.com/pigeon189/zcode-fox-widget/releases) 下载
-   `dock-2.0.0-pre.2.tar.gz` 并解压。
+   `dock-2.0.0-pre.1.tar.gz` 并解压。
 2. 进入解压后的目录，双击 `launch\启动 fox-dock.vbs`；
    或执行：
 
