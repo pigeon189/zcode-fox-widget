@@ -43,11 +43,10 @@ export function AboutPage({ app }) {
   return html`<div class="grid" data-testid="page.about">
     <div class="col-7">
       <${Card} title="版本">
-        <div class="row" style=${{ alignItems: 'baseline', gap: 10 }}>
+        <div class="row wrap" style=${{ alignItems: 'baseline', gap: 10 }}>
           <span class="num nowrap" style=${{ fontSize: 24, fontWeight: 700 }}>fox-dock ${boot.version || ''}</span>
           <${Badge} tone="info">pre-release</${Badge}>
-          <span class="spacer"></span>
-          <${Button} onClick=${checkUpdate} loading=${checking} icon="refresh">检查更新</${Button}>
+          <${Button} onClick=${checkUpdate} loading=${checking} icon="refresh" style=${{ marginLeft: 'auto' }}>检查更新</${Button}>
         </div>
         <div class="small muted" style=${{ marginTop: 8 }}>
           ${update
