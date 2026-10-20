@@ -90,7 +90,7 @@ npm run test:it        :: 集成测试（真窗口 + daemon + Electron）
 npm run test:all       :: 全部
 npm run test:ui        :: 控制台布局 / 可访问名称 / axe
 npm run visual         :: 32 张控制台视觉基线
-npm run test:pet       :: 44 张宠物层截图
+npm run test:pet       :: 48 张宠物层截图
 npm run test:electron:console
 npm run doctor         :: 查看当前窗口与适配器命中
 npm run start / stop / status / install-app

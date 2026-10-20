@@ -49,6 +49,7 @@ const STATES = [
   { id: 'floating', run: () => window.__pet.debugFloat('zcode', 760, 360) },
   { id: 'quick', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openQuick() } },
   { id: 'menu', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openMenu(700, 220) } },
+  { id: 'menu-bottom', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openMenu(120, window.innerHeight - 60) } },
   { id: 'bubble', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.showBubble('上下文已用 82%，建议压缩会话', 'ZCode', { ms: 0 }) } },
   { id: 'say', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.say() } },
   { id: 'hide-money', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setSettings({ hideMoney: true }); window.__pet.openQuick() } },

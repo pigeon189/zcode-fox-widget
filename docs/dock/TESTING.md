@@ -10,7 +10,7 @@
 | 页面 E2E（结构部分） | `npm run test:e2e` | 同上，关闭 axe |
 | 控制台真窗口冒烟 | `npm run test:electron:console` | 启动夹具 + Electron console，CDP 断言并截图 |
 | 视觉回归 | `npm run visual` / `npm run visual:update` | 32 张基线（8 页 × 双主题 × 两视口）；ENV-MISMATCH 直接失败 |
-| 宠物层截图 | `npm run test:pet` | 四角/自由位置/悬浮/快览卡/菜单/气泡/台词/隐藏金额，双主题双视口共 44 张 |
+| 宠物层截图 | `npm run test:pet` | 四角/自由位置/悬浮/快览卡/菜单/贴底菜单/气泡/台词/隐藏金额，双主题双视口共 48 张 |
 | 截图矩阵 | `npm run shots -- --page console --console-pages overview,context,usage,quota,vendors,roles,settings,about --theme light,dark --base http://127.0.0.1:39490` | 先启动夹具 daemon |
 | 真机上下文对账 | `npm run verify:context` | PASS / SKIPPED（not-running / no-session）/ UNAVAILABLE |
 | 真机计费对账 | `npm run verify:zcode` / `verify:workbuddy` | 与宿主/旧挂件口径比对 |

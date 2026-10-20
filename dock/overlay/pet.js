@@ -17,6 +17,17 @@ const IGNORE_PIDS = new Set(
     .filter((n) => Number.isInteger(n) && n > 0)
 )
 const IGNORE_CLASSES = new Set(['Progman', 'WorkerW', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd'])
+// 系统/驱动辅助窗：它们会盖在宿主上但用户并不认为“指针指着它”，吸附判定必须跳过。
+const AUX_EXES = new Set([
+  'tabtip.exe',
+  'textinputhost.exe',
+  'nvidia overlay.exe',
+  'nvidia share.exe',
+  'searchhost.exe',
+  'startmenuexperiencehost.exe',
+  'shellexperiencehost.exe',
+])
+const AUX_TITLE_RE = /shell handwriting canvas|windows 输入体验|nvidia geforce overlay/i
 // 只吸附这四个宿主；其它应用/桌面一律不绑。测试用 ?allowGeneric=1 放开，
 // 让 fake-agent 这类普通 Electron 窗口能被命中。
 const AGENT_EXES = new Set(['zcode.exe', 'workbuddy.exe', 'kimi code.exe', 'deepseek harness.exe'])
@@ -113,31 +124,27 @@ let lastHitAt = 0
 let startSnapshotSeen = false
 let placedOnce = false
 
-const sounds = {
-  press: new Audio('../assets/sounds/Ya1.mp3'),
-  release: new Audio('../assets/sounds/Ya2.mp3'),
-}
+// 单音轨播放：切 src 会立刻停掉上一段，避免按下/松开两个 Audio 同时响。
+const soundEl = new Audio()
+const SOUND_SRC = { press: '../assets/sounds/Ya1.mp3', release: '../assets/sounds/Ya2.mp3' }
 let soundAt = 0
+let pressAt = 0
 function playSound(kind) {
   if (settings.dnd) return
-  const a = sounds[kind]
-  if (!a) return
+  const src = SOUND_SRC[kind]
+  if (!src) return
   const now = performance.now()
-  if (now - soundAt < 20) return
+  if (now - soundAt < 30) return
+  // 快速点击（按下后 120ms 内松开）只播按下音；两个音轨没有机会叠加。
+  if (kind === 'release' && now - pressAt < 120) return
   soundAt = now
-  // 快速连击时先停掉另一个音轨：按压音与松开音各用独立 Audio，
-  // 不打断的话两次点击会叠在一起。
-  for (const other of Object.values(sounds)) {
-    if (other === a) continue
-    try {
-      other.pause()
-      other.currentTime = 0
-    } catch (err) {}
-  }
+  if (kind === 'press') pressAt = now
   try {
-    a.currentTime = 0
-    a.volume = Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
-    a.play().catch(() => {})
+    soundEl.pause()
+    soundEl.currentTime = 0
+    soundEl.src = src
+    soundEl.volume = Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
+    soundEl.play().catch(() => {})
   } catch (err) {}
 }
 
@@ -972,8 +979,13 @@ function openMenu(x, y) {
 
   menuOpen = true
   menu.hidden = false
+  // 菜单不能超出屏幕：限制最大高度，位置按最终高度夹住；角色图片稍后加载
+  // 导致高度变化时，ResizeObserver 会再夹一次。
+  menu.style.maxHeight = Math.max(160, window.innerHeight - 16) + 'px'
   menu.style.left = Math.max(8, Math.min(window.innerWidth - 232, x)) + 'px'
   menu.style.top = Math.max(8, Math.min(window.innerHeight - menu.offsetHeight - 8, y)) + 'px'
+  positionMenu()
+  requestAnimationFrame(positionMenu)
   setInteractive(true)
 }
 
@@ -981,10 +993,18 @@ function positionMenu() {
   if (!menuOpen) return
   const w = menu.offsetWidth || 224
   const h = menu.offsetHeight || 300
+  // 菜单太高时贴着屏幕上边，剩下的靠自身滚动；不能把顶部夹成负数。
+  const maxTop = Math.max(8, window.innerHeight - h - 8)
   const x = parseFloat(menu.style.left || '200') || 200
   const y = parseFloat(menu.style.top || '200') || 200
   menu.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x)) + 'px'
-  menu.style.top = Math.max(8, Math.min(window.innerHeight - h - 8, y)) + 'px'
+  menu.style.top = Math.max(8, Math.min(maxTop, y)) + 'px'
+}
+
+if (typeof ResizeObserver === 'function') {
+  new ResizeObserver(() => {
+    if (menuOpen) positionMenu()
+  }).observe(menu)
 }
 
 function closeMenu() {
@@ -1016,6 +1036,10 @@ function isIgnoredWindow(win) {
   if (IGNORE_PIDS.has(win.pid)) return true
   if (IGNORE_CLASSES.has(win.cls)) return true
   if (!win.exe && !win.title) return true
+  const exe = String(win.exe || '').replace(/\\/g, '/').toLowerCase()
+  const base = exe.split('/').pop()
+  if (AUX_EXES.has(base)) return true
+  if (AUX_TITLE_RE.test(String(win.title || ''))) return true
   return /electron\.exe$/i.test(win.exe || '') && /fox-dock overlay|小挂件/i.test(win.title || '')
 }
 
@@ -1324,6 +1348,8 @@ window.__pet = {
   get roleCatalog() { return Object.keys(roleCatalog) },
   roleFor: (id) => roleForAgent(id),
   isAgentWindow: (w) => isAgentWindow(w),
+  isIgnoredWindow: (w) => isIgnoredWindow(w),
+  hitAt: (x, y, force) => hitAt(x, y, force),
   get currentRole() { return roleId },
   syncRole: () => syncRole(),
   alphaMaskLoaded: () => !!alphaMask,

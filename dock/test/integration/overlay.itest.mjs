@@ -234,6 +234,10 @@ test('pet: 启动后显示角色，胶囊默认隐藏', async () => {
   assert.equal(await cdp.eval("window.__pet.isAgentWindow({exe:'C:/Apps/Kimi Code/Kimi Code.exe'})"), true)
   assert.equal(await cdp.eval("window.__pet.isAgentWindow({exe:'C:/QQ/QQ.exe'})"), false)
   assert.equal(await cdp.eval("window.__pet.isAgentWindow({exe:'C:/Windows/SystemApps/TextInputHost.exe'})"), false)
+  // 输入法/手写画布/驱动浮层是辅助窗，必须跳过而不是当成“最上层非宿主”阻断吸附。
+  assert.equal(await cdp.eval("window.__pet.isIgnoredWindow({exe:'C:/Windows/System32/TabTip.exe',title:'Shell Handwriting Canvas'})"), true)
+  assert.equal(await cdp.eval("window.__pet.isIgnoredWindow({exe:'C:/Windows/SystemApps/TextInputHost.exe',title:'Windows 输入体验'})"), true)
+  assert.equal(await cdp.eval("window.__pet.isIgnoredWindow({exe:'C:/QQ/QQ.exe',title:'QQ'})"), false)
 })
 
 test('pet: 单击角色打开快览卡，再点角色保持打开', async () => {
