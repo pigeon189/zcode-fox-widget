@@ -115,6 +115,16 @@ test('contracts: normalizeSnapshot 金额取 4 位、百分比夹紧、NaN 归 n
   assert.deepEqual(s.quota, { usedPct: 100, remainingPct: 0 })
 })
 
+test('contracts: 峰谷时段透传，平价源保持 null', () => {
+  const peak = normalizeSnapshot(
+    { supported: true, unit: 'money', period: { isPeak: true, nextChangeAt: 1792463882196 } },
+    { adapterId: 'zcode', adapterName: 'ZCode' }
+  )
+  assert.deepEqual(peak.period, { isPeak: true, nextChangeAt: 1792463882196 })
+  const flat = normalizeSnapshot({ supported: true, unit: 'money' }, { adapterId: 'x' })
+  assert.equal(flat.period, null)
+})
+
 test('contracts: 回合时间戳透传（浮层用它判断是否新回合）', () => {
   const s = normalizeSnapshot(
     { supported: true, unit: 'money', turn: { amount: 1.23, currency: 'CNY', at: 1792463882196 } },

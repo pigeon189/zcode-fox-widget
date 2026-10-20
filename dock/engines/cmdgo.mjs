@@ -48,30 +48,15 @@ function isCmdgoHost(host) {
 // 套餐目录：月度 credit 额度与 5 小时/周帽（帽 = 月度池的 30%/60%，
 // GOAT/Pro 为 20%/50%）。帽对与套餐一一对应，可用来反查未知 planId。
 //
-// 2026-10-20 官方页：GOAT 卡片改为「$80 in credits」（对比表仍写 $70），
-// 老账户保留 $70 月度池。新账户按 80、老账户按 legacyMonthly 70 计算百分比。
+// 2026-10-20 官方页：GOAT 统一按「$80 in credits」计算月度池。
 export const CMDGO_PLANS = [
   { id: 'individual-go', name: 'Go', monthly: 10, fiveHourCap: 3, weeklyCap: 6 },
-  { id: 'individual-goat', name: 'GOAT', monthly: 80, fiveHourCap: 14, weeklyCap: 35, legacyMonthly: 70 },
+  { id: 'individual-goat', name: 'GOAT', monthly: 80, fiveHourCap: 14, weeklyCap: 35 },
   { id: 'individual-pro', name: 'Pro', monthly: 80, fiveHourCap: 16, weeklyCap: 40 },
   { id: 'individual-max-10x', name: 'Max 10×', monthly: 150, fiveHourCap: 45, weeklyCap: 90 },
   { id: 'individual-max-20x', name: 'Max 20×', monthly: 300, fiveHourCap: 90, weeklyCap: 180 },
   { id: 'team-pro', name: 'Team Pro', monthly: 40, fiveHourCap: 12, weeklyCap: 24 },
 ]
-
-// 新 GOAT 月度 credit 的生效日（老订阅按 createdAt 判断，保留 70）。
-export const CMDGO_GOAT_CREDITS_FROM = Date.UTC(2026, 9, 20)
-// 2026-10-20 实测到的老 GOAT Stripe price id（$70 档）。官方接口不返回金额，
-// 当订阅缺少 createdAt 时，只有已知老 priceId 才判老账户；其余一律按新 80 档，
-// 避免把新账户/本地池默认误判成 70。
-const LEGACY_GOAT_PRICE_IDS = new Set(['price_1U0sTYDSZgxV3MJKUKHcvFxc'])
-
-function isLegacyGoat(sub) {
-  const created = isRecord(sub) && typeof sub.createdAt === 'string' ? Date.parse(sub.createdAt) : NaN
-  if (Number.isFinite(created)) return created < CMDGO_GOAT_CREDITS_FROM
-  const priceId = isRecord(sub) ? str(sub.priceId) : undefined
-  return !!priceId && LEGACY_GOAT_PRICE_IDS.has(priceId)
-}
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
 const str = (v) => (typeof v === 'string' && v.length > 0 ? v : undefined)
@@ -127,9 +112,7 @@ export function shapeCmdgoUsage(credits, subscription, whoami) {
   const sub = isRecord(subscription) && isRecord(subscription.data) ? subscription.data : subscription
   const planId = isRecord(sub) ? str(sub.planId) : undefined
   const plan = resolveCmdgoPlan(planId, fiveHour?.cap, weekly?.cap)
-  // 老 GOAT 账户保留 $70 月度池；新账户用 $80。createdAt 缺失时按旧帽对判断。
-  const legacy = plan?.id === 'individual-goat' && isLegacyGoat(sub)
-  const total = legacy && plan.legacyMonthly ? plan.legacyMonthly : plan?.monthly
+  const total = plan?.monthly
   // 月度窗口的重置时间：套餐周期的 currentPeriodEnd（ISO 串或毫秒/秒数）
   const rawEnd = isRecord(sub) ? sub.currentPeriodEnd : undefined
   let periodEndMs = null
@@ -146,7 +129,6 @@ export function shapeCmdgoUsage(credits, subscription, whoami) {
           total,
           percent: Math.min(1, Math.max(0, (total - monthlyRemaining) / total)),
           resetAt: periodEndMs,
-          legacy: !!legacy,
         }
       : null
   const owner = isRecord(whoami) && isRecord(whoami.user) ? whoami.user : undefined
@@ -364,8 +346,7 @@ export function shapePoolQuota(account) {
   const weekly = windowOf(q.weekly)
   const monthlyRemaining = num(q.monthlyCredits)
   const plan = resolveCmdgoPlan(undefined, fiveHour?.cap, weekly?.cap)
-  const legacy = plan?.id === 'individual-goat' && isLegacyGoat(null)
-  const total = legacy && plan.legacyMonthly ? plan.legacyMonthly : plan?.monthly
+  const total = plan?.monthly
   const monthly =
     monthlyRemaining !== undefined && total
       ? {
@@ -373,7 +354,6 @@ export function shapePoolQuota(account) {
           total,
           percent: Math.min(1, Math.max(0, (total - monthlyRemaining) / total)),
           resetAt: null,
-          legacy: !!legacy,
         }
       : null
   if (!monthly && !fiveHour && !weekly) return null

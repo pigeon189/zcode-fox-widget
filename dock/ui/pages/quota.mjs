@@ -99,7 +99,6 @@ function VendorCard({ v, onCorrect }) {
     <div class="row" style=${{ alignItems: 'baseline' }}>
       <span class="num" style=${{ fontSize: 20, fontWeight: 700 }}>${value}</span>
       ${v.monthly && v.monthly.total != null ? html`<span class="small muted">/ ${fmtMoney(v.monthly.total, v.currency || 'USD')}</span>` : null}
-      ${v.monthly && v.monthly.legacy ? html`<span class="small muted">老账户</span>` : null}
       ${v.todayUsage != null ? html`<span class="small muted">今日 ${fmtMoney(v.todayUsage, v.currency || 'CNY')}</span>` : null}
       ${v.kind === 'cmdgo' && v.pool ? html`<span class="small muted">池 ${v.pool.available}/${v.pool.total} 可用</span>` : null}
     </div>

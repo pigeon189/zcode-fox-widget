@@ -383,6 +383,56 @@ test('pet: 气泡点击推进队列，队列结束关闭', async () => {
   await waitFor(async () => (await cdp.eval("document.getElementById('bubble-text').textContent")) === '第二句', 3000, 'queue 2')
 })
 
+test('pet: 长气泡定位一次后不再左移', async () => {
+  // 关掉本轮消耗气泡，避免后台快照刷新把测试用的长气泡替换掉。
+  await cdp.eval("window.__pet.setSettings({hideMoney:false,turnBubble:false})")
+  await cdp.eval("window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'})")
+  await cdp.eval("window.__pet.showBubble('我已经一分钟没有听到Gemini 4的故事了','ZCode',{ms:0})")
+  await waitFor(async () => (await cdp.eval("!document.getElementById('bubble').hidden")), 3000, 'long bubble')
+  const read = async () =>
+    JSON.parse(
+      await cdp.eval("(function(){var r=document.getElementById('bubble').getBoundingClientRect();return JSON.stringify({x:r.x,w:r.width,t:document.getElementById('bubble-text').textContent})})()")
+    )
+  const x1 = await read()
+  await sleep(1700) // 跨过 3 次 follow 重排
+  const x2 = await read()
+  // 角色会被后台 state/follow 拉回真实位置，气泡跟着角色走是正常的；
+  // 这里守的是根因：同一条长文本在多次重排后宽度必须稳定（不再「变宽→左移」）。
+  assert.equal(x2.w, x1.w, '气泡宽度在重排中变化：' + JSON.stringify({ x1, x2 }))
+  assert.equal(x2.t, x1.t, '气泡内容被替换：' + JSON.stringify({ x1, x2 }))
+  await cdp.eval('window.__pet.hideBubble()')
+  await cdp.eval('window.__pet.setSettings({turnBubble:true})')
+})
+
+test('pet: 按下角色压扁，松手回弹', async () => {
+  await cdp.eval("window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'})")
+  const c = JSON.parse(
+    await cdp.eval("(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()")
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1 })
+  await sleep(80)
+  assert.equal(await cdp.eval("document.getElementById('fox').style.transform"), 'scaleY(0.88) scaleX(1.05)')
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c.x, y: c.y, button: 'left', buttons: 0, clickCount: 1 })
+  await sleep(120)
+  assert.equal(await cdp.eval("document.getElementById('fox').style.transform"), 'scaleY(1) scaleX(1)')
+  await cdp.eval('window.__pet.closeQuick()')
+})
+
+test('pet: 快览卡显示峰谷时段与倒计时', async () => {
+  const next = Date.now() + 2 * 3600_000
+  await cdp.eval(
+    "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',period:{isPeak:true,nextChangeAt:" +
+      next +
+      "},quotaCard:{kind:'balance',title:'DeepSeek',balance:{amount:3.16,currency:'CNY'}}});" +
+      "window.__pet.debugFloat('zcode',400,300);window.__pet.openQuick()"
+  )
+  await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 3000, 'quick period')
+  assert.equal(await cdp.eval("document.getElementById('quick-period-label').textContent"), '高峰时段')
+  assert.match(await cdp.eval("document.getElementById('quick-period-count').textContent"), /后转谷/)
+  assert.equal(await cdp.eval("document.getElementById('quick-period').hidden"), false)
+  await cdp.eval('window.__pet.closeQuick()')
+})
+
 test('pet: 大浮窗并列三档额度，顺序 5 小时 → 本周 → 月度池', async () => {
   await cdp.eval(
     "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:null," +

@@ -48,9 +48,17 @@ const STATES = [
   { id: 'free', run: () => window.__pet.debugAttach('zcode', '0x1', { x: 100, y: 80, w: 960, h: 620 }, { h: null, v: null, hOff: 120, vOff: 90 }) },
   { id: 'floating', run: () => window.__pet.debugFloat('zcode', 760, 360) },
   { id: 'quick', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openQuick() } },
+  { id: 'quick-period', run: () => {
+    window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' })
+    window.__pet.setSnapshot({ ok: true, supported: true, unit: 'money', today: { amount: 12.34, currency: 'CNY' },
+      balance: { amount: 3.16, currency: 'CNY' }, period: { isPeak: true, nextChangeAt: Date.now() + 2 * 3600_000 },
+      quotaCard: { kind: 'balance', title: 'DeepSeek', subtitle: '账户余额', balance: { amount: 3.16, currency: 'CNY' } } })
+    window.__pet.openQuick()
+  } },
   { id: 'menu', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openMenu(700, 220) } },
   { id: 'menu-bottom', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.openMenu(120, window.innerHeight - 60) } },
   { id: 'bubble', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.showBubble('上下文已用 82%，建议压缩会话', 'ZCode', { ms: 0 }) } },
+  { id: 'bubble-long', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.showBubble('我已经一分钟没有听到Gemini 4的故事了', 'ZCode', { ms: 0 }) } },
   { id: 'say', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.say() } },
   { id: 'hide-money', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setSettings({ hideMoney: true }); window.__pet.openQuick() } },
 ]

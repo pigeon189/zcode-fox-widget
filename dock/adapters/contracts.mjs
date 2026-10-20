@@ -363,6 +363,12 @@ export function normalizeSnapshot(raw, ctx = {}) {
           turnTokens: Math.max(0, Math.round(finiteOrNull(r.usage && r.usage.turnTokens) || 0)),
         }
       : null,
+    // 分时计价（当前是 DeepSeek 系）：isPeak + 下一次切换时刻（毫秒）。
+    // 平价厂商为 null，前端不显示峰谷行。
+    period:
+      supported && r.period && typeof r.period === 'object'
+        ? { isPeak: r.period.isPeak === true, nextChangeAt: finiteOrNull(r.period.nextChangeAt) }
+        : null,
     source: supported && r.source ? String(r.source).slice(0, 200) : '',
     error: null,
   }

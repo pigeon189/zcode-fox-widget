@@ -41,7 +41,8 @@ button {
   height: var(--fox-size);
   z-index: 20;
   filter: var(--pet-shadow);
-  transition: left 140ms ease-out, top 140ms ease-out;
+  transform-origin: 50% 100%;
+  transition: left 140ms ease-out, top 140ms ease-out, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 #fox.dragging {
   transition: none;
@@ -181,7 +182,10 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
 #say {
   position: absolute;
   z-index: 22;
-  width: fit-content;
+  /* max-content 而不是 fit-content：绝对定位元素的 fit-content 会把 left
+     算进可用宽度，定位到右侧后每轮重排都会「变宽→左移」一点点（表现为
+     气泡每 0.5s 往左跳）。max-content 只由文本决定，定位一次就稳定。 */
+  width: max-content;
   max-width: min(260px, calc(100vw - 16px));
   padding: 10px 14px;
   border-radius: 14px;
@@ -295,6 +299,33 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   font-size: 13px;
   color: var(--text-2);
   margin-top: 2px;
+}
+.quick-period {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.quick-period[hidden] {
+  display: none;
+}
+.quick-period .period-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: 0 0 6px;
+}
+.quick-period.peak .period-dot {
+  background: var(--bad);
+}
+.quick-period .period-count {
+  margin-left: auto;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .quick-context {
   display: flex;

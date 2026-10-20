@@ -59,6 +59,9 @@ const quickAgent = document.getElementById('quick-agent')
 const quickStatus = document.getElementById('quick-status')
 const quickValue = document.getElementById('quick-value')
 const quickSub = document.getElementById('quick-sub')
+const quickPeriod = document.getElementById('quick-period')
+const quickPeriodLabel = document.getElementById('quick-period-label')
+const quickPeriodCount = document.getElementById('quick-period-count')
 const quickCtxBar = document.getElementById('quick-ctx-bar')
 const quickCtxPct = document.getElementById('quick-ctx-pct')
 const quickCtxAbs = document.getElementById('quick-ctx-abs')
@@ -130,6 +133,8 @@ let placedOnce = false
 // 播到只剩 100ms 再起播（几乎无缝，又不会两个音从头叠在一起）；长按则在
 // 松手时立刻补播。单音轨切 src 会把按下音截断，快按就只剩一半声音。
 const SOUND_SRC = { press: '../assets/sounds/Ya1.mp3', release: '../assets/sounds/Ya2.mp3' }
+// 与旧挂件一致：按下时整体压扁一点，松手弹回；以底边为原点，脚不离地。
+const SQUISH = 'scaleY(0.88) scaleX(1.05)'
 const pressAudio = new Audio(SOUND_SRC.press)
 const releaseAudio = new Audio(SOUND_SRC.release)
 let pressEnded = false
@@ -192,6 +197,14 @@ function releaseAfterPress() {
     releaseTimer = setTimeout(playRelease, Math.max(0, remainMs - 100))
   }
   // duration 还不可用时，pressAudio.onended 会兜底补播
+}
+
+function pressDown() {
+  fox.style.transform = SQUISH
+}
+
+function pressUp() {
+  fox.style.transform = 'scaleY(1) scaleX(1)'
 }
 
 // ---------- API ----------
@@ -391,6 +404,35 @@ function resetText(v) {
   if (delta < 3600_000) return Math.round(delta / 60_000) + 'm 后重置'
   if (delta < 86400_000) return Math.round(delta / 3600_000) + 'h 后重置'
   return Math.round(delta / 86400_000) + 'd 后重置'
+}
+
+// 峰谷倒计时：只显示分钟级，够用又不会每秒闪数字；1 小时内显示分钟，
+// 超过 1 小时显示 h+m。
+function periodCountText(ms) {
+  if (!Number.isFinite(ms)) return ''
+  const delta = ms - Date.now()
+  if (delta <= 0) return '即将切换'
+  const min = Math.max(1, Math.ceil(delta / 60_000))
+  if (min >= 60) {
+    const h = Math.floor(min / 60)
+    const m = min % 60
+    return h + 'h' + (m ? m + 'm' : '')
+  }
+  return min + 'm'
+}
+
+function renderPeriod() {
+  if (!quickOpen || quick.hidden) return
+  const p = snapshot && snapshot.period
+  if (!p) {
+    quickPeriod.hidden = true
+    return
+  }
+  quickPeriod.hidden = false
+  quickPeriod.classList.toggle('peak', !!p.isPeak)
+  quickPeriodLabel.textContent = p.isPeak ? '高峰时段' : '空闲时段'
+  const left = periodCountText(Number(p.nextChangeAt))
+  quickPeriodCount.textContent = left ? left + ' 后转' + (p.isPeak ? '谷' : '峰') : ''
 }
 
 function mainMetric(snap, agentId) {
@@ -785,6 +827,7 @@ function renderQuick() {
     row.append(label, bar, pctEl, reset)
     quickWindows.appendChild(row)
   }
+  renderPeriod()
   positionQuick()
 }
 
@@ -1234,6 +1277,7 @@ fox.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return
   e.preventDefault()
   pressing = { x: e.clientX, y: e.clientY, moved: false }
+  pressDown()
   playPress()
   setInteractive(true)
 })
@@ -1287,6 +1331,7 @@ window.addEventListener('pointerup', async (e) => {
   if (!pressing) return
   const wasDragging = dragging
   pressing = null
+  pressUp()
   releaseAfterPress()
   let target = currentTarget
   dragging = false
@@ -1384,6 +1429,7 @@ async function boot() {
   setInterval(() => (quickOpen ? 0 : refreshSettings()), 2000)
   setInterval(() => (quickOpen ? 0 : refreshAgentData(false)), 3000)
   setInterval(loadRoleCatalog, 30000)
+  setInterval(renderPeriod, 1000)
   restartFollowTimer()
   setInterval(loadQueue, 15000)
   if (BASE) {
@@ -1444,6 +1490,7 @@ window.__pet = {
   closeQuick() { toggleQuick(false) },
   openMenu,
   showBubble,
+  hideBubble,
   reloadQueue: loadQueue,
   say: speak,
   setSettings(patch) { settings = { ...settings, ...patch }; applySettings() },

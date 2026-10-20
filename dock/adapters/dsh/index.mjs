@@ -8,6 +8,7 @@
 import { defaultDshHome, readDeepSeekBalance } from './credentials.mjs'
 import { readDshwLedger, scanDshUsage } from './sessions.mjs'
 import { listDshSessions, readDshContext } from './context.mjs'
+import { periodFor } from '../../engines/pricing.mjs'
 
 function fmtTokens(n) {
   const v = Number(n) || 0
@@ -158,6 +159,7 @@ export const dshAdapter = {
           details,
           plan: 'DeepSeek 按量',
           account: balance.ok && balance.currency ? 'DeepSeek · ' + balance.currency : 'DeepSeek',
+          period: periodFor('deepseek-flash', 'deepseek'),
           usage: {
             todayTokens: today ? today.tokens : 0,
             turnTokens: turn ? turn.tokens : 0,

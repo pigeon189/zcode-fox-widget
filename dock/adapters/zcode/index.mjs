@@ -8,6 +8,7 @@
 import { readUsage, dominantCurrency } from './store.mjs'
 import { listZcodeSessions, readZcodeContext } from './context.mjs'
 import { listVendorStatus } from '../../engines/vendors.mjs'
+import { periodFor } from '../../engines/pricing.mjs'
 
 const REASON_TEXT = {
   'sqlite-unavailable': '当前 Node 没有 node:sqlite（需 ≥ 22.5）',
@@ -301,6 +302,8 @@ export const zcodeAdapter = {
           plan: active ? active.planName || active.name : 'ZCode',
           account: active ? active.account || '' : '',
           provider,
+          // 峰谷只对分时计价的模型出现（当前是 DeepSeek 系）；平价厂商为 null。
+          period: periodFor(r.lastModel, provider),
           usage: {
             todayTokens: r.today.tokens,
             turnTokens: r.lastTurn ? r.lastTurn.tokens : 0,
