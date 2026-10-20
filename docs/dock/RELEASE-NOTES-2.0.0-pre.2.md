@@ -1,8 +1,18 @@
-# dock-v2.0.0-pre.1
+# dock-v2.0.0-pre.2
 
-**预发布**：通用桌宠 fox-dock 的首个可安装测试版，独立于 ZCode / WorkBuddy 两条旧挂件线。
-本次只验证 ZCode / WorkBuddy / Kimi Code / DeepSeek Harness 四宿主吸附、余额与上下文，
-以及独立控制台和宠物层；不要覆盖安装到旧挂件目录。
+**预发布**：通用桌宠 fox-dock 的可安装测试版（替代已撤回的 `dock-v2.0.0-pre.1`），独立于
+ZCode / WorkBuddy 两条旧挂件线。本次只验证四宿主吸附、余额与上下文，以及独立控制台和宠物层；
+不要覆盖安装到旧挂件目录。
+
+## 本次修复（相对已撤回的 pre.1）
+
+- **吸附恢复**：最上层判定跳过 TabTip / Windows 输入体验 / NVIDIA 等输入法与驱动辅助窗，
+  不再被它们挡住宿主；只吸附四个宿主 exe（ZCode / WorkBuddy / Kimi Code / DeepSeek Harness）。
+- **菜单贴底自适应**：右键菜单按最终高度限高并重排，角色在屏幕下方时菜单项不再越出屏幕。
+- **音效单轨**：按下/松开共用一个播放通道，快速点击只播按下音，不会两个音同时响。
+- **上下文页会话选择**改用自绘下拉；用量页零值不再画 1px 假柱，并为预付池金额 0 增加口径提示。
+- **审查 P2**：导入角色可持久化到档案；GOAT 新账户默认 $80、老账户按 createdAt/priceId 保留 $70；
+  `FOX_DOCK_DATA` 统一为完整数据目录，自身 runtime-env 兜底生效。
 
 ## 主要变更
 
@@ -25,7 +35,7 @@
 
 ## 安装 / 升级
 
-1. 下载 `dock-2.0.0-pre.1.tar.gz` 并解压到独立目录（不要解压到旧挂件目录）。
+1. 下载 `dock-2.0.0-pre.2.tar.gz` 并解压到独立目录（不要解压到旧挂件目录）。
 2. 双击 `launch\启动 fox-dock.vbs`，或执行 `node tools\fox-dock.mjs start`。
 3. 托盘菜单 / `Ctrl+Alt+D` 打开控制台。
 
@@ -40,4 +50,4 @@
 - 独立代码审查提出的 3 个 P2（导入角色持久化、GOAT 新老账户、runtime-env 路径）已修复并复测；
   按维护者要求，本轮不再发子审查。
 
-完整变更见 [dock/CHANGELOG.md](https://github.com/pigeon189/zcode-fox-widget/blob/dock-v2.0.0-pre.1/dock/CHANGELOG.md)。
+完整变更见 [dock/CHANGELOG.md](https://github.com/pigeon189/zcode-fox-widget/blob/dock-v2.0.0-pre.2/dock/CHANGELOG.md)。

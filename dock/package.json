@@ -1,6 +1,6 @@
 {
   "name": "fox-dock",
-  "version": "2.0.0-pre.1",
+  "version": "2.0.0-pre.2",
   "private": true,
   "type": "module",
   "description": "Universal desktop pet for agent cost visibility: ZCode / WorkBuddy / Kimi Code / DeepSeek Harness",
