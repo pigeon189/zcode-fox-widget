@@ -338,13 +338,13 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
 .quick-window {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12px;
   margin-top: 6px;
 }
 .quick-window .label {
-  width: 58px;
-  flex: 0 0 58px;
+  width: 46px;
+  flex: 0 0 46px;
   color: var(--text-3);
 }
 .quick-window .bar {
@@ -360,12 +360,12 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   background: var(--pet-accent);
 }
 .quick-window .pct {
-  width: 44px;
+  width: 40px;
   text-align: right;
   font-weight: 600;
 }
 .quick-window .reset {
-  width: 86px;
+  width: 74px;
   text-align: right;
   color: var(--text-3);
   white-space: nowrap;
