@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { readUsage, startOfLocalDay, _resetConnection } from '../../adapters/zcode/store.mjs'
+import { readUsage, _resetConnection } from '../../adapters/zcode/store.mjs'
 import { zcodeAdapter } from '../../adapters/zcode/index.mjs'
 import { resolveAdapter } from '../../adapters/registry.mjs'
 import { createBillingService } from '../../daemon/src/billing.mjs'
@@ -78,10 +78,14 @@ const bigRow = (over = {}) => ({
   ...over,
 })
 
+// 显式给统计区间：CI runner 是 UTC，开发机是 UTC+8，不能依赖 runner 的
+// 「本地零点」去圈选固定时间戳，否则同一批行会在另一个时区落到昨天。
+const readDay = (file) => readUsage({ dbFile: file, now: NOON, since: OFFPEAK, until: NOON })
+
 test('zcode: 今日合计 = 逐行计价之和（1M 输入 + 1M 输出 = ¥5.00 谷价）', () => {
   const { file, dir } = makeDb([bigRow(), bigRow({ turn: 't2' })])
   try {
-    const r = readUsage({ dbFile: file, now: NOON })
+    const r = readDay(file)
     assert.equal(r.ok, true)
     assert.equal(r.today.calls, 2)
     assert.equal(r.today.tokens, 4_000_000)
@@ -94,7 +98,7 @@ test('zcode: 今日合计 = 逐行计价之和（1M 输入 + 1M 输出 = ¥5.00 
 test('zcode: 预付池（cmdgo）金额记 0，但 tokens 照算', () => {
   const { file, dir } = makeDb([bigRow({ provider: 'cmdgo-bridge' })])
   try {
-    const r = readUsage({ dbFile: file, now: NOON })
+    const r = readDay(file)
     assert.equal(r.ok, true)
     assert.equal(r.today.byCurrency.CNY || 0, 0)
     assert.equal(r.today.tokens, 2_000_000)
@@ -107,11 +111,11 @@ test('zcode: 零 token 行、昨日行、非 completed 行都不计入今日', (
   const { file, dir } = makeDb([
     bigRow(),
     { startedAt: OFFPEAK, input: 0, output: 0 },
-    bigRow({ startedAt: startOfLocalDay(NOON) - 1, turn: 't2' }),
+    bigRow({ startedAt: OFFPEAK - 1, turn: 't2' }),
     bigRow({ startedAt: OFFPEAK, status: 'failed', turn: 't3' }),
   ])
   try {
-    const r = readUsage({ dbFile: file, now: NOON })
+    const r = readDay(file)
     assert.equal(r.ok, true)
     assert.equal(r.today.calls, 1)
     assert.ok(Math.abs(r.today.byCurrency.CNY - 5) < 1e-6)
@@ -123,7 +127,7 @@ test('zcode: 零 token 行、昨日行、非 completed 行都不计入今日', (
 test('zcode: 多币种分开累计（USD 与 CNY 不相加）', () => {
   const { file, dir } = makeDb([bigRow(), bigRow({ provider: 'openai', model: 'gpt-5.5', turn: 't2' })])
   try {
-    const r = readUsage({ dbFile: file, now: NOON })
+    const r = readDay(file)
     assert.equal(r.ok, true)
     assert.ok(r.today.byCurrency.CNY > 0)
     assert.ok(r.today.byCurrency.USD > 0)
@@ -140,7 +144,7 @@ test('zcode: 按厂商拆分今日金额与 tokens', () => {
     bigRow({ provider: 'cmdgo-bridge', turn: 't3' }),
   ])
   try {
-    const r = readUsage({ dbFile: file, now: NOON })
+    const r = readDay(file)
     assert.equal(r.ok, true)
     assert.ok(r.today.byVendor.deepseek, JSON.stringify(r.today.byVendor))
     assert.ok(r.today.byVendor.openai, JSON.stringify(r.today.byVendor))
@@ -162,7 +166,7 @@ test('zcode: 上一轮取最近 completed 的 turn', () => {
     ]
   )
   try {
-    const r = readUsage({ dbFile: file, now: NOON })
+    const r = readDay(file)
     assert.equal(r.ok, true)
     assert.ok(r.lastTurn, 'lastTurn missing')
     assert.equal(r.lastTurn.calls, 2)
@@ -182,7 +186,7 @@ test('zcode: 回合进行中按最新一次调用切厂商，不等回合结束'
     [{ turn: 'prev', startedAt: OFFPEAK, completedAt: OFFPEAK + 10_000 }]
   )
   try {
-    const r = readUsage({ dbFile: file, now: NOON })
+    const r = readDay(file)
     assert.equal(r.ok, true)
     // 最近 completed 的回合仍是 CommandCode，但当前调用已经换成 DeepSeek
     assert.equal(r.lastTurn && r.lastTurn.provider, 'cmdgo-bridge')
