@@ -34,15 +34,22 @@ export function maskSecret(secret) {
   return s.slice(0, 3) + '••••' + s.slice(-4)
 }
 
-function dpapi(script, input) {
-  if (process.platform !== 'win32') throw new Error('vault-unsupported')
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+function runDpapi(script, input, timeout) {
+  return spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     input,
     encoding: 'utf8',
     windowsHide: true,
-    timeout: 15000,
+    timeout,
     maxBuffer: 4 * 1024 * 1024,
   })
+}
+
+function dpapi(script, input) {
+  if (process.platform !== 'win32') throw new Error('vault-unsupported')
+  let r = runDpapi(script, input, 15000)
+  // 冷启动（CI runner / 刚开机）首次加载 System.Security 可能超过 15s；
+  // 超时重试一次，避免把「慢」误报成「DPAPI 不可用」。
+  if (r.error && r.error.code === 'ETIMEDOUT') r = runDpapi(script, input, 30000)
   if (r.error) throw new Error('vault-dpapi: ' + r.error.message)
   // 不把 PowerShell 的原始错误拼进异常：里面可能带本机路径与乱码。
   if (r.status !== 0) throw new Error('vault-dpapi: DPAPI 调用失败（密文损坏或不属于当前用户）')
