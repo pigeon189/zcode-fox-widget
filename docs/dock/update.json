@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0-pre.1",
-  "url": "https://github.com/pigeon189/zcode-fox-widget/releases/download/dock-v2.0.0-pre.1/dock-2.0.0-pre.1.tar.gz",
-  "sha256": "fc29b8335d82f96724b390de71b5165ca262ae98d8f899fb1ce117678f60d10e",
-  "notes": "2.0.0-pre.1 预发布：通用桌宠、四宿主吸附、独立控制台、CommandCode 额度；旧挂件线不会收到此版本。",
-  "signature": "418QaFTHms4j5iMfX/+d7yPQdh6QPEwyAn+Kk7ohhp7Tq2KE/5TS2LkgXwNWjfR9TOp5zqWCLCJOWr2bV2v+Cg=="
+  "version": "2.0.0-pre.2",
+  "url": "https://github.com/pigeon189/zcode-fox-widget/releases/download/dock-v2.0.0-pre.2/dock-2.0.0-pre.2.tar.gz",
+  "sha256": "1edfd1e38e438b75f6601f0cef8f0f35a2ae9e73db1ea267a260418f10d61550",
+  "notes": "2.0.0-pre.2 预发布：修复输入法辅助窗阻断吸附、菜单贴底、快速点击音效重叠；旧挂件线不会收到此版本。",
+  "signature": "PQtBlnMX7+3+mt7ad4BjOt0Cs2JhB2UBKAAN9ZB6m2/C4fpkiFgHX3jwzxviL5jlOyaSDiocuRbnZAKqw9i3Cw=="
 }
