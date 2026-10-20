@@ -649,8 +649,10 @@ function renderChip() {
   chipUnlink.hidden = state.pet.mode !== 'floating'
   if (!visible) return
   const agentId = profileId
+  // 小胶囊第一行固定写宿主（ZCode / WorkBuddy…），余额属于哪个厂商放在
+  // title 提示里；大浮窗的灰色副标题才显示厂商。
   const vendor = vendorLabel(agentId)
-  chipAdapter.textContent = vendor || agentName(agentId)
+  chipAdapter.textContent = agentName(agentId)
   chip.title = agentName(agentId) + (vendor ? ' · ' + vendor : '')
   const metric = mainMetric(snapshot, agentId)
   chipValue.textContent = metric.value
