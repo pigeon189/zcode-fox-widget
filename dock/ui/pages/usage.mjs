@@ -109,11 +109,30 @@ export function UsagePage({ app }) {
 
   const chart = ((usage && usage.days) || []).map((day) => {
     const dayRows = (day.groups || []).flatMap((g) =>
-      (g.adapters || []).map((a) => ({ unit: g.unit, currency: g.currency, amount: Number(a.amount) || 0, tokens: Number(a.tokens) || 0 }))
+      (g.adapters || []).map((a) => ({
+        unit: g.unit,
+        currency: g.currency,
+        agent: a.name || agentName(a.id),
+        amount: Number(a.amount) || 0,
+        tokens: Number(a.tokens) || 0,
+      }))
     )
     const matching = active ? dayRows.filter((r) => r.unit + '|' + r.currency === active) : dayRows
     const value = metric === 'tokens' ? matching.reduce((s, r) => s + r.tokens, 0) : matching.reduce((s, r) => s + r.amount, 0)
-    return { label: shortDay(day.date), value, today: day.date === (usage.today && usage.today.date) }
+    const details = matching
+      .filter((r) => (metric === 'tokens' ? r.tokens > 0 : r.amount !== 0))
+      .sort((a, b) => (metric === 'tokens' ? b.tokens - a.tokens : b.amount - a.amount))
+      .map((r) => ({
+        label: r.agent,
+        value: metric === 'tokens' ? fmtTokens(r.tokens) : r.unit === 'credit' ? fmtCredit(r.amount) : fmtMoney(r.amount, r.currency),
+      }))
+    return {
+      label: shortDay(day.date),
+      fullDate: day.date,
+      value,
+      today: day.date === (usage.today && usage.today.date),
+      details,
+    }
   })
 
   const rank = (usage && usage.today && usage.today.groups ? usage.today.groups : [])
@@ -146,7 +165,7 @@ export function UsagePage({ app }) {
     <div class="grid">
       <div class="col-12">
         <${Card} title="每日用量" testid="usage.chart" actions=${html`<span class="small muted">${metric === 'tokens' ? 'Token' : currency}</span>`}>
-          ${chart.length ? html`<${ColumnChart} data=${chart} height=${240} valueLabel=${(v) => (metric === 'tokens' ? fmtTokens(v) : fmt(v))} />` : html`<${EmptyState} title="还没有用量记录" hint="dock 只记录它观察到的时间段" />`}
+          ${chart.length ? html`<${ColumnChart} data=${chart} details=${chart.map((d) => d.details)} height=${240} valueLabel=${(v) => (metric === 'tokens' ? fmtTokens(v) : fmt(v))} />` : html`<${EmptyState} title="还没有用量记录" hint="dock 只记录它观察到的时间段" />`}
           ${prepaidOnly ? html`<div class="small muted" style=${{ marginTop: 8 }}>该区间金额为 0：预付池（CommandCode / 套餐）按 0 计费，Token 照常统计；可切换「Token」查看。</div>` : null}
         </${Card}>
       </div>

@@ -121,6 +121,20 @@ async function main() {
           }
         }
 
+        // 用量页柱状图：悬浮要出现虚线 + 明细气泡。
+        if (page === 'usage') {
+          const hit = p.locator('.chart-wrap svg rect[pointer-events="all"]').first()
+          if (await hit.count()) {
+            await hit.hover()
+            await p.waitForTimeout(120)
+            const tipVisible = await p.locator('.chart-tip').isVisible()
+            const tipText = tipVisible ? await p.locator('.chart-tip').innerText() : ''
+            if (!tipVisible || !tipText.trim()) {
+              problems.push(page + '/' + theme + '/' + vp.width + ' 柱状图悬浮没有明细气泡')
+            }
+          }
+        }
+
         if (AxeBuilder) {
           const result = await new AxeBuilder({ page: p }).analyze()
           const bad = result.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')

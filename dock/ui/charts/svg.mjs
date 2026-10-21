@@ -1,4 +1,5 @@
 import { h } from '../vendor/preact.module.js'
+import { useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { fmtNum, fmtPct, fmtTokens, hhmm } from '../lib/format.mjs'
 
@@ -108,8 +109,9 @@ export function AreaChart({ points, limit = null, warn = 80, danger = 92, height
   </svg>`
 }
 
-export function ColumnChart({ data, height = 200, valueLabel = (v) => fmtNum(v) }) {
+export function ColumnChart({ data, height = 200, valueLabel = (v) => fmtNum(v), details = null }) {
   const list = data || []
+  const [hover, setHover] = useState(null)
   const width = 704
   const max = Math.max(1, ...list.map((d) => Number(d.value) || 0))
   const padL = 40
@@ -120,23 +122,46 @@ export function ColumnChart({ data, height = 200, valueLabel = (v) => fmtNum(v) 
   const ih = height - padT - padB
   const slot = iw / Math.max(1, list.length)
   const barW = Math.max(6, Math.min(28, slot - 10))
-  return html`<svg class="chart" viewBox=${'0 0 ' + width + ' ' + height} preserveAspectRatio="none" role="img" aria-label="每日用量柱图">
-    ${[0, 0.5, 1].map((f) => html`<line x1=${padL} y1=${padT + ih * f} x2=${width - padR} y2=${padT + ih * f} stroke="var(--border)" />
-      <text x=${padL - 6} y=${padT + ih * f + 3} text-anchor="end" fill="var(--text-3)" font-size="12">${f === 0 ? valueLabel(max) : f === 1 ? '0' : ''}</text>`)}
-    ${list.map((d, i) => {
-      const value = Number(d.value) || 0
-      const h = (value > 0 ? value : 0) / max * ih
-      const x = padL + slot * i + (slot - barW) / 2
-      return html`<g>
-        ${h > 0
-          ? html`<rect x=${x} y=${padT + ih - h} width=${barW} height=${Math.max(1, h)} rx="4" fill=${d.today ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 45%, transparent)'}>
-              <title>${d.label + '：' + valueLabel(value)}</title>
-            </rect>`
-          : null}
-        <text x=${x + barW / 2} y=${height - 8} text-anchor="middle" fill=${d.today ? 'var(--text)' : 'var(--text-3)'} font-size="12">${d.label}</text>
-      </g>`
-    })}
-  </svg>`
+  const active = hover != null ? list[hover] : null
+  const activeRows = hover != null && Array.isArray(details) ? details[hover] || [] : []
+  const barTop = active ? padT + ih - ((Number(active.value) || 0) / max) * ih : padT + ih
+  const tipAbove = barTop > 78
+  const tipLeft = hover == null ? 0 : ((padL + slot * hover + slot / 2) / width) * 100
+  return html`<div class="chart-wrap">
+    <svg class="chart" viewBox=${'0 0 ' + width + ' ' + height} preserveAspectRatio="none" role="img" aria-label="每日用量柱图"
+      onMouseLeave=${() => setHover(null)}>
+      ${[0, 0.5, 1].map((f) => html`<line x1=${padL} y1=${padT + ih * f} x2=${width - padR} y2=${padT + ih * f} stroke="var(--border)" />
+        <text x=${padL - 6} y=${padT + ih * f + 3} text-anchor="end" fill="var(--text-3)" font-size="12">${f === 0 ? valueLabel(max) : f === 1 ? '0' : ''}</text>`)}
+      ${hover != null
+        ? html`<line x1=${padL + slot * hover + slot / 2} y1=${padT} x2=${padL + slot * hover + slot / 2} y2=${padT + ih}
+            stroke="var(--text-3)" stroke-width="1" stroke-dasharray="3 3" opacity="0.8" />`
+        : null}
+      ${list.map((d, i) => {
+        const value = Number(d.value) || 0
+        const h = (value > 0 ? value : 0) / max * ih
+        const x = padL + slot * i + (slot - barW) / 2
+        return html`<g>
+          ${h > 0
+            ? html`<rect x=${x} y=${padT + ih - h} width=${barW} height=${Math.max(1, h)} rx="4"
+                fill=${d.today ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 45%, transparent)'}>
+                <title>${d.label + '：' + valueLabel(value)}</title>
+              </rect>`
+            : null}
+          <text x=${x + barW / 2} y=${height - 8} text-anchor="middle" fill=${d.today ? 'var(--text)' : 'var(--text-3)'} font-size="12">${d.label}</text>
+        </g>`
+      })}
+      ${list.map((d, i) => html`<rect x=${padL + slot * i} y=${padT} width=${slot} height=${ih}
+        fill="transparent" pointer-events="all" onMouseEnter=${() => setHover(i)} />`)}
+    </svg>
+    ${active && activeRows.length
+      ? html`<div class=${'chart-tip' + (tipAbove ? '' : ' below')} style=${{ left: 'clamp(140px, ' + tipLeft + '%, calc(100% - 140px))', top: (barTop / height) * 100 + '%' }}>
+          <div class="chart-tip-head"><span>${active.fullDate || active.label}</span><b>${valueLabel(active.value)}</b></div>
+          ${activeRows.map(
+            (r) => html`<div class="chart-tip-row"><span>${r.label}</span><b>${r.value}</b></div>`
+          )}
+        </div>`
+      : null}
+  </div>`
 }
 
 export function MiniBar({ pct, tone = '' }) {

@@ -900,19 +900,42 @@ function positionPopover(el) {
   const w = el.offsetWidth || 200
   const h = el.offsetHeight || 50
   const center = pos.x + s / 2
-  const aboveRoom = pos.y - 10 - margin
-  const belowRoom = window.innerHeight - (pos.y + s) - 10 - margin
-  let below
-  if (h <= aboveRoom) below = false
-  else if (h <= belowRoom) below = true
-  else below = belowRoom > aboveRoom
-  let y = below ? pos.y + s + 10 : pos.y - h - 10
-  y = Math.max(margin, Math.min(window.innerHeight - h - margin, y))
-  const x = Math.max(margin, Math.min(window.innerWidth - w - margin, center - w / 2))
-  const arrow = Math.max(18, Math.min(w - 18, center - x))
-  el.style.left = Math.round(x) + 'px'
-  el.style.top = Math.round(y) + 'px'
-  el.classList.toggle('below', below)
+  const quickRect = quickOpen && !quick.hidden ? quick.getBoundingClientRect() : null
+  const clampX = (x) => Math.max(margin, Math.min(window.innerWidth - w - margin, x))
+  const clampY = (y) => Math.max(margin, Math.min(window.innerHeight - h - margin, y))
+  const overlap = (x, y) => {
+    if (!quickRect) return 0
+    const ww = Math.max(0, Math.min(x + w, quickRect.right) - Math.max(x, quickRect.left))
+    const hh = Math.max(0, Math.min(y + h, quickRect.bottom) - Math.max(y, quickRect.top))
+    return ww * hh
+  }
+  const candidates = [
+    // 默认优先角色上方；下方作为备选。
+    { x: clampX(center - w / 2), y: clampY(pos.y - h - 10), below: false },
+    { x: clampX(center - w / 2), y: clampY(pos.y + s + 10), below: true },
+  ]
+  // 大浮窗打开时，气泡被它盖住会看不清；把「浮窗上方/下方」也作为候选，
+  // 选与浮窗重叠面积最小的那个。
+  if (quickRect) {
+    candidates.push({ x: clampX(center - w / 2), y: clampY(quickRect.top - h - 10), below: false })
+    candidates.push({ x: clampX(center - w / 2), y: clampY(quickRect.bottom + 10), below: true })
+  }
+  let best = candidates[0]
+  let bestScore = Infinity
+  for (const c of candidates) {
+    const overflow =
+      (c.x <= margin + 1 || c.x + w >= window.innerWidth - margin - 1 ? 1 : 0) +
+      (c.y <= margin + 1 || c.y + h >= window.innerHeight - margin - 1 ? 1 : 0)
+    const score = overlap(c.x, c.y) * 10 + overflow * 20 + (c.below ? 0.5 : 0)
+    if (score < bestScore) {
+      best = c
+      bestScore = score
+    }
+  }
+  const arrow = Math.max(18, Math.min(w - 18, center - best.x))
+  el.style.left = Math.round(best.x) + 'px'
+  el.style.top = Math.round(best.y) + 'px'
+  el.classList.toggle('below', best.below)
   el.style.setProperty('--arrow-left', Math.round(arrow) + 'px')
 }
 
@@ -1252,6 +1275,12 @@ function setInteractive(on) {
   } catch (err) {}
 }
 
+function setBusy(on) {
+  try {
+    if (window.foxOverlay && window.foxOverlay.setBusy) window.foxOverlay.setBusy(!!on)
+  } catch (err) {}
+}
+
 function restartFollowTimer() {
   if (followTimer) clearInterval(followTimer)
   followTimer = null
@@ -1279,6 +1308,7 @@ fox.addEventListener('pointerdown', (e) => {
   pressing = { x: e.clientX, y: e.clientY, moved: false }
   pressDown()
   playPress()
+  setBusy(true)
   setInteractive(true)
 })
 
@@ -1342,6 +1372,7 @@ window.addEventListener('pointerup', async (e) => {
   dragHint.hidden = true
   if (!wasDragging) {
     // 再次点击角色只更新台词，不把已经打开的快览卡关掉。
+    setBusy(false)
     if (!quickOpen) toggleQuick(true)
     speak()
     return
@@ -1357,7 +1388,16 @@ window.addEventListener('pointerup', async (e) => {
   } else {
     await floatAt()
   }
+  setBusy(false)
   setInteractive(isOverUI(e.clientX, e.clientY))
+})
+
+window.addEventListener('pointercancel', () => {
+  if (!pressing) return
+  pressing = null
+  dragging = false
+  setBusy(false)
+  setInteractive(false)
 })
 
 fox.addEventListener('contextmenu', (e) => {
@@ -1387,10 +1427,14 @@ bubble.addEventListener('click', async (e) => {
 })
 quickRefresh.addEventListener('click', () => refreshAgentData(true))
 menu.addEventListener('pointerdown', (e) => e.stopPropagation())
-document.addEventListener('mousedown', (e) => {
-  if (quickOpen && !isInside(quick, e.clientX, e.clientY) && !isInside(fox, e.clientX, e.clientY)) toggleQuick(false)
-  if (menuOpen && !isInside(menu, e.clientX, e.clientY)) closeMenu()
-})
+function closeTransientOnOutside(x, y) {
+  if (quickOpen && !isInside(quick, x, y) && !isInside(fox, x, y)) toggleQuick(false)
+  if (menuOpen && !isInside(menu, x, y) && !isInside(petMenuBtn, x, y)) closeMenu()
+}
+// mousedown 在某些「浮层刚打开/鼠标从穿透态切回」的时序里会丢；
+// 再挂一层 pointerdown，保证点菜单外一定收起。
+document.addEventListener('mousedown', (e) => closeTransientOnOutside(e.clientX, e.clientY))
+window.addEventListener('pointerdown', (e) => closeTransientOnOutside(e.clientX, e.clientY), true)
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     toggleQuick(false)
@@ -1416,6 +1460,16 @@ setInterval(async () => {
 
 async function boot() {
   await ensureOrigin()
+  try {
+    if (window.foxOverlay && typeof window.foxOverlay.onHidden === 'function') {
+      window.foxOverlay.onHidden(() => {
+        toggleQuick(false)
+        closeMenu()
+        hideBubble()
+        hideSay()
+      })
+    }
+  } catch (err) {}
   const s = await read('/v1/settings')
   if (s && s.ok && s.settings) settings = { ...settings, ...s.settings }
   // 先应用尺寸/主题，再等角色库（导入角色可能稍慢），避免首帧用旧尺寸。

@@ -67,7 +67,7 @@ npm run test:electron:console
 
 ```cmd
 cd /d "<仓库根>\dock"
-node tools\shots.mjs --page console --console-pages overview,context,usage,quota,vendors,roles,settings,about --theme light,dark --viewport 960x680,760x560 --base http://127.0.0.1:39490
+node tools\shots.mjs --page console --console-pages overview,context,usage,stats,quota,vendors,roles,settings,about --theme light,dark --viewport 960x680,760x560 --base http://127.0.0.1:39490
 ```
 
 取证要求：
@@ -82,7 +82,7 @@ node tools\shots.mjs --page console --console-pages overview,context,usage,quota
 ### A. 信息架构与导航
 
 - 侧栏分组、顺序、图标、选中态是否与规格一致。
-- 8 个入口是否都可到达；`Ctrl+1…7`、刷新后停留页、`Esc`、`Tab` 顺序是否符合规格。
+- 9 个入口是否都可到达；`Ctrl+1…7`、刷新后停留页、`Esc`、`Tab` 顺序是否符合规格。
 - 视角切换（跟随吸附 / 四个 agent）是否改变数据口径，且不改变宠物吸附状态。
 - 窄窗口（<860px）侧栏收窄后，导航是否仍可识别、可到达。
 
@@ -95,6 +95,8 @@ node tools\shots.mjs --page console --console-pages overview,context,usage,quota
 - 溢出：无横向滚动；长标题/模型名/金额是否截断并可通过 tooltip 读取；数字不换行。
 - 栅格：同一行卡片高度一致；两栏在 760/960/1280 下的折叠是否符合规格。
 - DPI：DPR 1/1.5/2 下元素尺寸、命中区、截图是否一致。
+- **窗口标题栏**：在最小宽度 760×560 与浅/深两套下，右上角原生最小化/最大化/关闭按钮不得裁切版本号、连接状态或标题栏底部分隔线；版本号必须完整可读。
+- **图表悬停**：ColumnChart 悬停时虚线、明细气泡不得被裁切；气泡内容要含日期、合计与分项。
 
 ### C. 组件状态
 
@@ -128,6 +130,7 @@ node tools\shots.mjs --page console --console-pages overview,context,usage,quota
 - 角色页导入/删除/切换后，选中态与宠物层是否同步；队列/模板保存后可读回。
 - 设置页每次改动是否立即生效并持久化；失败是否回滚并 Toast；搜索后分组是否完整。
 - 弹层、对话框、Drawer 是否会被窗口边缘裁切（760×560、DPR 2）。
+- 菜单/快览卡打开后，点屏幕其它位置是否在 0.5 秒内可靠关闭（含快速点击）。
 
 ### F. 可访问性
 
@@ -152,6 +155,9 @@ node tools\shots.mjs --page console --console-pages overview,context,usage,quota
 - 气泡：不出屏、按象限翻转、点击关闭/推进队列、自动关闭时间可配。
 - 快览卡/菜单：是否完整在屏内、可用键盘替代路径（托盘菜单）。
 - 四个吸附象限的位置与镜像是否正确；高 DPI 下是否有偏移。
+- 吸附模式下宿主不在前台时，浮层应被其它窗口盖住/隐身，而不是永远置顶。
+- 桌宠模式浮在全屏窗口上时，点击角色位置必须穿透给全屏应用（不触发角色、不播音效）。
+- 气泡与大快览卡同时打开时不得互相遮挡。
 - 音效开关/音量是否生效；勿扰/隐藏金额是否只影响显示、不改数据。
 
 ## 6. 输出格式

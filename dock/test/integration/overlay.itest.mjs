@@ -404,6 +404,25 @@ test('pet: 长气泡定位一次后不再左移', async () => {
   await cdp.eval('window.__pet.setSettings({turnBubble:true})')
 })
 
+test('pet: 大浮窗打开时气泡避开浮窗', async () => {
+  await cdp.eval(
+    "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:null," +
+      "quotaCard:{kind:'balance',title:'DeepSeek',balance:{amount:3.16,currency:'CNY'}}});" +
+      "window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'});" +
+      "window.__pet.openQuick();window.__pet.showBubble('我已经一分钟没有听到Gemini 4的故事了','ZCode',{ms:0})"
+  )
+  await waitFor(async () => (await cdp.eval("!document.getElementById('bubble').hidden")), 3000, 'bubble beside quick')
+  const rects = JSON.parse(
+    await cdp.eval(
+      "(function(){var b=document.getElementById('bubble').getBoundingClientRect();var q=document.getElementById('quick').getBoundingClientRect();return JSON.stringify({b:{x:b.x,y:b.y,w:b.width,h:b.height},q:{x:q.x,y:q.y,w:q.width,h:q.height}})})()"
+    )
+  )
+  const overlapW = Math.max(0, Math.min(rects.b.x + rects.b.w, rects.q.x + rects.q.w) - Math.max(rects.b.x, rects.q.x))
+  const overlapH = Math.max(0, Math.min(rects.b.y + rects.b.h, rects.q.y + rects.q.h) - Math.max(rects.b.y, rects.q.y))
+  assert.equal(overlapW * overlapH, 0, '气泡与快览卡重叠：' + JSON.stringify(rects))
+  await cdp.eval('window.__pet.hideBubble();window.__pet.closeQuick()')
+})
+
 test('pet: 按下角色压扁，松手回弹', async () => {
   await cdp.eval("window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'})")
   const c = JSON.parse(
@@ -447,6 +466,16 @@ test('pet: 大浮窗并列三档额度，顺序 5 小时 → 本周 → 月度�
   )
   assert.equal(labels, '5 小时,本周,月度池')
   await cdp.eval('window.__pet.closeQuick()')
+})
+
+test('pet: 菜单打开后点外部立即关闭（含 0.5s 内）', async () => {
+  for (const delay of [0, 50, 150, 300, 480]) {
+    await cdp.eval('window.__pet.openMenu(240,200)')
+    await waitFor(async () => (await cdp.eval("!document.getElementById('menu').hidden")), 2000, 'menu open')
+    if (delay) await sleep(delay)
+    await mouse(cdp, 20, 20)
+    await waitFor(async () => (await cdp.eval("document.getElementById('menu').hidden")), 2000, 'menu closed after ' + delay + 'ms')
+  }
 })
 
 test('pet: 菜单换角色，吸附只有一个总开关', async () => {

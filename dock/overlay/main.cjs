@@ -141,6 +141,127 @@ function alphaMask(roleId) {
 let tray = null
 let win = null
 let consoleProcess = null
+let overlayShown = true
+let manuallyHidden = false
+let petBusy = false
+let rendererInteractive = false
+let fullscreenBeneath = false
+let zOrderTimer = null
+
+// 浮层的鼠标策略：渲染层只在指针压到角色/菜单/气泡上时要求交互；
+// 另外两个更高优先级：吸附模式下宿主不在前台时整体隐身，桌宠模式下方有
+// 无边框全屏窗口时强制穿透（把点击还给全屏应用）。
+function applyMousePolicy() {
+  if (!win || win.isDestroyed() || noClickThrough) return
+  try {
+    win.setIgnoreMouseEvents(!rendererInteractive || !overlayShown || (!petBusy && fullscreenBeneath), { forward: true })
+  } catch (err) {}
+}
+
+function isAuxOverlayWindow(w) {
+  const title = String((w && w.title) || '')
+  return /^fox-dock overlay/i.test(title) || (/小挂件/.test(title) && /electron\.exe$/i.test(String((w && w.exe) || '')))
+}
+
+function isDesktopWindow(w) {
+  const cls = String((w && w.cls) || '')
+  return cls === 'Progman' || cls === 'WorkerW' || cls === 'Shell_TrayWnd'
+}
+
+function dipRectOf(w) {
+  const r = w && w.rect
+  if (!r) return null
+  const physical = { x: r.x, y: r.y, width: r.w, height: r.h }
+  try {
+    if (screen.screenToDipRect) {
+      const dip = screen.screenToDipRect(null, physical)
+      if (dip && dip.width > 0 && dip.height > 0) return dip
+    }
+  } catch (err) {}
+  const d = screen.getDisplayNearestPoint({ x: r.x + r.w / 2, y: r.y + r.h / 2 })
+  const scale = (d && d.scaleFactor) || 1
+  return { x: r.x / scale, y: r.y / scale, width: r.w / scale, height: r.h / scale }
+}
+
+function isFullscreenWindow(w) {
+  if (!w || !w.rect || !w.title || isDesktopWindow(w)) return false
+  const r = dipRectOf(w)
+  if (!r) return false
+  const center = { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+  const d = screen.getDisplayNearestPoint(center)
+  const b = d && d.bounds
+  if (!b) return false
+  const tol = 2
+  return r.x <= b.x + tol && r.y <= b.y + tol && r.x + r.width >= b.x + b.width - tol && r.y + r.height >= b.y + b.height - tol
+}
+
+function setOverlayShown(show) {
+  const v = !!show
+  if (v && manuallyHidden) return
+  if (v === overlayShown) return
+  overlayShown = v
+  try {
+    win.setOpacity(v ? 1 : 0)
+  } catch (err) {}
+  if (!v) {
+    try {
+      win.webContents.send('overlay-hidden')
+    } catch (err) {}
+  } else {
+    try {
+      win.showInactive()
+    } catch (err) {}
+  }
+  applyMousePolicy()
+}
+
+async function syncZOrder() {
+  if (!win || win.isDestroyed() || !daemonPort) return
+  // 拖拽/按压期间不跟 z-order 走：角色被拖到桌面/别的窗口上时不能中途隐身。
+  if (petBusy) {
+    setOverlayShown(true)
+    fullscreenBeneath = false
+    applyMousePolicy()
+    return
+  }
+  let state = null
+  let hits = []
+  try {
+    state = await daemonApi('/v1/state')
+    const pet = (state && state.pet) || {}
+    const rect = pet.rect
+    if (rect && Number.isFinite(rect.x)) {
+      const x = Math.round(rect.x + rect.width / 2)
+      const y = Math.round(rect.y + rect.height / 2)
+      const hit = await daemonApi('/hit?x=' + x + '&y=' + y + '&exclude=' + process.pid)
+      hits = Array.isArray(hit && hit.hits) ? hit.hits : []
+    }
+  } catch (err) {
+    return
+  }
+  // 取「角色所在位置」的最上层窗口，而不是全屏 z-order 最上层：Explorer 会有
+  // 1×1 的隐藏辅助窗常驻 z=1，按整屏列表会把桌宠永远判成被盖住。
+  const top = hits.find((w) => w && !isAuxOverlayWindow(w)) || null
+  const pet = (state && state.pet) || {}
+  const attached = pet.mode === 'attached' && !!pet.hwnd
+  const hostOnTop = !!(top && attached && String(top.hwnd) === String(pet.hwnd))
+  // 吸附模式：宿主不在角色位置的最上层就整体隐身（与旧挂件「桌宠模式关闭」一致），
+  // 这样别的窗口可以自然盖住它；桌宠模式保持常显。
+  setOverlayShown(!attached || hostOnTop)
+  fullscreenBeneath = !attached && !!top && isFullscreenWindow(top)
+  applyMousePolicy()
+}
+
+function startZOrderPoll() {
+  // 测试/调试实例用 --no-click-through（窗口始终可交互），不参与生产的前台/全屏策略。
+  if (noClickThrough) return
+  if (zOrderTimer) clearInterval(zOrderTimer)
+  zOrderTimer = setInterval(() => {
+    syncZOrder().catch(() => {})
+  }, 300)
+  if (zOrderTimer.unref) zOrderTimer.unref()
+  syncZOrder().catch(() => {})
+}
 
 function startupLauncherFile() {
   const appData = process.env.APPDATA || path.join(require('node:os').homedir(), 'AppData', 'Roaming')
@@ -178,8 +299,16 @@ async function toggleAutoStart(enable) {
 function toggleVisible() {
   if (!win) return
   try {
-    if (win.isVisible()) win.hide()
-    else win.showInactive()
+    if (win.isVisible()) {
+      manuallyHidden = true
+      win.hide()
+    } else {
+      manuallyHidden = false
+      overlayShown = true
+      win.setOpacity(1)
+      win.showInactive()
+      syncZOrder().catch(() => {})
+    }
   } catch (err) {}
   refreshTray()
 }
@@ -357,10 +486,18 @@ app.whenReady().then(() => {
   win.loadFile(path.join(__dirname, 'index.html'), {
     query: { port: String(daemonPort), pid: String(process.pid), ignore: ignorePids, ct: noClickThrough ? '0' : '1', allowGeneric: allowGeneric ? '1' : '0' },
   })
+  startZOrderPoll()
   // 透明窗口首帧：等页面完成加载再显示，并在显示后补一次整窗失效，
   // 避免 Windows 只合成部分脏区（真机：DOM 有、桌面上只有背景）。
   win.webContents.once('did-finish-load', () => {
     win.showInactive()
+    // 首帧补合成不能把 z-order 轮询刚设好的「吸附宿主不在前台 → 隐身」覆盖掉。
+    if (!overlayShown) {
+      try {
+        win.setOpacity(0)
+      } catch (err) {}
+      return
+    }
     try {
       win.setOpacity(0.999)
       win.setOpacity(1)
@@ -439,6 +576,7 @@ app.whenReady().then(() => {
 
   ipcMain.on('open-console', () => openConsole())
   ipcMain.on('hide-overlay', () => {
+    manuallyHidden = true
     try {
       win.hide()
     } catch (err) {}
@@ -446,9 +584,13 @@ app.whenReady().then(() => {
   ipcMain.on('quit-dock', () => quitDock())
 
   ipcMain.on('set-interactive', (_e, on) => {
-    try {
-      win.setIgnoreMouseEvents(!on, { forward: true })
-    } catch (err) {}
+    rendererInteractive = !!on
+    applyMousePolicy()
+  })
+  ipcMain.on('set-busy', (_e, on) => {
+    petBusy = !!on
+    if (petBusy) setOverlayShown(true)
+    applyMousePolicy()
   })
 
   setupTray()
@@ -457,6 +599,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit())
 app.on('will-quit', () => {
+  try {
+    if (zOrderTimer) clearInterval(zOrderTimer)
+  } catch (err) {}
   try {
     globalShortcut.unregisterAll()
   } catch (err) {}

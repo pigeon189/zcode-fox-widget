@@ -5,6 +5,13 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   setInteractive(on) {
     ipcRenderer.send('set-interactive', !!on)
   },
+  setBusy(on) {
+    ipcRenderer.send('set-busy', !!on)
+  },
+  // 主进程判定吸附宿主不在前台时会把浮层整体隐掉；页面同步收起菜单/快览。
+  onHidden(cb) {
+    ipcRenderer.on('overlay-hidden', () => cb())
+  },
   // 屏幕坐标（DIP）；渲染层用它判断光标是否压在狐狸上
   getCursor() {
     return ipcRenderer.invoke('cursor')
