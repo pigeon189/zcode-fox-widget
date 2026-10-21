@@ -5,7 +5,7 @@
 //   · 其他以 zcode 命名的脚本进程
 // 标题不参与匹配——标题里有项目名，用户一改就会抖动。
 
-import { readUsage, dominantCurrency } from './store.mjs'
+import { readAppStats, readUsage, dominantCurrency } from './store.mjs'
 import { listZcodeSessions, readZcodeContext } from './context.mjs'
 import { listVendorStatus } from '../../engines/vendors.mjs'
 import { periodFor } from '../../engines/pricing.mjs'
@@ -171,7 +171,11 @@ export const zcodeAdapter = {
   roleDefault: 'fox',
   accent: '#f0a04b',
   match: { exeBasenames: ['zcode.exe'] },
-  capabilities: { billing: true, follow: true, context: true },
+  capabilities: { billing: true, follow: true, context: true, stats: true },
+
+  getStats(opts = {}) {
+    return readAppStats(opts)
+  },
 
   getContext(opts = {}) {
     return readZcodeContext(opts)

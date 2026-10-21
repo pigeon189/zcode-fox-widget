@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..')
-const PAGES = ['overview', 'context', 'usage', 'quota', 'vendors', 'roles', 'settings', 'about']
+const PAGES = ['overview', 'context', 'usage', 'stats', 'quota', 'vendors', 'roles', 'settings', 'about']
 const VIEWPORTS = ['960x680', '760x560']
 const THEMES = ['light', 'dark']
 const BASELINE = path.join(ROOT, 'test', 'visual', 'baseline', 'console')

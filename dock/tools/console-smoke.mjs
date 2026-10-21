@@ -73,6 +73,18 @@ async function main() {
     if (errors.length) throw new Error('页面 JS 异常：' + errors.join(' | '))
     fs.mkdirSync(path.join(ROOT, 'test', 'visual', '__shots__'), { recursive: true })
     await page.screenshot({ path: path.join(ROOT, 'test', 'visual', '__shots__', 'console-electron.png') })
+
+    await page.getByTestId('nav.stats').click()
+    await page.waitForTimeout(1200)
+    const statsText = await page.locator('body').innerText()
+    for (const needle of ['累计 Token', 'Token 活动', '每日 Token 趋势', '模型用量', '工具用量']) {
+      if (!statsText.includes(needle)) throw new Error('统计页缺少文本：' + needle)
+    }
+    if (errors.length) throw new Error('统计页 JS 异常：' + errors.join(' | '))
+    await page.screenshot({ path: path.join(ROOT, 'test', 'visual', '__shots__', 'console-stats-electron.png') })
+    await page.locator('#content').evaluate((el) => el.scrollTo(0, el.scrollHeight))
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: path.join(ROOT, 'test', 'visual', '__shots__', 'console-stats-bottom.png') })
     await browser.close()
   } catch (err) {
     failed = err

@@ -5,6 +5,7 @@
 
 import { readCreditUsage } from './transcripts.mjs'
 import { listWorkbuddySessions, readWorkbuddyContext } from './context.mjs'
+import { readWorkbuddyStats } from './stats.mjs'
 
 const REASON_TEXT = {
   'projects-missing': '找不到 WorkBuddy 的会话目录（~/.workbuddy/projects）',
@@ -24,7 +25,11 @@ export const workbuddyAdapter = {
   roleDefault: 'xiaoke',
   accent: '#7db6ff',
   match: { exeBasenames: ['workbuddy.exe'] },
-  capabilities: { billing: true, follow: true, context: true },
+  capabilities: { billing: true, follow: true, context: true, stats: true },
+
+  getStats(opts = {}) {
+    return readWorkbuddyStats(opts)
+  },
 
   getContext(opts = {}) {
     return readWorkbuddyContext(opts)

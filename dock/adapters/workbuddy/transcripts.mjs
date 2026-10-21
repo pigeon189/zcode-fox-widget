@@ -102,7 +102,7 @@ export function parseTranscript(file, maxBytes) {
   return out
 }
 
-function listTranscripts(projectsDir, sinceMs) {
+export function listTranscripts(projectsDir = defaultProjectsDir(), sinceMs = 0) {
   let dirs = []
   try {
     dirs = fs.readdirSync(projectsDir, { withFileTypes: true }).filter((e) => e.isDirectory())

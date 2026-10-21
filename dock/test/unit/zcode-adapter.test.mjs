@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { readUsage, _resetConnection } from '../../adapters/zcode/store.mjs'
+import { readAppStats, readUsage, _resetConnection } from '../../adapters/zcode/store.mjs'
 import { zcodeAdapter } from '../../adapters/zcode/index.mjs'
 import { resolveAdapter } from '../../adapters/registry.mjs'
 import { createBillingService } from '../../daemon/src/billing.mjs'
@@ -28,10 +28,14 @@ function makeDb(rows, turns = []) {
     CREATE TABLE model_usage (
       id TEXT, session_id TEXT, turn_id TEXT, provider_id TEXT, model_id TEXT, status TEXT,
       started_at INTEGER, input_tokens INTEGER, output_tokens INTEGER, reasoning_tokens INTEGER,
-      cache_read_input_tokens INTEGER, cache_creation_input_tokens INTEGER, computed_total_tokens INTEGER
+      cache_read_input_tokens INTEGER, cache_creation_input_tokens INTEGER, computed_total_tokens INTEGER,
+      duration_ms INTEGER, time_to_first_token_ms INTEGER
     );
     CREATE TABLE turn_usage (
-      session_id TEXT, turn_id TEXT, status TEXT, started_at INTEGER, completed_at INTEGER
+      session_id TEXT, turn_id TEXT, status TEXT, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER
+    );
+    CREATE TABLE tool_usage (
+      session_id TEXT, turn_id TEXT, tool_name TEXT, status TEXT, started_at INTEGER, duration_ms INTEGER
     );
   `)
   const insM = db.prepare(
@@ -192,6 +196,45 @@ test('zcode: 回合进行中按最新一次调用切厂商，不等回合结束'
     assert.equal(r.lastTurn && r.lastTurn.provider, 'cmdgo-bridge')
     assert.equal(r.lastProvider, 'deepseek')
     assert.equal(r.lastModel, 'deepseek-flash')
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('zcode: 统计页聚合总量、模型、日与热力图', () => {
+  const { file, dir } = makeDb(
+    [bigRow({ turn: 't1' }), bigRow({ turn: 't2' })],
+    [{ turn: 't1', startedAt: OFFPEAK, completedAt: OFFPEAK + 10_000 }]
+  )
+  try {
+    const s = readAppStats({ dbFile: file, range: 'all', now: NOON, since: OFFPEAK, until: NOON, tzOffsetMs: 8 * 3600_000 })
+    assert.equal(s.supported, true, JSON.stringify(s))
+    assert.equal(s.summary.totalTokens, 4_000_000)
+    assert.equal(s.summary.totalSessions, 1)
+    assert.equal(s.summary.totalTurns, 1)
+    assert.equal(s.models.length, 1)
+    assert.equal(s.models[0].share, 1)
+    assert.equal(s.heatmap.weeks.length, 1)
+    assert.equal(s.heatmap.maxTokens, 4_000_000)
+    assert.equal(s.summary.currentStreakDays, 1)
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('zcode: 老库没有 tool_usage 时只降级统计，不影响今日/上一轮', () => {
+  const { file, dir } = makeDb([bigRow()], [{ turn: 't1', startedAt: OFFPEAK, completedAt: OFFPEAK + 10_000 }])
+  try {
+    const raw = new DatabaseSync(file)
+    raw.exec('DROP TABLE tool_usage')
+    raw.close()
+    _resetConnection()
+    const usage = readDay(file)
+    assert.equal(usage.ok, true)
+    assert.equal(usage.today.tokens, 2_000_000)
+    const stats = readAppStats({ dbFile: file, range: 'all', now: NOON, since: OFFPEAK, until: NOON, tzOffsetMs: 8 * 3600_000 })
+    assert.equal(stats.supported, false)
+    assert.equal(stats.reason, 'db-read-failed')
   } finally {
     cleanup(dir)
   }

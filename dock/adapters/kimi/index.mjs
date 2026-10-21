@@ -10,6 +10,7 @@
 
 import { readKimiStatus } from './usage.mjs'
 import { listKimiSessions, readKimiContext } from './context.mjs'
+import { readKimiStats } from './stats.mjs'
 
 function worstWindow(windows) {
   let used = 0
@@ -42,7 +43,11 @@ export const kimiAdapter = {
     exeBasenames: ['kimi code.exe'],
     exeIncludes: ['/kimicode/'],
   },
-  capabilities: { billing: true, follow: true, context: true },
+  capabilities: { billing: true, follow: true, context: true, stats: false },
+
+  getStats(opts = {}) {
+    return readKimiStats(opts)
+  },
 
   getContext(opts = {}) {
     return readKimiContext(opts)

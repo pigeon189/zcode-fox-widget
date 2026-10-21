@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..')
-const PAGES = ['overview', 'context', 'usage', 'quota', 'vendors', 'roles', 'settings', 'about']
+const PAGES = ['overview', 'context', 'usage', 'stats', 'quota', 'vendors', 'roles', 'settings', 'about']
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(name)

@@ -2,6 +2,12 @@
 
 > 2.0 起按通用桌宠产品线维护（tag `dock-v*`）。接口、数据格式、适配器契约仍可能变。
 
+## 未发布
+
+### 新增
+
+- **统计页**：按宿主展示累计 Token、峰值单日、最长聊天、连续天数、活动热力图、每日模型趋势、模型占比与工具用量；ZCode 读本地 `model_usage`/`turn_usage`/`tool_usage`，WorkBuddy 读 transcript，dsh 读会话日志，Kimi 只提供套餐额度窗口。
+
 ## 2.0.0-pre.1（2026-10-20）
 
 从「多 agent 成本看板」升级为通用桌宠：一只角色同时认识 ZCode、WorkBuddy、Kimi Code 与 DeepSeek Harness，拖到哪个窗口就切到哪个宿主的角色、余额与额度口径。

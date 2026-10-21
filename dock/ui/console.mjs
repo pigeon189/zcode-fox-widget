@@ -8,6 +8,7 @@ import { fmtPct, fmtReset, fmtTime, agentName, reasonText, pctTone, setHideMoney
 import { OverviewPage } from './pages/overview.mjs'
 import { ContextPage } from './pages/context.mjs'
 import { UsagePage } from './pages/usage.mjs'
+import { StatsPage } from './pages/stats.mjs'
 import { QuotaPage } from './pages/quota.mjs'
 import { VendorsPage } from './pages/vendors.mjs'
 import { RolesPage } from './pages/roles.mjs'
@@ -20,6 +21,7 @@ const PAGES = [
   { id: 'overview', label: '总览', icon: 'dashboard', group: '监控' },
   { id: 'context', label: '上下文', icon: 'layers', group: '监控' },
   { id: 'usage', label: '用量', icon: 'chart', group: '监控' },
+  { id: 'stats', label: '统计', icon: 'activity', group: '监控' },
   { id: 'quota', label: '额度与余额', icon: 'gauge', group: '监控' },
   { id: 'vendors', label: '厂商与密钥', icon: 'plug', group: '管理' },
   { id: 'roles', label: '角色与气泡', icon: 'smile', group: '管理' },
@@ -30,6 +32,7 @@ const PAGE_COMPONENTS = {
   overview: OverviewPage,
   context: ContextPage,
   usage: UsagePage,
+  stats: StatsPage,
   quota: QuotaPage,
   vendors: VendorsPage,
   roles: RolesPage,

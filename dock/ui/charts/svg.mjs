@@ -1,6 +1,6 @@
 import { h } from '../vendor/preact.module.js'
 import htm from '../vendor/htm.module.js'
-import { fmtNum, fmtPct, hhmm } from '../lib/format.mjs'
+import { fmtNum, fmtPct, fmtTokens, hhmm } from '../lib/format.mjs'
 
 const html = htm.bind(h)
 
@@ -143,4 +143,83 @@ export function MiniBar({ pct, tone = '' }) {
   return html`<div class=${'progress ' + tone} role="img" aria-label=${'占用 ' + (Math.round((Number(pct) || 0) * 10) / 10) + '%'} style=${{ height: 6, minWidth: 80 }}>
     <span style=${{ width: clampPct(pct) + '%' }}></span>
   </div>`
+}
+
+// 多模型每日 token 趋势：series = [{key,label,values[],color?}]，labels 与 values 等长。
+export function MultiLineChart({ labels = [], series = [], height = 260 }) {
+  const width = 704
+  const padL = 48
+  const padR = 16
+  const padT = 14
+  const padB = 30
+  const iw = width - padL - padR
+  const ih = height - padT - padB
+  const list = Array.isArray(labels) ? labels : []
+  const rows = (series || []).filter((s) => s && Array.isArray(s.values) && s.values.some((v) => Number(v) > 0))
+  const maxY = Math.max(1, ...rows.flatMap((s) => s.values.map((v) => Number(v) || 0)))
+  const xOf = (i) => padL + (list.length <= 1 ? iw / 2 : (i / (list.length - 1)) * iw)
+  const yOf = (v) => padT + ih - (Math.max(0, Number(v) || 0) / maxY) * ih
+  return html`<svg class="chart" viewBox=${'0 0 ' + width + ' ' + height} preserveAspectRatio="none" role="img"
+    aria-label=${'每日 Token 趋势，' + rows.length + ' 个模型'}>
+    ${[0, 0.25, 0.5, 0.75, 1].map((f) => {
+      const y = padT + ih * f
+      return html`<line x1=${padL} y1=${y} x2=${width - padR} y2=${y} stroke="var(--border)" stroke-width="1" />
+        <text x=${padL - 8} y=${y + 3} text-anchor="end" fill="var(--text-3)" font-size="12">${fmtTokens(Math.round(maxY * (1 - f)))}</text>`
+    })}
+    ${rows.map((s, si) => {
+      const color = s.color || 'var(--c' + ((si % 6) + 1) + ')'
+      const path = s.values
+        .map((v, i) => (i ? 'L' : 'M') + xOf(i).toFixed(1) + ' ' + yOf(v).toFixed(1))
+        .join(' ')
+      return html`<g>
+        <path d=${path} fill="none" stroke=${color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        ${s.values.map((v, i) =>
+          Number(v) > 0
+            ? html`<circle cx=${xOf(i)} cy=${yOf(v)} r="2.5" fill=${color}>
+                <title>${list[i] + ' · ' + (s.label || s.key) + '：' + fmtTokens(v)}</title>
+              </circle>`
+            : null
+        )}
+      </g>`
+    })}
+    ${(() => {
+      const every = list.length > 14 ? (list.length > 45 ? 7 : 5) : 1
+      let lastShown = -999
+      return list.map((label, i) => {
+        const isLast = i === list.length - 1
+        if (!isLast && i % every !== 0) return null
+        // 末尾标签离上一个太近就省略，避免 x 轴两个日期叠在一起。
+        if (lastShown >= 0 && i - lastShown < Math.max(2, Math.floor(every * 0.7))) return null
+        lastShown = i
+        return html`<text x=${xOf(i)} y=${height - 8} text-anchor="middle" fill="var(--text-3)" font-size="12">${String(label).slice(5)}</text>`
+      })
+    })()}
+  </svg>`
+}
+
+// 轻量环形图：items = [{label,value,color?}]，中心显示总量。
+export function Donut({ items = [], size = 150, thickness = 18, centerLabel = '', valueLabel = (v) => fmtTokens(v) }) {
+  const list = (items || []).filter((it) => Number(it.value) > 0)
+  const total = list.reduce((s, it) => s + Number(it.value), 0)
+  const r = (size - thickness) / 2
+  const c = 2 * Math.PI * r
+  let offset = 0
+  return html`<svg class="chart" width=${size} height=${size} viewBox=${'0 0 ' + size + ' ' + size} role="img"
+    aria-label=${'模型用量占比：' + list.map((it) => (it.label || '') + ' ' + fmtTokens(it.value)).join('，')}>
+    <circle cx=${size / 2} cy=${size / 2} r=${r} fill="none" stroke="var(--surface-2)" stroke-width=${thickness} />
+    ${list.map((it, i) => {
+      const frac = total > 0 ? Number(it.value) / total : 0
+      const dash = c * frac
+      const node = html`<circle cx=${size / 2} cy=${size / 2} r=${r} fill="none"
+        stroke=${it.color || 'var(--c' + ((i % 6) + 1) + ')'} stroke-width=${thickness}
+        stroke-dasharray=${dash + ' ' + Math.max(0.001, c - dash)}
+        stroke-dashoffset=${-offset} transform=${'rotate(-90 ' + size / 2 + ' ' + size / 2 + ')'}>
+        <title>${(it.label || '') + '：' + valueLabel(it.value)}</title>
+      </circle>`
+      offset += dash
+      return node
+    })}
+    <text x="50%" y="47%" text-anchor="middle" fill="var(--text)" font-size="18" font-weight="700" font-family="var(--font-num)">${valueLabel(total)}</text>
+    <text x="50%" y="62%" text-anchor="middle" fill="var(--text-3)" font-size="12">${centerLabel || 'tokens'}</text>
+  </svg>`
 }

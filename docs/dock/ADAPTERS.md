@@ -166,3 +166,28 @@ listSessions({ limit })               // → SessionSummary[]
 
 取数口径与 schema 见各适配器 `context.mjs` 顶部注释；真机对账用
 `npm run verify:context`（Kimi 没有运行中的会话时输出 `SKIPPED`，不算通过）。
+
+## 用量统计契约（2.0）
+
+适配器在 `capabilities` 里声明 `stats: true`，并实现：
+
+```js
+getStats({ range, now, since, until, tzOffsetMs, timeZone })
+// → StatsSnapshot | Promise<StatsSnapshot>
+```
+
+统一结构由 `adapters/stats.mjs` 的 `buildStats()` 产出。各宿主的数据源：
+
+| 宿主 | 数据源 | 能给出的维度 |
+|---|---|---|
+| ZCode | `cli/db/db.sqlite` 的 `model_usage` / `turn_usage` / `tool_usage` | token、模型、工具、回合、TTFT、错误率、连续天数、热力图 |
+| WorkBuddy | `~/.workbuddy/projects/**/*.jsonl` 的 `providerData.rawUsage` 与工具事件 | token、积分、模型、工具、回合 |
+| dsh | `~/.dsh/sessions/**/session*.jsonl(.zstd)` 的 usage / turn / tool 事件 | token、按峰谷价折算的金额、模型、工具、回合 |
+| Kimi Code | 只有套餐额度窗口，没有本地逐日历史 | 返回 `supported:false`，统计页引导到「额度与余额」 |
+
+硬性约定：
+
+- 日界按本地时区；`range` 只支持 `all | 7d | 30d`，7 日/30 日按“现在往前 N×24h”取区间（首日可能是半天）。
+- 读不到的维度不补 0；`supported:false` 时带可读 `reason`/`note`。
+- 空数据不要伪造热力图或模型占比；卡片显示空态。
+- 统计查询不能拖垮今日/上一轮快照：ZCode 的统计连接与快照连接分开，老库缺 `tool_usage` 时只降级统计。

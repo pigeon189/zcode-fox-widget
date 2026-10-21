@@ -145,6 +145,25 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  const statsMatch = p.match(/^\/v1\/agents\/([^/]+)\/stats$/)
+  if (statsMatch) {
+    const id = decodeURIComponent(statsMatch[1])
+    const table = pick('stats', null)
+    sendJson(res, 200, {
+      ok: true,
+      adapterId: id,
+      stats:
+        (table && table[id]) ||
+        table || {
+          supported: false,
+          range: url.searchParams.get('range') || 'all',
+          reason: 'no-data',
+          note: '夹具没有统计样本',
+        },
+    })
+    return
+  }
+
   const sessMatch = p.match(/^\/v1\/agents\/([^/]+)\/sessions$/)
   if (sessMatch) {
     const table = pick('sessions', null)

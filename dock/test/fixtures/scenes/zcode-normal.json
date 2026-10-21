@@ -1,157 +1,4025 @@
 {
   "state": {
-    "pet": { "mode": "attached", "agentId": "zcode", "lastAgentId": "zcode", "profileOf": "zcode", "hwnd": "0x1", "rect": null, "display": null },
+    "pet": {
+      "mode": "attached",
+      "agentId": "zcode",
+      "lastAgentId": "zcode",
+      "profileOf": "zcode",
+      "hwnd": "0x1",
+      "rect": null,
+      "display": null
+    },
     "agents": [
-      { "id": "zcode", "name": "ZCode", "running": true, "windows": [{ "hwnd": "0x1", "pid": 100, "title": "TianShu v0.2" }], "accent": "#f0a04b", "roleDefault": "fox" },
-      { "id": "workbuddy", "name": "WorkBuddy", "running": true, "windows": [{ "hwnd": "0x2", "pid": 200, "title": "WorkBuddy" }], "accent": "#22b8a0", "roleDefault": "xiaoke" },
-      { "id": "kimi", "name": "Kimi Code", "running": false, "windows": [], "accent": "#8b5cf6", "roleDefault": "kimi" },
-      { "id": "dsh", "name": "DeepSeek Harness", "running": false, "windows": [], "accent": "#4d6bfe", "roleDefault": "whale" }
+      {
+        "id": "zcode",
+        "name": "ZCode",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x1",
+            "pid": 100,
+            "title": "TianShu v0.2"
+          }
+        ],
+        "accent": "#f0a04b",
+        "roleDefault": "fox"
+      },
+      {
+        "id": "workbuddy",
+        "name": "WorkBuddy",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x2",
+            "pid": 200,
+            "title": "WorkBuddy"
+          }
+        ],
+        "accent": "#22b8a0",
+        "roleDefault": "xiaoke"
+      },
+      {
+        "id": "kimi",
+        "name": "Kimi Code",
+        "running": false,
+        "windows": [],
+        "accent": "#8b5cf6",
+        "roleDefault": "kimi"
+      },
+      {
+        "id": "dsh",
+        "name": "DeepSeek Harness",
+        "running": false,
+        "windows": [],
+        "accent": "#4d6bfe",
+        "roleDefault": "whale"
+      }
     ],
-    "daemon": { "version": "2.0.0-fixture", "uptime": 3600, "port": 39490 }
+    "daemon": {
+      "version": "2.0.0-fixture",
+      "uptime": 3600,
+      "port": 39490
+    }
   },
   "snapshots": {
     "zcode": {
-      "ok": true, "adapterId": "zcode", "adapterName": "ZCode", "supported": true, "capturedAt": 1792400000000,
+      "ok": true,
+      "adapterId": "zcode",
+      "adapterName": "ZCode",
+      "supported": true,
+      "capturedAt": 1792400000000,
       "unit": "money",
-      "today": { "amount": 12.34, "currency": "CNY", "byCurrency": { "CNY": 12.34 } },
-      "turn": { "amount": 0.28, "currency": "CNY", "byCurrency": { "CNY": 0.28 } },
-      "balance": null, "quota": null,
-      "quotaCard": { "kind": "plan", "title": "ZCode", "subtitle": "按厂商口径计费", "plan": "ZCode", "note": "余额/套餐取决于当前 provider。", "windows": [] },
-      "plan": "ZCode", "account": "", "details": [{ "label": "今日调用", "value": "38 次" }, { "label": "今日 tokens", "value": "2.4M" }],
-      "usage": { "todayTokens": 2400000, "turnTokens": 12000 }, "source": "zcode:db.sqlite", "error": null
+      "today": {
+        "amount": 12.34,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 12.34
+        }
+      },
+      "turn": {
+        "amount": 0.28,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 0.28
+        }
+      },
+      "balance": null,
+      "quota": null,
+      "quotaCard": {
+        "kind": "plan",
+        "title": "ZCode",
+        "subtitle": "按厂商口径计费",
+        "plan": "ZCode",
+        "note": "余额/套餐取决于当前 provider。",
+        "windows": []
+      },
+      "plan": "ZCode",
+      "account": "",
+      "details": [
+        {
+          "label": "今日调用",
+          "value": "38 次"
+        },
+        {
+          "label": "今日 tokens",
+          "value": "2.4M"
+        }
+      ],
+      "usage": {
+        "todayTokens": 2400000,
+        "turnTokens": 12000
+      },
+      "source": "zcode:db.sqlite",
+      "error": null
     },
     "workbuddy": {
-      "ok": true, "adapterId": "workbuddy", "adapterName": "WorkBuddy", "supported": true, "capturedAt": 1792400000000,
+      "ok": true,
+      "adapterId": "workbuddy",
+      "adapterName": "WorkBuddy",
+      "supported": true,
+      "capturedAt": 1792400000000,
       "unit": "credit",
-      "today": { "amount": 193.5, "currency": "CREDIT", "byCurrency": { "CREDIT": 193.5 } },
-      "turn": { "amount": 3.2, "currency": "CREDIT", "byCurrency": { "CREDIT": 3.2 } },
-      "balance": null, "quota": null,
-      "quotaCard": { "kind": "plan", "title": "WorkBuddy", "subtitle": "订阅积分", "plan": "WorkBuddy 订阅", "note": "积分由 WorkBuddy 托管。", "windows": [] },
-      "plan": "WorkBuddy 订阅", "account": "", "details": [{ "label": "今日调用", "value": "12 次" }],
-      "usage": { "todayTokens": 890000, "turnTokens": 42000 }, "source": "workbuddy:transcripts", "error": null
+      "today": {
+        "amount": 193.5,
+        "currency": "CREDIT",
+        "byCurrency": {
+          "CREDIT": 193.5
+        }
+      },
+      "turn": {
+        "amount": 3.2,
+        "currency": "CREDIT",
+        "byCurrency": {
+          "CREDIT": 3.2
+        }
+      },
+      "balance": null,
+      "quota": null,
+      "quotaCard": {
+        "kind": "plan",
+        "title": "WorkBuddy",
+        "subtitle": "订阅积分",
+        "plan": "WorkBuddy 订阅",
+        "note": "积分由 WorkBuddy 托管。",
+        "windows": []
+      },
+      "plan": "WorkBuddy 订阅",
+      "account": "",
+      "details": [
+        {
+          "label": "今日调用",
+          "value": "12 次"
+        }
+      ],
+      "usage": {
+        "todayTokens": 890000,
+        "turnTokens": 42000
+      },
+      "source": "workbuddy:transcripts",
+      "error": null
     },
     "kimi": {
-      "ok": true, "adapterId": "kimi", "adapterName": "Kimi Code", "supported": true, "capturedAt": 1792400000000,
+      "ok": true,
+      "adapterId": "kimi",
+      "adapterName": "Kimi Code",
+      "supported": true,
+      "capturedAt": 1792400000000,
       "unit": "percent",
-      "today": null, "turn": null, "balance": null,
-      "quota": { "usedPct": 47.5, "remainingPct": 52.5 },
+      "today": null,
+      "turn": null,
+      "balance": null,
+      "quota": {
+        "usedPct": 47.5,
+        "remainingPct": 52.5
+      },
       "quotaCard": {
-        "kind": "windows", "title": "Kimi Code", "subtitle": "Kimi For Coding 套餐", "plan": "Kimi For Coding", "account": "paper",
+        "kind": "windows",
+        "title": "Kimi Code",
+        "subtitle": "Kimi For Coding 套餐",
+        "plan": "Kimi For Coding",
+        "account": "paper",
         "windows": [
-          { "key": "limit-5h", "label": "5 小时", "usedPct": 47.5, "remainingPct": 52.5, "resetAt": 1792410000000, "detail": "" },
-          { "key": "limit-7d", "label": "7 天", "usedPct": 18, "remainingPct": 82, "resetAt": 1792600000000, "detail": "" }
+          {
+            "key": "limit-5h",
+            "label": "5 小时",
+            "usedPct": 47.5,
+            "remainingPct": 52.5,
+            "resetAt": 1792410000000,
+            "detail": ""
+          },
+          {
+            "key": "limit-7d",
+            "label": "7 天",
+            "usedPct": 18,
+            "remainingPct": 82,
+            "resetAt": 1792600000000,
+            "detail": ""
+          }
         ],
         "note": "额度来自 Kimi Code /coding/v1/usages。"
       },
-      "plan": "Kimi For Coding", "account": "paper", "details": [], "usage": { "todayTokens": 0, "turnTokens": 0 }, "source": "kimi:/coding/v1/usages", "error": null
+      "plan": "Kimi For Coding",
+      "account": "paper",
+      "details": [],
+      "usage": {
+        "todayTokens": 0,
+        "turnTokens": 0
+      },
+      "source": "kimi:/coding/v1/usages",
+      "error": null
     },
     "dsh": {
-      "ok": true, "adapterId": "dsh", "adapterName": "DeepSeek Harness", "supported": true, "capturedAt": 1792400000000,
+      "ok": true,
+      "adapterId": "dsh",
+      "adapterName": "DeepSeek Harness",
+      "supported": true,
+      "capturedAt": 1792400000000,
       "unit": "money",
-      "today": { "amount": 1.08, "currency": "CNY", "byCurrency": { "CNY": 1.08 } },
-      "turn": { "amount": 0.12, "currency": "CNY", "byCurrency": { "CNY": 0.12 } },
-      "balance": { "amount": 63.2, "currency": "CNY", "byCurrency": { "CNY": 63.2 } }, "quota": null,
-      "quotaCard": { "kind": "balance", "title": "DeepSeek Harness", "subtitle": "DeepSeek 余额", "balance": { "amount": 63.2, "currency": "CNY" }, "windows": [], "note": "余额来自 DeepSeek API。" },
-      "plan": "", "account": "", "details": [], "usage": { "todayTokens": 420000, "turnTokens": 8000 }, "source": "dsh:sessions", "error": null
+      "today": {
+        "amount": 1.08,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 1.08
+        }
+      },
+      "turn": {
+        "amount": 0.12,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 0.12
+        }
+      },
+      "balance": {
+        "amount": 63.2,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 63.2
+        }
+      },
+      "quota": null,
+      "quotaCard": {
+        "kind": "balance",
+        "title": "DeepSeek Harness",
+        "subtitle": "DeepSeek 余额",
+        "balance": {
+          "amount": 63.2,
+          "currency": "CNY"
+        },
+        "windows": [],
+        "note": "余额来自 DeepSeek API。"
+      },
+      "plan": "",
+      "account": "",
+      "details": [],
+      "usage": {
+        "todayTokens": 420000,
+        "turnTokens": 8000
+      },
+      "source": "dsh:sessions",
+      "error": null
     }
   },
   "contexts": {
     "zcode": {
-      "ok": true, "adapterId": "zcode", "adapterName": "ZCode", "supported": true, "confidence": "exact",
-      "sessionId": "s1", "title": "重构 billing 适配器", "model": "deepseek-v4.1-flash",
-      "limit": 1000000, "limitSource": "host", "used": 475318, "pct": 47.5,
-      "breakdown": { "cacheRead": 292100, "input": 147000, "cacheWrite": 4000, "output": 32000, "reasoning": 218 },
-      "compaction": { "count": 1, "lastAt": 1792390000000, "shadowedTokens": 188765, "derived": false },
+      "ok": true,
+      "adapterId": "zcode",
+      "adapterName": "ZCode",
+      "supported": true,
+      "confidence": "exact",
+      "sessionId": "s1",
+      "title": "重构 billing 适配器",
+      "model": "deepseek-v4.1-flash",
+      "limit": 1000000,
+      "limitSource": "host",
+      "used": 475318,
+      "pct": 47.5,
+      "breakdown": {
+        "cacheRead": 292100,
+        "input": 147000,
+        "cacheWrite": 4000,
+        "output": 32000,
+        "reasoning": 218
+      },
+      "compaction": {
+        "count": 1,
+        "lastAt": 1792390000000,
+        "shadowedTokens": 188765,
+        "derived": false
+      },
       "points": [
-        { "t": 1792384000000, "used": 120000 }, { "t": 1792387000000, "used": 168000 },
-        { "t": 1792390000000, "used": 210000 }, { "t": 1792393000000, "used": 255000 },
-        { "t": 1792396000000, "used": 310000 }, { "t": 1792399000000, "used": 366000 },
-        { "t": 1792400000000, "used": 475318 }
+        {
+          "t": 1792384000000,
+          "used": 120000
+        },
+        {
+          "t": 1792387000000,
+          "used": 168000
+        },
+        {
+          "t": 1792390000000,
+          "used": 210000
+        },
+        {
+          "t": 1792393000000,
+          "used": 255000
+        },
+        {
+          "t": 1792396000000,
+          "used": 310000
+        },
+        {
+          "t": 1792399000000,
+          "used": 366000
+        },
+        {
+          "t": 1792400000000,
+          "used": 475318
+        }
       ],
       "updatedAt": 1792400000000
     },
     "workbuddy": {
-      "ok": true, "adapterId": "workbuddy", "adapterName": "WorkBuddy", "supported": true, "confidence": "exact",
-      "sessionId": "w1", "title": "继续执行剩余计划任务", "model": "deepseek-v4.1-flash",
-      "limit": 1000000, "limitSource": "host", "used": 475318, "pct": 47.5, "points": [], "updatedAt": 1792400000000
+      "ok": true,
+      "adapterId": "workbuddy",
+      "adapterName": "WorkBuddy",
+      "supported": true,
+      "confidence": "exact",
+      "sessionId": "w1",
+      "title": "继续执行剩余计划任务",
+      "model": "deepseek-v4.1-flash",
+      "limit": 1000000,
+      "limitSource": "host",
+      "used": 475318,
+      "pct": 47.5,
+      "points": [],
+      "updatedAt": 1792400000000
     },
-    "kimi": { "ok": true, "adapterId": "kimi", "adapterName": "Kimi Code", "supported": false, "confidence": "unavailable", "reason": "not-running", "points": [] },
+    "kimi": {
+      "ok": true,
+      "adapterId": "kimi",
+      "adapterName": "Kimi Code",
+      "supported": false,
+      "confidence": "unavailable",
+      "reason": "not-running",
+      "points": []
+    },
     "dsh": {
-      "ok": true, "adapterId": "dsh", "adapterName": "DeepSeek Harness", "supported": true, "confidence": "exact",
-      "sessionId": "d1", "title": "调优上下文压缩", "model": "claude-sonnet-5-5",
-      "limit": 1000000, "limitSource": "host", "used": 8733, "pct": 0.9,
-      "breakdown": { "cacheRead": 5000, "input": 2400, "cacheWrite": 200, "output": 1000, "reasoning": 133 },
-      "compaction": { "count": 1, "lastAt": 1792395000000, "shadowedTokens": 32000, "derived": false },
-      "points": [{ "t": 1792398000000, "used": 6200 }, { "t": 1792400000000, "used": 8733 }],
+      "ok": true,
+      "adapterId": "dsh",
+      "adapterName": "DeepSeek Harness",
+      "supported": true,
+      "confidence": "exact",
+      "sessionId": "d1",
+      "title": "调优上下文压缩",
+      "model": "claude-sonnet-5-5",
+      "limit": 1000000,
+      "limitSource": "host",
+      "used": 8733,
+      "pct": 0.9,
+      "breakdown": {
+        "cacheRead": 5000,
+        "input": 2400,
+        "cacheWrite": 200,
+        "output": 1000,
+        "reasoning": 133
+      },
+      "compaction": {
+        "count": 1,
+        "lastAt": 1792395000000,
+        "shadowedTokens": 32000,
+        "derived": false
+      },
+      "points": [
+        {
+          "t": 1792398000000,
+          "used": 6200
+        },
+        {
+          "t": 1792400000000,
+          "used": 8733
+        }
+      ],
       "updatedAt": 1792400000000
     }
   },
   "sessions": {
     "zcode": [
-      { "id": "s1", "title": "重构 billing 适配器", "model": "deepseek-v4.1-flash", "used": 475318, "limit": 1000000, "pct": 47.5, "requests": 38, "updatedAt": 1792400000000 },
-      { "id": "s2", "title": "修复流式响应截断", "model": "glm-5.3", "used": 210000, "limit": 200000, "pct": 100, "requests": 12, "updatedAt": 1792380000000 },
-      { "id": "s3", "title": "部署脚本与文档", "model": "claude-sonnet-5-5", "used": 88000, "limit": 1000000, "pct": 8.8, "requests": 6, "updatedAt": 1792300000000 }
+      {
+        "id": "s1",
+        "title": "重构 billing 适配器",
+        "model": "deepseek-v4.1-flash",
+        "used": 475318,
+        "limit": 1000000,
+        "pct": 47.5,
+        "requests": 38,
+        "updatedAt": 1792400000000
+      },
+      {
+        "id": "s2",
+        "title": "修复流式响应截断",
+        "model": "glm-5.3",
+        "used": 210000,
+        "limit": 200000,
+        "pct": 100,
+        "requests": 12,
+        "updatedAt": 1792380000000
+      },
+      {
+        "id": "s3",
+        "title": "部署脚本与文档",
+        "model": "claude-sonnet-5-5",
+        "used": 88000,
+        "limit": 1000000,
+        "pct": 8.8,
+        "requests": 6,
+        "updatedAt": 1792300000000
+      }
     ],
-    "workbuddy": [{ "id": "w1", "title": "继续执行剩余计划任务", "model": "deepseek-v4.1-flash", "used": 475318, "limit": 1000000, "pct": 47.5, "requests": 0, "updatedAt": 1792400000000 }],
+    "workbuddy": [
+      {
+        "id": "w1",
+        "title": "继续执行剩余计划任务",
+        "model": "deepseek-v4.1-flash",
+        "used": 475318,
+        "limit": 1000000,
+        "pct": 47.5,
+        "requests": 0,
+        "updatedAt": 1792400000000
+      }
+    ],
     "kimi": [],
-    "dsh": [{ "id": "d1", "title": "调优上下文压缩", "model": "claude-sonnet-5-5", "used": 8733, "limit": 1000000, "pct": 0.9, "requests": 0, "updatedAt": 1792400000000 }]
+    "dsh": [
+      {
+        "id": "d1",
+        "title": "调优上下文压缩",
+        "model": "claude-sonnet-5-5",
+        "used": 8733,
+        "limit": 1000000,
+        "pct": 0.9,
+        "requests": 0,
+        "updatedAt": 1792400000000
+      }
+    ]
   },
   "usage": {
-    "today": { "date": "2026-10-19", "groups": [
-      { "unit": "money", "currency": "CNY", "amount": 12.34, "tokens": 2400000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 12.34, "tokens": 2400000 }, { "id": "dsh", "name": "DeepSeek Harness", "amount": 1.08, "tokens": 420000 }] },
-      { "unit": "credit", "currency": "CREDIT", "amount": 193.5, "tokens": 890000, "adapters": [{ "id": "workbuddy", "name": "WorkBuddy", "amount": 193.5, "tokens": 890000 }] }
-    ] },
+    "today": {
+      "date": "2026-10-19",
+      "groups": [
+        {
+          "unit": "money",
+          "currency": "CNY",
+          "amount": 12.34,
+          "tokens": 2400000,
+          "adapters": [
+            {
+              "id": "zcode",
+              "name": "ZCode",
+              "amount": 12.34,
+              "tokens": 2400000
+            },
+            {
+              "id": "dsh",
+              "name": "DeepSeek Harness",
+              "amount": 1.08,
+              "tokens": 420000
+            }
+          ]
+        },
+        {
+          "unit": "credit",
+          "currency": "CREDIT",
+          "amount": 193.5,
+          "tokens": 890000,
+          "adapters": [
+            {
+              "id": "workbuddy",
+              "name": "WorkBuddy",
+              "amount": 193.5,
+              "tokens": 890000
+            }
+          ]
+        }
+      ]
+    },
     "days": [
-      { "date": "2026-10-13", "groups": [{ "unit": "money", "currency": "CNY", "amount": 3.2, "tokens": 600000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 3.2, "tokens": 600000 }] }] },
-      { "date": "2026-10-14", "groups": [{ "unit": "money", "currency": "CNY", "amount": 5.4, "tokens": 900000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 5.4, "tokens": 900000 }] }] },
-      { "date": "2026-10-15", "groups": [{ "unit": "money", "currency": "CNY", "amount": 4.1, "tokens": 700000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 4.1, "tokens": 700000 }] }] },
-      { "date": "2026-10-16", "groups": [{ "unit": "money", "currency": "CNY", "amount": 8.8, "tokens": 1500000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 8.8, "tokens": 1500000 }] }] },
-      { "date": "2026-10-17", "groups": [{ "unit": "money", "currency": "CNY", "amount": 2.5, "tokens": 400000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 2.5, "tokens": 400000 }] }] },
-      { "date": "2026-10-18", "groups": [{ "unit": "money", "currency": "CNY", "amount": 9.1, "tokens": 1700000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 9.1, "tokens": 1700000 }] }] },
-      { "date": "2026-10-19", "groups": [
-        { "unit": "money", "currency": "CNY", "amount": 12.34, "tokens": 2400000, "adapters": [{ "id": "zcode", "name": "ZCode", "amount": 12.34, "tokens": 2400000 }, { "id": "dsh", "name": "DeepSeek Harness", "amount": 1.08, "tokens": 420000 }] },
-        { "unit": "credit", "currency": "CREDIT", "amount": 193.5, "tokens": 890000, "adapters": [{ "id": "workbuddy", "name": "WorkBuddy", "amount": 193.5, "tokens": 890000 }] }
-      ] }
+      {
+        "date": "2026-10-13",
+        "groups": [
+          {
+            "unit": "money",
+            "currency": "CNY",
+            "amount": 3.2,
+            "tokens": 600000,
+            "adapters": [
+              {
+                "id": "zcode",
+                "name": "ZCode",
+                "amount": 3.2,
+                "tokens": 600000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-10-14",
+        "groups": [
+          {
+            "unit": "money",
+            "currency": "CNY",
+            "amount": 5.4,
+            "tokens": 900000,
+            "adapters": [
+              {
+                "id": "zcode",
+                "name": "ZCode",
+                "amount": 5.4,
+                "tokens": 900000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-10-15",
+        "groups": [
+          {
+            "unit": "money",
+            "currency": "CNY",
+            "amount": 4.1,
+            "tokens": 700000,
+            "adapters": [
+              {
+                "id": "zcode",
+                "name": "ZCode",
+                "amount": 4.1,
+                "tokens": 700000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-10-16",
+        "groups": [
+          {
+            "unit": "money",
+            "currency": "CNY",
+            "amount": 8.8,
+            "tokens": 1500000,
+            "adapters": [
+              {
+                "id": "zcode",
+                "name": "ZCode",
+                "amount": 8.8,
+                "tokens": 1500000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-10-17",
+        "groups": [
+          {
+            "unit": "money",
+            "currency": "CNY",
+            "amount": 2.5,
+            "tokens": 400000,
+            "adapters": [
+              {
+                "id": "zcode",
+                "name": "ZCode",
+                "amount": 2.5,
+                "tokens": 400000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-10-18",
+        "groups": [
+          {
+            "unit": "money",
+            "currency": "CNY",
+            "amount": 9.1,
+            "tokens": 1700000,
+            "adapters": [
+              {
+                "id": "zcode",
+                "name": "ZCode",
+                "amount": 9.1,
+                "tokens": 1700000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-10-19",
+        "groups": [
+          {
+            "unit": "money",
+            "currency": "CNY",
+            "amount": 12.34,
+            "tokens": 2400000,
+            "adapters": [
+              {
+                "id": "zcode",
+                "name": "ZCode",
+                "amount": 12.34,
+                "tokens": 2400000
+              },
+              {
+                "id": "dsh",
+                "name": "DeepSeek Harness",
+                "amount": 1.08,
+                "tokens": 420000
+              }
+            ]
+          },
+          {
+            "unit": "credit",
+            "currency": "CREDIT",
+            "amount": 193.5,
+            "tokens": 890000,
+            "adapters": [
+              {
+                "id": "workbuddy",
+                "name": "WorkBuddy",
+                "amount": 193.5,
+                "tokens": 890000
+              }
+            ]
+          }
+        ]
+      }
     ]
   },
   "vendors": [
-    { "id": "deepseek", "name": "DeepSeek", "kind": "balance", "currency": "CNY", "available": true, "balance": 63.2, "todayUsage": 1.08, "configured": true, "status": "ok", "keyMasked": "sk-••••8c5", "keySource": "zcode-provider" },
-    { "id": "zcode-plan", "name": "GLM Plan 配额", "kind": "local-log", "currency": "CNY", "available": true, "percentRemaining": 72, "remaining": 720, "total": 1000, "configured": true, "status": "ok" },
-    { "id": "commandcode", "name": "CommandCode", "kind": "cmdgo", "currency": "USD", "available": true, "planName": "GOAT", "account": "fixture", "pool": { "available": 1, "total": 1 }, "monthly": { "remaining": 40.6, "total": 70, "percent": 0.42, "resetAt": null }, "fiveHour": { "used": 2.52, "cap": 14, "percent": 0.18, "resetAt": null }, "weekly": { "used": 10.5, "cap": 35, "percent": 0.3, "resetAt": null }, "configured": true, "status": "ok" },
-    { "id": "moonshot-kimi", "name": "Kimi", "kind": "balance", "currency": "CNY", "available": true, "balance": 21.5, "configured": true, "status": "ok", "keyMasked": "sk-••••YtN" },
-    { "id": "relay-packycode", "name": "PackyCode", "kind": "relay", "currency": "USD", "available": false, "reason": "未配置凭据", "configured": false, "status": "unavailable" },
-    { "id": "openai", "name": "OpenAI", "kind": "balance", "currency": "USD", "available": false, "reason": "未配置凭据", "configured": false, "status": "unavailable" }
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "kind": "balance",
+      "currency": "CNY",
+      "available": true,
+      "balance": 63.2,
+      "todayUsage": 1.08,
+      "configured": true,
+      "status": "ok",
+      "keyMasked": "sk-••••8c5",
+      "keySource": "zcode-provider"
+    },
+    {
+      "id": "zcode-plan",
+      "name": "GLM Plan 配额",
+      "kind": "local-log",
+      "currency": "CNY",
+      "available": true,
+      "percentRemaining": 72,
+      "remaining": 720,
+      "total": 1000,
+      "configured": true,
+      "status": "ok"
+    },
+    {
+      "id": "commandcode",
+      "name": "CommandCode",
+      "kind": "cmdgo",
+      "currency": "USD",
+      "available": true,
+      "planName": "GOAT",
+      "account": "fixture",
+      "pool": {
+        "available": 1,
+        "total": 1
+      },
+      "monthly": {
+        "remaining": 40.6,
+        "total": 70,
+        "percent": 0.42,
+        "resetAt": null
+      },
+      "fiveHour": {
+        "used": 2.52,
+        "cap": 14,
+        "percent": 0.18,
+        "resetAt": null
+      },
+      "weekly": {
+        "used": 10.5,
+        "cap": 35,
+        "percent": 0.3,
+        "resetAt": null
+      },
+      "configured": true,
+      "status": "ok"
+    },
+    {
+      "id": "moonshot-kimi",
+      "name": "Kimi",
+      "kind": "balance",
+      "currency": "CNY",
+      "available": true,
+      "balance": 21.5,
+      "configured": true,
+      "status": "ok",
+      "keyMasked": "sk-••••YtN"
+    },
+    {
+      "id": "relay-packycode",
+      "name": "PackyCode",
+      "kind": "relay",
+      "currency": "USD",
+      "available": false,
+      "reason": "未配置凭据",
+      "configured": false,
+      "status": "unavailable"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "kind": "balance",
+      "currency": "USD",
+      "available": false,
+      "reason": "未配置凭据",
+      "configured": false,
+      "status": "unavailable"
+    }
   ],
   "roles": [
-    { "id": "fox", "name": "嘎啦嘛", "accent": "#f0a04b", "defaultFor": ["zcode"], "image": "assets/roles/fox.png", "builtin": true },
-    { "id": "whale", "name": "大肥鱼", "accent": "#4d6bfe", "defaultFor": ["dsh"], "image": "assets/roles/whale.png", "builtin": true },
-    { "id": "gpt", "name": "GPT娘", "accent": "#10a37f", "defaultFor": [], "image": "assets/roles/gpt.png", "builtin": true },
-    { "id": "kimi", "name": "kimi娘", "accent": "#b07cff", "defaultFor": ["kimi"], "image": "assets/roles/kimi.png", "builtin": true },
-    { "id": "xiaoke", "name": "小克", "accent": "#22b8a0", "defaultFor": ["workbuddy"], "image": "assets/roles/xiaoke.png", "builtin": true },
-    { "id": "gemini", "name": "哈基米", "accent": "#4285f4", "defaultFor": [], "image": "assets/roles/gemini.png", "builtin": true }
+    {
+      "id": "fox",
+      "name": "嘎啦嘛",
+      "accent": "#f0a04b",
+      "defaultFor": [
+        "zcode"
+      ],
+      "image": "assets/roles/fox.png",
+      "builtin": true
+    },
+    {
+      "id": "whale",
+      "name": "大肥鱼",
+      "accent": "#4d6bfe",
+      "defaultFor": [
+        "dsh"
+      ],
+      "image": "assets/roles/whale.png",
+      "builtin": true
+    },
+    {
+      "id": "gpt",
+      "name": "GPT娘",
+      "accent": "#10a37f",
+      "defaultFor": [],
+      "image": "assets/roles/gpt.png",
+      "builtin": true
+    },
+    {
+      "id": "kimi",
+      "name": "kimi娘",
+      "accent": "#b07cff",
+      "defaultFor": [
+        "kimi"
+      ],
+      "image": "assets/roles/kimi.png",
+      "builtin": true
+    },
+    {
+      "id": "xiaoke",
+      "name": "小克",
+      "accent": "#22b8a0",
+      "defaultFor": [
+        "workbuddy"
+      ],
+      "image": "assets/roles/xiaoke.png",
+      "builtin": true
+    },
+    {
+      "id": "gemini",
+      "name": "哈基米",
+      "accent": "#4285f4",
+      "defaultFor": [],
+      "image": "assets/roles/gemini.png",
+      "builtin": true
+    }
   ],
   "settings": {
-    "schema": 2, "roleId": "fox", "chatterMs": 300000, "scale": 1, "showChip": true, "showStyle": "chip", "menuButton": "hover",
-    "followMs": 500, "scrollGap": 17, "scrollGapOn": false, "turnBubble": true, "turnBubbleMs": 5000, "budgetMoney": 20, "weeklyBudget": 100, "monthlyBudget": 300,
-    "quotaWarnPct": 20, "balanceWarnMoney": 10, "contextWarnPct": 80, "costAnomalyX": 2, "alertBubble": true,
-    "theme": "auto", "displayMode": "auto", "autoRole": true, "rolesByAdapter": {}, "showWeek": true, "petMode": false,
-    "autoAttachNewAgent": false, "reattachOnRestart": true, "floatingData": "last", "hideMoney": false, "dnd": false,
-    "soundVolume": 0.5, "confirmAlert": true, "autoStart": true, "language": "zh-CN",
-    "updateManifestUrl": "", "autoUpdate": false, "updateChannel": "prerelease",
-    "hotkeys": { "toggle": "Ctrl+Alt+F", "console": "Ctrl+Alt+D", "hideMoney": "Ctrl+Alt+H" },
-    "profiles": { "zcode": { "roleId": "fox" } },
-    "pet": { "mode": "attached", "agentId": "zcode", "lastAgentId": "zcode", "profileOf": "zcode", "hwnd": "0x1", "rect": null, "display": null }
+    "schema": 2,
+    "roleId": "fox",
+    "chatterMs": 300000,
+    "scale": 1,
+    "showChip": true,
+    "showStyle": "chip",
+    "menuButton": "hover",
+    "followMs": 500,
+    "scrollGap": 17,
+    "scrollGapOn": false,
+    "turnBubble": true,
+    "turnBubbleMs": 5000,
+    "budgetMoney": 20,
+    "weeklyBudget": 100,
+    "monthlyBudget": 300,
+    "quotaWarnPct": 20,
+    "balanceWarnMoney": 10,
+    "contextWarnPct": 80,
+    "costAnomalyX": 2,
+    "alertBubble": true,
+    "theme": "auto",
+    "displayMode": "auto",
+    "autoRole": true,
+    "rolesByAdapter": {},
+    "showWeek": true,
+    "petMode": false,
+    "autoAttachNewAgent": false,
+    "reattachOnRestart": true,
+    "floatingData": "last",
+    "hideMoney": false,
+    "dnd": false,
+    "soundVolume": 0.5,
+    "confirmAlert": true,
+    "autoStart": true,
+    "language": "zh-CN",
+    "updateManifestUrl": "",
+    "autoUpdate": false,
+    "updateChannel": "prerelease",
+    "hotkeys": {
+      "toggle": "Ctrl+Alt+F",
+      "console": "Ctrl+Alt+D",
+      "hideMoney": "Ctrl+Alt+H"
+    },
+    "profiles": {
+      "zcode": {
+        "roleId": "fox"
+      }
+    },
+    "pet": {
+      "mode": "attached",
+      "agentId": "zcode",
+      "lastAgentId": "zcode",
+      "profileOf": "zcode",
+      "hwnd": "0x1",
+      "rect": null,
+      "display": null
+    }
   },
-  "profiles": { "zcode": { "roleId": "fox", "accent": "", "displayMode": "auto", "turnBubble": true, "turnBubbleMs": 5000, "chatterMs": 300000, "alertBubble": true, "dnd": false, "dataSource": "last" } },
+  "profiles": {
+    "zcode": {
+      "roleId": "fox",
+      "accent": "",
+      "displayMode": "auto",
+      "turnBubble": true,
+      "turnBubbleMs": 5000,
+      "chatterMs": 300000,
+      "alertBubble": true,
+      "dnd": false,
+      "dataSource": "last"
+    }
+  },
   "bubbles": [],
   "adapters": [
-    { "id": "zcode", "name": "ZCode", "billing": true, "context": true, "follow": true },
-    { "id": "workbuddy", "name": "WorkBuddy", "billing": true, "context": true, "follow": true },
-    { "id": "kimi", "name": "Kimi Code", "billing": true, "context": true, "follow": true },
-    { "id": "dsh", "name": "DeepSeek Harness", "billing": true, "context": true, "follow": true }
+    {
+      "id": "zcode",
+      "name": "ZCode",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "dsh",
+      "name": "DeepSeek Harness",
+      "billing": true,
+      "context": true,
+      "follow": true
+    }
   ],
   "bindings": [
-    { "key": "zcode.exe|100|1792400000000|0x1", "adapterId": "zcode", "window": { "title": "TianShu v0.2", "hwnd": "0x1" }, "at": 1792400000000 }
+    {
+      "key": "zcode.exe|100|1792400000000|0x1",
+      "adapterId": "zcode",
+      "window": {
+        "title": "TianShu v0.2",
+        "hwnd": "0x1"
+      },
+      "at": 1792400000000
+    }
   ],
-  "update": { "history": [] }
+  "update": {
+    "history": []
+  },
+  "stats": {
+    "zcode": {
+      "supported": true,
+      "range": "all",
+      "generatedAt": 1792551600000,
+      "timeZone": "Asia/Shanghai",
+      "source": "zcode:db.sqlite",
+      "unit": "tokens",
+      "currency": "",
+      "cost": null,
+      "credits": null,
+      "summary": {
+        "totalTokens": 2237386968,
+        "inputTokens": 2147891489,
+        "outputTokens": 89495479,
+        "reasoningTokens": 1200000,
+        "cacheCreationTokens": 300000,
+        "cacheReadTokens": 2013648271,
+        "cacheHitRate": 0.9375000000290983,
+        "totalSessions": 153,
+        "totalTurns": 793,
+        "toolCallCount": 20949,
+        "toolErrorRate": 0.02935700988113991,
+        "modelErrorRate": 0.008721537497388762,
+        "avgTimeToFirstTokenMs": 420,
+        "avgTurnDurationMs": 620884,
+        "activeDays": 121,
+        "currentStreakDays": 121,
+        "longestSessionMs": 53450000,
+        "longestStreakDays": 121,
+        "peakDayTokens": 20845308,
+        "peakDayDate": "2026-10-21",
+        "favoriteModel": {
+          "modelId": "deepseek/deepseek-v4.1-flash-fast",
+          "totalTokens": 1230562832,
+          "share": 0.54999999982122
+        },
+        "totalCredits": null
+      },
+      "heatmap": {
+        "startDate": "2026-06-23",
+        "endDate": "2026-10-21",
+        "maxTokens": 20845308,
+        "weeks": [
+          {
+            "weekIndex": 0,
+            "days": [
+              null,
+              null,
+              {
+                "date": "2026-06-23",
+                "level": 4,
+                "totalTokens": 18000000,
+                "turnCount": 8,
+                "toolCallCount": 20
+              },
+              {
+                "date": "2026-06-24",
+                "level": 4,
+                "totalTokens": 18007919,
+                "turnCount": 9,
+                "toolCallCount": 21
+              },
+              {
+                "date": "2026-06-25",
+                "level": 4,
+                "totalTokens": 18015838,
+                "turnCount": 10,
+                "toolCallCount": 22
+              },
+              {
+                "date": "2026-06-26",
+                "level": 4,
+                "totalTokens": 18023757,
+                "turnCount": 11,
+                "toolCallCount": 23
+              },
+              {
+                "date": "2026-06-27",
+                "level": 4,
+                "totalTokens": 18031676,
+                "turnCount": 12,
+                "toolCallCount": 24
+              }
+            ]
+          },
+          {
+            "weekIndex": 1,
+            "days": [
+              {
+                "date": "2026-06-28",
+                "level": 4,
+                "totalTokens": 18039595,
+                "turnCount": 13,
+                "toolCallCount": 25
+              },
+              {
+                "date": "2026-06-29",
+                "level": 4,
+                "totalTokens": 18047514,
+                "turnCount": 14,
+                "toolCallCount": 26
+              },
+              {
+                "date": "2026-06-30",
+                "level": 4,
+                "totalTokens": 18055433,
+                "turnCount": 15,
+                "toolCallCount": 27
+              },
+              {
+                "date": "2026-07-01",
+                "level": 4,
+                "totalTokens": 18063352,
+                "turnCount": 16,
+                "toolCallCount": 28
+              },
+              {
+                "date": "2026-07-02",
+                "level": 4,
+                "totalTokens": 18071271,
+                "turnCount": 17,
+                "toolCallCount": 29
+              },
+              {
+                "date": "2026-07-03",
+                "level": 4,
+                "totalTokens": 18079190,
+                "turnCount": 18,
+                "toolCallCount": 30
+              },
+              {
+                "date": "2026-07-04",
+                "level": 4,
+                "totalTokens": 18087109,
+                "turnCount": 8,
+                "toolCallCount": 31
+              }
+            ]
+          },
+          {
+            "weekIndex": 2,
+            "days": [
+              {
+                "date": "2026-07-05",
+                "level": 4,
+                "totalTokens": 18095028,
+                "turnCount": 9,
+                "toolCallCount": 32
+              },
+              {
+                "date": "2026-07-06",
+                "level": 4,
+                "totalTokens": 18102947,
+                "turnCount": 10,
+                "toolCallCount": 33
+              },
+              {
+                "date": "2026-07-07",
+                "level": 4,
+                "totalTokens": 18110866,
+                "turnCount": 11,
+                "toolCallCount": 34
+              },
+              {
+                "date": "2026-07-08",
+                "level": 4,
+                "totalTokens": 18118785,
+                "turnCount": 12,
+                "toolCallCount": 35
+              },
+              {
+                "date": "2026-07-09",
+                "level": 4,
+                "totalTokens": 18126704,
+                "turnCount": 13,
+                "toolCallCount": 36
+              },
+              {
+                "date": "2026-07-10",
+                "level": 4,
+                "totalTokens": 18134623,
+                "turnCount": 14,
+                "toolCallCount": 37
+              },
+              {
+                "date": "2026-07-11",
+                "level": 4,
+                "totalTokens": 18142542,
+                "turnCount": 15,
+                "toolCallCount": 38
+              }
+            ]
+          },
+          {
+            "weekIndex": 3,
+            "days": [
+              {
+                "date": "2026-07-12",
+                "level": 4,
+                "totalTokens": 18150461,
+                "turnCount": 16,
+                "toolCallCount": 39
+              },
+              {
+                "date": "2026-07-13",
+                "level": 4,
+                "totalTokens": 18158380,
+                "turnCount": 17,
+                "toolCallCount": 40
+              },
+              {
+                "date": "2026-07-14",
+                "level": 4,
+                "totalTokens": 18166299,
+                "turnCount": 18,
+                "toolCallCount": 41
+              },
+              {
+                "date": "2026-07-15",
+                "level": 4,
+                "totalTokens": 18174218,
+                "turnCount": 8,
+                "toolCallCount": 42
+              },
+              {
+                "date": "2026-07-16",
+                "level": 4,
+                "totalTokens": 18182137,
+                "turnCount": 9,
+                "toolCallCount": 43
+              },
+              {
+                "date": "2026-07-17",
+                "level": 4,
+                "totalTokens": 18190056,
+                "turnCount": 10,
+                "toolCallCount": 44
+              },
+              {
+                "date": "2026-07-18",
+                "level": 4,
+                "totalTokens": 18197975,
+                "turnCount": 11,
+                "toolCallCount": 45
+              }
+            ]
+          },
+          {
+            "weekIndex": 4,
+            "days": [
+              {
+                "date": "2026-07-19",
+                "level": 4,
+                "totalTokens": 18205894,
+                "turnCount": 12,
+                "toolCallCount": 46
+              },
+              {
+                "date": "2026-07-20",
+                "level": 4,
+                "totalTokens": 18213813,
+                "turnCount": 13,
+                "toolCallCount": 47
+              },
+              {
+                "date": "2026-07-21",
+                "level": 4,
+                "totalTokens": 18221732,
+                "turnCount": 14,
+                "toolCallCount": 48
+              },
+              {
+                "date": "2026-07-22",
+                "level": 4,
+                "totalTokens": 18229651,
+                "turnCount": 15,
+                "toolCallCount": 49
+              },
+              {
+                "date": "2026-07-23",
+                "level": 4,
+                "totalTokens": 18237570,
+                "turnCount": 16,
+                "toolCallCount": 50
+              },
+              {
+                "date": "2026-07-24",
+                "level": 4,
+                "totalTokens": 18245489,
+                "turnCount": 17,
+                "toolCallCount": 20
+              },
+              {
+                "date": "2026-07-25",
+                "level": 4,
+                "totalTokens": 18253408,
+                "turnCount": 18,
+                "toolCallCount": 21
+              }
+            ]
+          },
+          {
+            "weekIndex": 5,
+            "days": [
+              {
+                "date": "2026-07-26",
+                "level": 4,
+                "totalTokens": 18261327,
+                "turnCount": 8,
+                "toolCallCount": 22
+              },
+              {
+                "date": "2026-07-27",
+                "level": 4,
+                "totalTokens": 18269246,
+                "turnCount": 9,
+                "toolCallCount": 23
+              },
+              {
+                "date": "2026-07-28",
+                "level": 4,
+                "totalTokens": 18277165,
+                "turnCount": 10,
+                "toolCallCount": 24
+              },
+              {
+                "date": "2026-07-29",
+                "level": 4,
+                "totalTokens": 18285084,
+                "turnCount": 11,
+                "toolCallCount": 25
+              },
+              {
+                "date": "2026-07-30",
+                "level": 4,
+                "totalTokens": 18293003,
+                "turnCount": 12,
+                "toolCallCount": 26
+              },
+              {
+                "date": "2026-07-31",
+                "level": 4,
+                "totalTokens": 18300922,
+                "turnCount": 13,
+                "toolCallCount": 27
+              },
+              {
+                "date": "2026-08-01",
+                "level": 4,
+                "totalTokens": 18308841,
+                "turnCount": 14,
+                "toolCallCount": 28
+              }
+            ]
+          },
+          {
+            "weekIndex": 6,
+            "days": [
+              {
+                "date": "2026-08-02",
+                "level": 4,
+                "totalTokens": 18316760,
+                "turnCount": 15,
+                "toolCallCount": 29
+              },
+              {
+                "date": "2026-08-03",
+                "level": 4,
+                "totalTokens": 18324679,
+                "turnCount": 16,
+                "toolCallCount": 30
+              },
+              {
+                "date": "2026-08-04",
+                "level": 4,
+                "totalTokens": 18332598,
+                "turnCount": 17,
+                "toolCallCount": 31
+              },
+              {
+                "date": "2026-08-05",
+                "level": 4,
+                "totalTokens": 18340517,
+                "turnCount": 18,
+                "toolCallCount": 32
+              },
+              {
+                "date": "2026-08-06",
+                "level": 4,
+                "totalTokens": 18348436,
+                "turnCount": 8,
+                "toolCallCount": 33
+              },
+              {
+                "date": "2026-08-07",
+                "level": 4,
+                "totalTokens": 18356355,
+                "turnCount": 9,
+                "toolCallCount": 34
+              },
+              {
+                "date": "2026-08-08",
+                "level": 4,
+                "totalTokens": 18364274,
+                "turnCount": 10,
+                "toolCallCount": 35
+              }
+            ]
+          },
+          {
+            "weekIndex": 7,
+            "days": [
+              {
+                "date": "2026-08-09",
+                "level": 4,
+                "totalTokens": 18372193,
+                "turnCount": 11,
+                "toolCallCount": 36
+              },
+              {
+                "date": "2026-08-10",
+                "level": 4,
+                "totalTokens": 18380112,
+                "turnCount": 12,
+                "toolCallCount": 37
+              },
+              {
+                "date": "2026-08-11",
+                "level": 4,
+                "totalTokens": 18388031,
+                "turnCount": 13,
+                "toolCallCount": 38
+              },
+              {
+                "date": "2026-08-12",
+                "level": 4,
+                "totalTokens": 18395950,
+                "turnCount": 14,
+                "toolCallCount": 39
+              },
+              {
+                "date": "2026-08-13",
+                "level": 4,
+                "totalTokens": 18403869,
+                "turnCount": 15,
+                "toolCallCount": 40
+              },
+              {
+                "date": "2026-08-14",
+                "level": 4,
+                "totalTokens": 18411788,
+                "turnCount": 16,
+                "toolCallCount": 41
+              },
+              {
+                "date": "2026-08-15",
+                "level": 4,
+                "totalTokens": 18419707,
+                "turnCount": 17,
+                "toolCallCount": 42
+              }
+            ]
+          },
+          {
+            "weekIndex": 8,
+            "days": [
+              {
+                "date": "2026-08-16",
+                "level": 4,
+                "totalTokens": 18427626,
+                "turnCount": 18,
+                "toolCallCount": 43
+              },
+              {
+                "date": "2026-08-17",
+                "level": 4,
+                "totalTokens": 18435545,
+                "turnCount": 8,
+                "toolCallCount": 44
+              },
+              {
+                "date": "2026-08-18",
+                "level": 4,
+                "totalTokens": 18443464,
+                "turnCount": 9,
+                "toolCallCount": 45
+              },
+              {
+                "date": "2026-08-19",
+                "level": 4,
+                "totalTokens": 18451383,
+                "turnCount": 10,
+                "toolCallCount": 46
+              },
+              {
+                "date": "2026-08-20",
+                "level": 4,
+                "totalTokens": 18459302,
+                "turnCount": 11,
+                "toolCallCount": 47
+              },
+              {
+                "date": "2026-08-21",
+                "level": 4,
+                "totalTokens": 18467221,
+                "turnCount": 12,
+                "toolCallCount": 48
+              },
+              {
+                "date": "2026-08-22",
+                "level": 4,
+                "totalTokens": 18475140,
+                "turnCount": 13,
+                "toolCallCount": 49
+              }
+            ]
+          },
+          {
+            "weekIndex": 9,
+            "days": [
+              {
+                "date": "2026-08-23",
+                "level": 4,
+                "totalTokens": 18483059,
+                "turnCount": 14,
+                "toolCallCount": 50
+              },
+              {
+                "date": "2026-08-24",
+                "level": 4,
+                "totalTokens": 18490978,
+                "turnCount": 15,
+                "toolCallCount": 20
+              },
+              {
+                "date": "2026-08-25",
+                "level": 4,
+                "totalTokens": 18498897,
+                "turnCount": 16,
+                "toolCallCount": 21
+              },
+              {
+                "date": "2026-08-26",
+                "level": 4,
+                "totalTokens": 18506816,
+                "turnCount": 17,
+                "toolCallCount": 22
+              },
+              {
+                "date": "2026-08-27",
+                "level": 4,
+                "totalTokens": 18514735,
+                "turnCount": 18,
+                "toolCallCount": 23
+              },
+              {
+                "date": "2026-08-28",
+                "level": 4,
+                "totalTokens": 18522654,
+                "turnCount": 8,
+                "toolCallCount": 24
+              },
+              {
+                "date": "2026-08-29",
+                "level": 4,
+                "totalTokens": 18530573,
+                "turnCount": 9,
+                "toolCallCount": 25
+              }
+            ]
+          },
+          {
+            "weekIndex": 10,
+            "days": [
+              {
+                "date": "2026-08-30",
+                "level": 4,
+                "totalTokens": 18538492,
+                "turnCount": 10,
+                "toolCallCount": 26
+              },
+              {
+                "date": "2026-08-31",
+                "level": 4,
+                "totalTokens": 18546411,
+                "turnCount": 11,
+                "toolCallCount": 27
+              },
+              {
+                "date": "2026-09-01",
+                "level": 4,
+                "totalTokens": 18554330,
+                "turnCount": 12,
+                "toolCallCount": 28
+              },
+              {
+                "date": "2026-09-02",
+                "level": 4,
+                "totalTokens": 18562249,
+                "turnCount": 13,
+                "toolCallCount": 29
+              },
+              {
+                "date": "2026-09-03",
+                "level": 4,
+                "totalTokens": 18570168,
+                "turnCount": 14,
+                "toolCallCount": 30
+              },
+              {
+                "date": "2026-09-04",
+                "level": 4,
+                "totalTokens": 18578087,
+                "turnCount": 15,
+                "toolCallCount": 31
+              },
+              {
+                "date": "2026-09-05",
+                "level": 4,
+                "totalTokens": 18586006,
+                "turnCount": 16,
+                "toolCallCount": 32
+              }
+            ]
+          },
+          {
+            "weekIndex": 11,
+            "days": [
+              {
+                "date": "2026-09-06",
+                "level": 4,
+                "totalTokens": 18593925,
+                "turnCount": 17,
+                "toolCallCount": 33
+              },
+              {
+                "date": "2026-09-07",
+                "level": 4,
+                "totalTokens": 18601844,
+                "turnCount": 18,
+                "toolCallCount": 34
+              },
+              {
+                "date": "2026-09-08",
+                "level": 4,
+                "totalTokens": 18609763,
+                "turnCount": 8,
+                "toolCallCount": 35
+              },
+              {
+                "date": "2026-09-09",
+                "level": 4,
+                "totalTokens": 18617682,
+                "turnCount": 9,
+                "toolCallCount": 36
+              },
+              {
+                "date": "2026-09-10",
+                "level": 4,
+                "totalTokens": 18625601,
+                "turnCount": 10,
+                "toolCallCount": 37
+              },
+              {
+                "date": "2026-09-11",
+                "level": 4,
+                "totalTokens": 18633520,
+                "turnCount": 11,
+                "toolCallCount": 38
+              },
+              {
+                "date": "2026-09-12",
+                "level": 4,
+                "totalTokens": 18641439,
+                "turnCount": 12,
+                "toolCallCount": 39
+              }
+            ]
+          },
+          {
+            "weekIndex": 12,
+            "days": [
+              {
+                "date": "2026-09-13",
+                "level": 4,
+                "totalTokens": 18649358,
+                "turnCount": 13,
+                "toolCallCount": 40
+              },
+              {
+                "date": "2026-09-14",
+                "level": 4,
+                "totalTokens": 18657277,
+                "turnCount": 14,
+                "toolCallCount": 41
+              },
+              {
+                "date": "2026-09-15",
+                "level": 4,
+                "totalTokens": 18665196,
+                "turnCount": 15,
+                "toolCallCount": 42
+              },
+              {
+                "date": "2026-09-16",
+                "level": 4,
+                "totalTokens": 18673115,
+                "turnCount": 16,
+                "toolCallCount": 43
+              },
+              {
+                "date": "2026-09-17",
+                "level": 4,
+                "totalTokens": 18681034,
+                "turnCount": 17,
+                "toolCallCount": 44
+              },
+              {
+                "date": "2026-09-18",
+                "level": 4,
+                "totalTokens": 18688953,
+                "turnCount": 18,
+                "toolCallCount": 45
+              },
+              {
+                "date": "2026-09-19",
+                "level": 4,
+                "totalTokens": 18696872,
+                "turnCount": 8,
+                "toolCallCount": 46
+              }
+            ]
+          },
+          {
+            "weekIndex": 13,
+            "days": [
+              {
+                "date": "2026-09-20",
+                "level": 4,
+                "totalTokens": 18704791,
+                "turnCount": 9,
+                "toolCallCount": 47
+              },
+              {
+                "date": "2026-09-21",
+                "level": 4,
+                "totalTokens": 18712710,
+                "turnCount": 10,
+                "toolCallCount": 48
+              },
+              {
+                "date": "2026-09-22",
+                "level": 4,
+                "totalTokens": 18720629,
+                "turnCount": 11,
+                "toolCallCount": 49
+              },
+              {
+                "date": "2026-09-23",
+                "level": 4,
+                "totalTokens": 18728548,
+                "turnCount": 12,
+                "toolCallCount": 50
+              },
+              {
+                "date": "2026-09-24",
+                "level": 4,
+                "totalTokens": 18736467,
+                "turnCount": 13,
+                "toolCallCount": 20
+              },
+              {
+                "date": "2026-09-25",
+                "level": 4,
+                "totalTokens": 18744386,
+                "turnCount": 14,
+                "toolCallCount": 21
+              },
+              {
+                "date": "2026-09-26",
+                "level": 4,
+                "totalTokens": 18752305,
+                "turnCount": 15,
+                "toolCallCount": 22
+              }
+            ]
+          },
+          {
+            "weekIndex": 14,
+            "days": [
+              {
+                "date": "2026-09-27",
+                "level": 4,
+                "totalTokens": 18760224,
+                "turnCount": 16,
+                "toolCallCount": 23
+              },
+              {
+                "date": "2026-09-28",
+                "level": 4,
+                "totalTokens": 18768143,
+                "turnCount": 17,
+                "toolCallCount": 24
+              },
+              {
+                "date": "2026-09-29",
+                "level": 4,
+                "totalTokens": 18776062,
+                "turnCount": 18,
+                "toolCallCount": 25
+              },
+              {
+                "date": "2026-09-30",
+                "level": 4,
+                "totalTokens": 18783981,
+                "turnCount": 8,
+                "toolCallCount": 26
+              },
+              {
+                "date": "2026-10-01",
+                "level": 4,
+                "totalTokens": 18791900,
+                "turnCount": 9,
+                "toolCallCount": 27
+              },
+              {
+                "date": "2026-10-02",
+                "level": 4,
+                "totalTokens": 18799819,
+                "turnCount": 10,
+                "toolCallCount": 28
+              },
+              {
+                "date": "2026-10-03",
+                "level": 4,
+                "totalTokens": 18807738,
+                "turnCount": 11,
+                "toolCallCount": 29
+              }
+            ]
+          },
+          {
+            "weekIndex": 15,
+            "days": [
+              {
+                "date": "2026-10-04",
+                "level": 4,
+                "totalTokens": 18815657,
+                "turnCount": 12,
+                "toolCallCount": 30
+              },
+              {
+                "date": "2026-10-05",
+                "level": 4,
+                "totalTokens": 18823576,
+                "turnCount": 13,
+                "toolCallCount": 31
+              },
+              {
+                "date": "2026-10-06",
+                "level": 4,
+                "totalTokens": 18831495,
+                "turnCount": 14,
+                "toolCallCount": 32
+              },
+              {
+                "date": "2026-10-07",
+                "level": 4,
+                "totalTokens": 18839414,
+                "turnCount": 15,
+                "toolCallCount": 33
+              },
+              {
+                "date": "2026-10-08",
+                "level": 4,
+                "totalTokens": 18847333,
+                "turnCount": 16,
+                "toolCallCount": 34
+              },
+              {
+                "date": "2026-10-09",
+                "level": 4,
+                "totalTokens": 18855252,
+                "turnCount": 17,
+                "toolCallCount": 35
+              },
+              {
+                "date": "2026-10-10",
+                "level": 4,
+                "totalTokens": 18863171,
+                "turnCount": 18,
+                "toolCallCount": 36
+              }
+            ]
+          },
+          {
+            "weekIndex": 16,
+            "days": [
+              {
+                "date": "2026-10-11",
+                "level": 4,
+                "totalTokens": 18871090,
+                "turnCount": 8,
+                "toolCallCount": 37
+              },
+              {
+                "date": "2026-10-12",
+                "level": 4,
+                "totalTokens": 18879009,
+                "turnCount": 9,
+                "toolCallCount": 38
+              },
+              {
+                "date": "2026-10-13",
+                "level": 4,
+                "totalTokens": 18886928,
+                "turnCount": 10,
+                "toolCallCount": 39
+              },
+              {
+                "date": "2026-10-14",
+                "level": 4,
+                "totalTokens": 18894847,
+                "turnCount": 11,
+                "toolCallCount": 40
+              },
+              {
+                "date": "2026-10-15",
+                "level": 4,
+                "totalTokens": 18902766,
+                "turnCount": 12,
+                "toolCallCount": 41
+              },
+              {
+                "date": "2026-10-16",
+                "level": 4,
+                "totalTokens": 18910685,
+                "turnCount": 13,
+                "toolCallCount": 42
+              },
+              {
+                "date": "2026-10-17",
+                "level": 4,
+                "totalTokens": 18918604,
+                "turnCount": 14,
+                "toolCallCount": 43
+              }
+            ]
+          },
+          {
+            "weekIndex": 17,
+            "days": [
+              {
+                "date": "2026-10-18",
+                "level": 4,
+                "totalTokens": 18926523,
+                "turnCount": 15,
+                "toolCallCount": 44
+              },
+              {
+                "date": "2026-10-19",
+                "level": 4,
+                "totalTokens": 18934442,
+                "turnCount": 16,
+                "toolCallCount": 45
+              },
+              {
+                "date": "2026-10-20",
+                "level": 4,
+                "totalTokens": 18942361,
+                "turnCount": 17,
+                "toolCallCount": 46
+              },
+              {
+                "date": "2026-10-21",
+                "level": 4,
+                "totalTokens": 20845308,
+                "turnCount": 18,
+                "toolCallCount": 47
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ]
+      },
+      "dailyModelUsage": [
+        {
+          "date": "2026-06-23",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9900000
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6840000
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1260000
+            }
+          ]
+        },
+        {
+          "date": "2026-06-24",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9904355
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6843009
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1260554
+            }
+          ]
+        },
+        {
+          "date": "2026-06-25",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9908711
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6846018
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1261109
+            }
+          ]
+        },
+        {
+          "date": "2026-06-26",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9913066
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6849028
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1261663
+            }
+          ]
+        },
+        {
+          "date": "2026-06-27",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9917422
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6852037
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1262217
+            }
+          ]
+        },
+        {
+          "date": "2026-06-28",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9921777
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6855046
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1262772
+            }
+          ]
+        },
+        {
+          "date": "2026-06-29",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9926133
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6858055
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1263326
+            }
+          ]
+        },
+        {
+          "date": "2026-06-30",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9930488
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6861065
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1263880
+            }
+          ]
+        },
+        {
+          "date": "2026-07-01",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9934844
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6864074
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1264435
+            }
+          ]
+        },
+        {
+          "date": "2026-07-02",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9939199
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6867083
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1264989
+            }
+          ]
+        },
+        {
+          "date": "2026-07-03",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9943555
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6870092
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1265543
+            }
+          ]
+        },
+        {
+          "date": "2026-07-04",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9947910
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6873101
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1266098
+            }
+          ]
+        },
+        {
+          "date": "2026-07-05",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9952265
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6876111
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1266652
+            }
+          ]
+        },
+        {
+          "date": "2026-07-06",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9956621
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6879120
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1267206
+            }
+          ]
+        },
+        {
+          "date": "2026-07-07",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9960976
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6882129
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1267761
+            }
+          ]
+        },
+        {
+          "date": "2026-07-08",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9965332
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6885138
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1268315
+            }
+          ]
+        },
+        {
+          "date": "2026-07-09",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9969687
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6888148
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1268869
+            }
+          ]
+        },
+        {
+          "date": "2026-07-10",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9974043
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6891157
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1269424
+            }
+          ]
+        },
+        {
+          "date": "2026-07-11",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9978398
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6894166
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1269978
+            }
+          ]
+        },
+        {
+          "date": "2026-07-12",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9982754
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6897175
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1270532
+            }
+          ]
+        },
+        {
+          "date": "2026-07-13",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9987109
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6900184
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1271087
+            }
+          ]
+        },
+        {
+          "date": "2026-07-14",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9991464
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6903194
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1271641
+            }
+          ]
+        },
+        {
+          "date": "2026-07-15",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 9995820
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6906203
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1272195
+            }
+          ]
+        },
+        {
+          "date": "2026-07-16",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10000175
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6909212
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1272750
+            }
+          ]
+        },
+        {
+          "date": "2026-07-17",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10004531
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6912221
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1273304
+            }
+          ]
+        },
+        {
+          "date": "2026-07-18",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10008886
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6915231
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1273858
+            }
+          ]
+        },
+        {
+          "date": "2026-07-19",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10013242
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6918240
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1274413
+            }
+          ]
+        },
+        {
+          "date": "2026-07-20",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10017597
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6921249
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1274967
+            }
+          ]
+        },
+        {
+          "date": "2026-07-21",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10021953
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6924258
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1275521
+            }
+          ]
+        },
+        {
+          "date": "2026-07-22",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10026308
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6927267
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1276076
+            }
+          ]
+        },
+        {
+          "date": "2026-07-23",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10030664
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6930277
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1276630
+            }
+          ]
+        },
+        {
+          "date": "2026-07-24",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10035019
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6933286
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1277184
+            }
+          ]
+        },
+        {
+          "date": "2026-07-25",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10039374
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6936295
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1277739
+            }
+          ]
+        },
+        {
+          "date": "2026-07-26",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10043730
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6939304
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1278293
+            }
+          ]
+        },
+        {
+          "date": "2026-07-27",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10048085
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6942313
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1278847
+            }
+          ]
+        },
+        {
+          "date": "2026-07-28",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10052441
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6945323
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1279402
+            }
+          ]
+        },
+        {
+          "date": "2026-07-29",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10056796
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6948332
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1279956
+            }
+          ]
+        },
+        {
+          "date": "2026-07-30",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10061152
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6951341
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1280510
+            }
+          ]
+        },
+        {
+          "date": "2026-07-31",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10065507
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6954350
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1281065
+            }
+          ]
+        },
+        {
+          "date": "2026-08-01",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10069863
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6957360
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1281619
+            }
+          ]
+        },
+        {
+          "date": "2026-08-02",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10074218
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6960369
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1282173
+            }
+          ]
+        },
+        {
+          "date": "2026-08-03",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10078573
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6963378
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1282728
+            }
+          ]
+        },
+        {
+          "date": "2026-08-04",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10082929
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6966387
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1283282
+            }
+          ]
+        },
+        {
+          "date": "2026-08-05",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10087284
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6969396
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1283836
+            }
+          ]
+        },
+        {
+          "date": "2026-08-06",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10091640
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6972406
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1284391
+            }
+          ]
+        },
+        {
+          "date": "2026-08-07",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10095995
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6975415
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1284945
+            }
+          ]
+        },
+        {
+          "date": "2026-08-08",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10100351
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6978424
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1285499
+            }
+          ]
+        },
+        {
+          "date": "2026-08-09",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10104706
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6981433
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1286054
+            }
+          ]
+        },
+        {
+          "date": "2026-08-10",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10109062
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6984443
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1286608
+            }
+          ]
+        },
+        {
+          "date": "2026-08-11",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10113417
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6987452
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1287162
+            }
+          ]
+        },
+        {
+          "date": "2026-08-12",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10117773
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6990461
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1287717
+            }
+          ]
+        },
+        {
+          "date": "2026-08-13",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10122128
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6993470
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1288271
+            }
+          ]
+        },
+        {
+          "date": "2026-08-14",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10126483
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6996479
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1288825
+            }
+          ]
+        },
+        {
+          "date": "2026-08-15",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10130839
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 6999489
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1289379
+            }
+          ]
+        },
+        {
+          "date": "2026-08-16",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10135194
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7002498
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1289934
+            }
+          ]
+        },
+        {
+          "date": "2026-08-17",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10139550
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7005507
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1290488
+            }
+          ]
+        },
+        {
+          "date": "2026-08-18",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10143905
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7008516
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1291042
+            }
+          ]
+        },
+        {
+          "date": "2026-08-19",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10148261
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7011526
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1291597
+            }
+          ]
+        },
+        {
+          "date": "2026-08-20",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10152616
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7014535
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1292151
+            }
+          ]
+        },
+        {
+          "date": "2026-08-21",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10156972
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7017544
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1292705
+            }
+          ]
+        },
+        {
+          "date": "2026-08-22",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10161327
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7020553
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1293260
+            }
+          ]
+        },
+        {
+          "date": "2026-08-23",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10165682
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7023562
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1293814
+            }
+          ]
+        },
+        {
+          "date": "2026-08-24",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10170038
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7026572
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1294368
+            }
+          ]
+        },
+        {
+          "date": "2026-08-25",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10174393
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7029581
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1294923
+            }
+          ]
+        },
+        {
+          "date": "2026-08-26",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10178749
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7032590
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1295477
+            }
+          ]
+        },
+        {
+          "date": "2026-08-27",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10183104
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7035599
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1296031
+            }
+          ]
+        },
+        {
+          "date": "2026-08-28",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10187460
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7038609
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1296586
+            }
+          ]
+        },
+        {
+          "date": "2026-08-29",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10191815
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7041618
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1297140
+            }
+          ]
+        },
+        {
+          "date": "2026-08-30",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10196171
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7044627
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1297694
+            }
+          ]
+        },
+        {
+          "date": "2026-08-31",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10200526
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7047636
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1298249
+            }
+          ]
+        },
+        {
+          "date": "2026-09-01",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10204882
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7050645
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1298803
+            }
+          ]
+        },
+        {
+          "date": "2026-09-02",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10209237
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7053655
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1299357
+            }
+          ]
+        },
+        {
+          "date": "2026-09-03",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10213592
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7056664
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1299912
+            }
+          ]
+        },
+        {
+          "date": "2026-09-04",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10217948
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7059673
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1300466
+            }
+          ]
+        },
+        {
+          "date": "2026-09-05",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10222303
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7062682
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1301020
+            }
+          ]
+        },
+        {
+          "date": "2026-09-06",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10226659
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7065692
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1301575
+            }
+          ]
+        },
+        {
+          "date": "2026-09-07",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10231014
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7068701
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1302129
+            }
+          ]
+        },
+        {
+          "date": "2026-09-08",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10235370
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7071710
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1302683
+            }
+          ]
+        },
+        {
+          "date": "2026-09-09",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10239725
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7074719
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1303238
+            }
+          ]
+        },
+        {
+          "date": "2026-09-10",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10244081
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7077728
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1303792
+            }
+          ]
+        },
+        {
+          "date": "2026-09-11",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10248436
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7080738
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1304346
+            }
+          ]
+        },
+        {
+          "date": "2026-09-12",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10252791
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7083747
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1304901
+            }
+          ]
+        },
+        {
+          "date": "2026-09-13",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10257147
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7086756
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1305455
+            }
+          ]
+        },
+        {
+          "date": "2026-09-14",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10261502
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7089765
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1306009
+            }
+          ]
+        },
+        {
+          "date": "2026-09-15",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10265858
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7092774
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1306564
+            }
+          ]
+        },
+        {
+          "date": "2026-09-16",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10270213
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7095784
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1307118
+            }
+          ]
+        },
+        {
+          "date": "2026-09-17",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10274569
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7098793
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1307672
+            }
+          ]
+        },
+        {
+          "date": "2026-09-18",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10278924
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7101802
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1308227
+            }
+          ]
+        },
+        {
+          "date": "2026-09-19",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10283280
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7104811
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1308781
+            }
+          ]
+        },
+        {
+          "date": "2026-09-20",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10287635
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7107821
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1309335
+            }
+          ]
+        },
+        {
+          "date": "2026-09-21",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10291991
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7110830
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1309890
+            }
+          ]
+        },
+        {
+          "date": "2026-09-22",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10296346
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7113839
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1310444
+            }
+          ]
+        },
+        {
+          "date": "2026-09-23",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10300701
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7116848
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1310998
+            }
+          ]
+        },
+        {
+          "date": "2026-09-24",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10305057
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7119857
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1311553
+            }
+          ]
+        },
+        {
+          "date": "2026-09-25",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10309412
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7122867
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1312107
+            }
+          ]
+        },
+        {
+          "date": "2026-09-26",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10313768
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7125876
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1312661
+            }
+          ]
+        },
+        {
+          "date": "2026-09-27",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10318123
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7128885
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1313216
+            }
+          ]
+        },
+        {
+          "date": "2026-09-28",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10322479
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7131894
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1313770
+            }
+          ]
+        },
+        {
+          "date": "2026-09-29",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10326834
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7134904
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1314324
+            }
+          ]
+        },
+        {
+          "date": "2026-09-30",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10331190
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7137913
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1314879
+            }
+          ]
+        },
+        {
+          "date": "2026-10-01",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10335545
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7140922
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1315433
+            }
+          ]
+        },
+        {
+          "date": "2026-10-02",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10339900
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7143931
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1315987
+            }
+          ]
+        },
+        {
+          "date": "2026-10-03",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10344256
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7146940
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1316542
+            }
+          ]
+        },
+        {
+          "date": "2026-10-04",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10348611
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7149950
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1317096
+            }
+          ]
+        },
+        {
+          "date": "2026-10-05",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10352967
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7152959
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1317650
+            }
+          ]
+        },
+        {
+          "date": "2026-10-06",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10357322
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7155968
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1318205
+            }
+          ]
+        },
+        {
+          "date": "2026-10-07",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10361678
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7158977
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1318759
+            }
+          ]
+        },
+        {
+          "date": "2026-10-08",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10366033
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7161987
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1319313
+            }
+          ]
+        },
+        {
+          "date": "2026-10-09",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10370389
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7164996
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1319868
+            }
+          ]
+        },
+        {
+          "date": "2026-10-10",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10374744
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7168005
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1320422
+            }
+          ]
+        },
+        {
+          "date": "2026-10-11",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10379100
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7171014
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1320976
+            }
+          ]
+        },
+        {
+          "date": "2026-10-12",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10383455
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7174023
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1321531
+            }
+          ]
+        },
+        {
+          "date": "2026-10-13",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10387810
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7177033
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1322085
+            }
+          ]
+        },
+        {
+          "date": "2026-10-14",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10392166
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7180042
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1322639
+            }
+          ]
+        },
+        {
+          "date": "2026-10-15",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10396521
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7183051
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1323194
+            }
+          ]
+        },
+        {
+          "date": "2026-10-16",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10400877
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7186060
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1323748
+            }
+          ]
+        },
+        {
+          "date": "2026-10-17",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10405232
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7189070
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1324302
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10409588
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7192079
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1324857
+            }
+          ]
+        },
+        {
+          "date": "2026-10-19",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10413943
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7195088
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1325411
+            }
+          ]
+        },
+        {
+          "date": "2026-10-20",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 10418299
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7198097
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1325965
+            }
+          ]
+        },
+        {
+          "date": "2026-10-21",
+          "models": [
+            {
+              "modelId": "deepseek/deepseek-v4.1-flash-fast",
+              "totalTokens": 11464919
+            },
+            {
+              "modelId": "deepseek-flash",
+              "totalTokens": 7921217
+            },
+            {
+              "modelId": "GLM-5.3-Flash",
+              "totalTokens": 1459172
+            }
+          ]
+        }
+      ],
+      "models": [
+        {
+          "modelId": "deepseek/deepseek-v4.1-flash-fast",
+          "totalTokens": 1230562832,
+          "inputTokens": 1181340319,
+          "outputTokens": 49222513,
+          "requestCount": 330,
+          "share": 0.54999999982122
+        },
+        {
+          "modelId": "deepseek-flash",
+          "totalTokens": 850207048,
+          "inputTokens": 816198766,
+          "outputTokens": 34008282,
+          "requestCount": 228,
+          "share": 0.38000000007151197
+        },
+        {
+          "modelId": "GLM-5.3-Flash",
+          "totalTokens": 156617088,
+          "inputTokens": 150352404,
+          "outputTokens": 6264684,
+          "requestCount": 42,
+          "share": 0.07000000010726799
+        }
+      ],
+      "tools": [
+        {
+          "toolName": "Bash",
+          "callCount": 10678,
+          "errorCount": 72,
+          "errorRate": 0.0067,
+          "avgDurationMs": 8723
+        },
+        {
+          "toolName": "Edit",
+          "callCount": 4995,
+          "errorCount": 401,
+          "errorRate": 0.0803,
+          "avgDurationMs": 10
+        },
+        {
+          "toolName": "Read",
+          "callCount": 3086,
+          "errorCount": 17,
+          "errorRate": 0.0055,
+          "avgDurationMs": 115
+        },
+        {
+          "toolName": "Write",
+          "callCount": 774,
+          "errorCount": 63,
+          "errorRate": 0.0814,
+          "avgDurationMs": 19
+        },
+        {
+          "toolName": "mcp__node_repl__js",
+          "callCount": 573,
+          "errorCount": 1,
+          "errorRate": 0.0017,
+          "avgDurationMs": 2469
+        },
+        {
+          "toolName": "WebFetch",
+          "callCount": 152,
+          "errorCount": 42,
+          "errorRate": 0.2763,
+          "avgDurationMs": 8947
+        }
+      ]
+    }
+  }
 }

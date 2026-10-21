@@ -6,10 +6,10 @@
 |---|---|---|
 | 语法 + 价目同步 + 单元 + 静态守卫 + engines parity | `npm run ci` | 提交前必跑；CI 也跑这一组 |
 | 单元 + 集成 | `npm run test:all` | 集成会开真窗口/真 Electron，需要桌面会话 |
-| 控制台页面自检 | `npm run test:ui` | 夹具 daemon + Edge；布局/可访问名称/axe，8 页 × 双主题 |
+| 控制台页面自检 | `npm run test:ui` | 夹具 daemon + Edge；布局/可访问名称/axe，9 页 × 双主题 |
 | 页面 E2E（结构部分） | `npm run test:e2e` | 同上，关闭 axe |
 | 控制台真窗口冒烟 | `npm run test:electron:console` | 启动夹具 + Electron console，CDP 断言并截图 |
-| 视觉回归 | `npm run visual` / `npm run visual:update` | 32 张基线（8 页 × 双主题 × 两视口）；ENV-MISMATCH 直接失败 |
+| 视觉回归 | `npm run visual` / `npm run visual:update` | 36 张基线（9 页 × 双主题 × 两视口）；ENV-MISMATCH 直接失败 |
 | 宠物层截图 | `npm run test:pet` | 四角/自由位置/悬浮/快览卡/菜单/贴底菜单/气泡/台词/隐藏金额，双主题双视口共 48 张 |
 | 截图矩阵 | `npm run shots -- --page console --console-pages overview,context,usage,quota,vendors,roles,settings,about --theme light,dark --base http://127.0.0.1:39490` | 先启动夹具 daemon |
 | 真机上下文对账 | `npm run verify:context` | PASS / SKIPPED（not-running / no-session）/ UNAVAILABLE |
@@ -43,7 +43,7 @@
 ## 4. 截图与基线
 
 - 截图输出在 `test/visual/__shots__/`（不入库），联系表 `index.html` 可点击放大。
-- 视觉基线已接入逐像素比对：`npm run visual` 对 32 张（8 页 × 双主题 × 两视口）按 0.1% 阈值比较；`npm run visual:update` 更新基线。
+- 视觉基线已接入逐像素比对：`npm run visual` 对 36 张（9 页 × 双主题 × 两视口）按 0.1% 阈值比较；`npm run visual:update` 更新基线。
 - 接基线时：只在固定机器/固定 Edge 版本生成，基线入库，动态内容用 `data-visual-mask` 遮罩；
   环境不符要标 `ENV-MISMATCH`，不得直接更新基线。
 

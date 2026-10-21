@@ -122,6 +122,7 @@ export function createV1Router(deps) {
     startedAt,
     adapters,
     billing,
+    stats,
     sse,
     bridge,
     getPort,
@@ -304,6 +305,19 @@ export function createV1Router(deps) {
           snapshot: snap,
           context: await contextFor(id, { force: url.searchParams.get('force') === '1' }),
         })
+        return true
+      }
+
+      const statsMatch = p.match(/^\/v1\/agents\/([^/]+)\/stats$/)
+      if (statsMatch && method === 'GET') {
+        const id = decodeURIComponent(statsMatch[1])
+        const range = ['all', '7d', '30d'].includes(String(url.searchParams.get('range') || ''))
+          ? String(url.searchParams.get('range'))
+          : 'all'
+        const value = stats
+          ? await stats.get(id, { range, force: url.searchParams.get('force') === '1' })
+          : { supported: false, range, reason: 'stats-unavailable', note: '统计服务未启用' }
+        sendJson(res, 200, { ok: true, adapterId: id, stats: value })
         return true
       }
 

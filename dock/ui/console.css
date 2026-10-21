@@ -774,6 +774,159 @@ a {
   margin-right: 6px;
   vertical-align: -1px;
 }
+
+/* ---------- 统计页 ---------- */
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.stat-tile {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.stats-quality {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.quality-chip {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.quality-chip b {
+  color: var(--text);
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.heatmap {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.heatmap-months {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 12px;
+  gap: 3px;
+  min-height: 14px;
+  margin-bottom: 3px;
+}
+.heatmap-month {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: visible;
+}
+.heatmap-weeks {
+  display: flex;
+  gap: 3px;
+}
+.heatmap-week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.heatmap-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  flex: 0 0 12px;
+}
+.heatmap-cell.level-1 { background: color-mix(in srgb, var(--accent) 22%, var(--surface-2)); }
+.heatmap-cell.level-2 { background: color-mix(in srgb, var(--accent) 42%, var(--surface-2)); }
+.heatmap-cell.level-3 { background: color-mix(in srgb, var(--accent) 68%, var(--surface-2)); }
+.heatmap-cell.level-4 { background: var(--accent); }
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.heatmap-legend i {
+  display: inline-block;
+}
+.model-legend {
+  margin-bottom: 4px;
+}
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.legend-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex: 0 0 8px;
+}
+.model-share {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.model-share-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.model-share-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 44px 62px;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.model-share-row .swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+}
+.model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.model-share-pct,
+.model-share-token {
+  text-align: right;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.model-share-pct { color: var(--text); }
+@media (max-width: 1100px) {
+  .model-share { flex-direction: column; align-items: center; }
+  .model-share-list { width: 100%; }
+}
+@media (max-width: 900px) {
+  .stats-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .stats-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .bar-list {
   display: flex;
   flex-direction: column;

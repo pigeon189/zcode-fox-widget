@@ -21,6 +21,7 @@ import { VERSION } from './main.mjs'
 import { acquireLock, releaseLock, updateLock } from './lock.mjs'
 import { readBindings, removeBinding, upsertBinding } from './bindings.mjs'
 import { createBillingService } from './billing.mjs'
+import { createStatsService } from './stats-service.mjs'
 import { readHostVendors } from './host-vendors.mjs'
 import { compareVersions, fetchManifest } from './update.mjs'
 import { recordSnapshot, summarize } from './ledger.mjs'
@@ -231,6 +232,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   // 适配器：内置 + 声明式匹配；计费快照带 3 秒缓存
   const adapters = builtinAdapters
   const billing = createBillingService({ adapters })
+  const stats = createStatsService({ adapters })
   const sse = createSseHub()
   const contextHistory = createContextHistory({ file: paths.contextHistory })
   const contextService = createContextService({ adapters, history: contextHistory })
@@ -248,6 +250,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     startedAt,
     adapters,
     billing,
+    stats,
     sse,
     bridge,
     getPort: () => actualPort,
