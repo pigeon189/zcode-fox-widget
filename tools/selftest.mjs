@@ -4225,6 +4225,29 @@ try {
   const dmBad = await getJson(port, '/whale/size.json')
   check('displayMode 非法值被丢弃（保留原值）', dmBad.displayMode === 'plan', 'displayMode=' + dmBad.displayMode)
 
+  // 默认位置（issue #11）：四个角写入 / 回读，非法值丢弃；默认仍是右下
+  const cornerInitial = await getJson(port, '/whale/size.json')
+  check('默认位置默认值：右下（br）', cornerInitial.defaultCorner === 'br', 'corner=' + cornerInitial.defaultCorner)
+  const cornerPut = await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, defaultCorner: 'tl' }),
+  })
+  const cornerGet = await getJson(port, '/whale/size.json')
+  check('默认位置写入并持久化回读（左上）', cornerPut.ok && cornerGet.defaultCorner === 'tl', 'corner=' + cornerGet.defaultCorner)
+  await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, defaultCorner: 'center' }),
+  })
+  const cornerBad = await getJson(port, '/whale/size.json')
+  check('默认位置非法值被丢弃（保留原值）', cornerBad.defaultCorner === 'tl', 'corner=' + cornerBad.defaultCorner)
+  await fetch('http://127.0.0.1:' + port + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, defaultCorner: 'br' }),
+  })
+
   // 安全路由：Host 校验（防 DNS rebinding）/ Origin 校验（防跨站写）/ 关闭令牌
   function rawRequest(method, requestPath, headers, body) {
     return new Promise((resolve, reject) => {
@@ -4457,11 +4480,11 @@ try {
     JSON.stringify(ztBack)
   )
 
-  // 接口：音效库（内置两套 + 导入 + 回放 + 删除）
+  // 接口：音效库（内置三套 + 导入 + 回放 + 删除）
   const snd0 = await getJson(port, '/whale/sounds.json')
   check(
-    '音效库：内置两套在列、默认选中小黄鸭',
-    snd0 && snd0.ok === true && snd0.sets.filter((s) => s.builtin).map((s) => s.id).join(',') === 'duck,fx1' && snd0.selected === 'duck',
+    '音效库：内置三套在列、默认选中小黄鸭',
+    snd0 && snd0.ok === true && snd0.sets.filter((s) => s.builtin).map((s) => s.id).join(',') === 'duck,fx1,nya' && snd0.selected === 'duck',
     JSON.stringify(snd0 && snd0.sets)
   )
   const wavBytes = Buffer.from('RIFF0000WAVEfmt ', 'latin1')
@@ -4512,6 +4535,14 @@ try {
     '音效回放：内置集照旧可用（audio/mpeg）',
     duckRes.ok && duckBytes.length > 100 && duckRes.headers.get('content-type') === 'audio/mpeg',
     'bytes=' + duckBytes.length
+  )
+  const nyaRes = await fetch('http://127.0.0.1:' + port + '/whale/sound/press.mp3?set=nya')
+  const nyaBytes = Buffer.from(await nyaRes.arrayBuffer())
+  check(
+    '音效回放：内置猫娘 WAV 使用 audio/wav',
+    nyaRes.ok && nyaRes.headers.get('content-type') === 'audio/wav' &&
+      nyaBytes.subarray(0, 4).toString('latin1') === 'RIFF' && nyaBytes.subarray(8, 12).toString('latin1') === 'WAVE',
+    'HTTP ' + nyaRes.status + ' ct=' + nyaRes.headers.get('content-type') + ' bytes=' + nyaBytes.length
   )
   // 非法输入被拒
   const badSound = await postSound('/whale/sound-upload.json', { press: { dataUrl: 'data:text/plain;base64,aGk=' } })

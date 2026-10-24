@@ -19,7 +19,7 @@
 #   window and pid lists - stays on a separate time budget (-ProcessCacheMs).
 #
 # Output protocol (one JSON object per line):
-#   {"x":..,"y":..,"w":..,"h":..,"show":bool,"pid":N,"pidStart":MS,"dark":-1|0|1}
+#   {"x":..,"y":..,"w":..,"h":..,"show":bool,"minimized":bool,"fs":bool,"pid":N,"pidStart":MS,"dark":-1|0|1}
 #                                               WorkBuddy rect (physical px), overlay
 #                                               visibility, the identity of the
 #                                               process that owns that window (the
@@ -65,6 +65,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 
 public static class WhaleFollow
@@ -72,8 +73,15 @@ public static class WhaleFollow
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
+
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO mi);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hWnd);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
@@ -382,6 +390,7 @@ public static class WhaleFollow
         int lastPid = 0;
         int lastDark = -2;
         bool lastShow = false;
+        bool lastFs = false;
 
         while (true)
         {
@@ -428,18 +437,50 @@ public static class WhaleFollow
                 bool fgIsOverlay = _electronPids.Contains((int)fgPid);
                 bool show = !minimized && (fgIsTarget || fgIsOverlay);
 
+                // Borderless fullscreen foreground: pet mode yields. Require the
+                // foreground monitor to match the overlay's monitor (multi-screen),
+                // and never treat the host, overlay, or desktop shell as an app.
+                bool fgFullscreen = false;
+                if (fg != IntPtr.Zero && fg != _overlayHwnd && !fgIsTarget && !fgIsOverlay && IsWindowVisible(fg) && !IsZoomed(fg))
+                {
+                    StringBuilder fgClass = new StringBuilder(64);
+                    GetClassName(fg, fgClass, fgClass.Capacity);
+                    string cls = fgClass.ToString();
+                    bool shellWindow = cls == "Progman" || cls == "WorkerW" ||
+                                       cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd";
+                    int cloaked = 0;
+                    if (!shellWindow &&
+                        (DwmGetWindowAttribute(fg, 14 /* DWMWA_CLOAKED */, out cloaked, 4) != 0 || cloaked == 0))
+                    {
+                        RECT fr;
+                        if (GetWindowRect(fg, out fr))
+                        {
+                            IntPtr mon = MonitorFromWindow(fg, 1 /* MONITOR_DEFAULTTONEAREST */);
+                            IntPtr overlayMon = MonitorFromWindow(_overlayHwnd, 1 /* MONITOR_DEFAULTTONEAREST */);
+                            MONITORINFO mi = new MONITORINFO();
+                            mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+                            if (mon != IntPtr.Zero && mon == overlayMon && GetMonitorInfo(mon, ref mi))
+                            {
+                                fgFullscreen = fr.Left <= mi.rcMonitor.Left && fr.Right >= mi.rcMonitor.Right &&
+                                               fr.Top <= mi.rcMonitor.Top && fr.Bottom >= mi.rcMonitor.Bottom;
+                            }
+                        }
+                    }
+                }
+
                 int w = r.Right - r.Left;
                 int h = r.Bottom - r.Top;
                 // WorkBuddy theme (DWM immersive dark mode attribute): the follow
                 // script is the only holder of the target HWND; read it here and
                 // let the main process persist it for the "follow WorkBuddy" theme.
                 int dark = QueryDarkMode(z);
-                if (!haveSig || r.Left != lastL || r.Top != lastT || w != lastW || h != lastH || show != lastShow || _targetPid != lastPid || dark != lastDark)
+                if (!haveSig || r.Left != lastL || r.Top != lastT || w != lastW || h != lastH || show != lastShow || _targetPid != lastPid || dark != lastDark || fgFullscreen != lastFs)
                 {
                     haveSig = true;
                     lastL = r.Left; lastT = r.Top; lastW = w; lastH = h; lastShow = show;
                     lastPid = _targetPid;
                     lastDark = dark;
+                    lastFs = fgFullscreen;
 
                     // Decision inputs go to stderr; the main process records them
                     // only when the debug log is enabled.
@@ -449,6 +490,7 @@ public static class WhaleFollow
                         " fgPid=" + fgPid +
                         " fgIsWorkBuddy=" + (fgIsTarget ? "true" : "false") +
                         " fgIsOverlay=" + (fgIsOverlay ? "true" : "false") +
+                        " fs=" + (fgFullscreen ? "true" : "false") +
                         " pid=" + _targetPid + " pidStart=" + ((long)_targetPidStart));
 
                     // pid / pidStart identify the followed WorkBuddy process: the
@@ -463,6 +505,7 @@ public static class WhaleFollow
                         "{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + w + ",\"h\":" + h +
                         ",\"show\":" + (show ? "true" : "false") +
                         ",\"minimized\":" + (minimized ? "true" : "false") +
+                        ",\"fs\":" + (fgFullscreen ? "true" : "false") +
                         ",\"pid\":" + _targetPid + ",\"pidStart\":" + ((long)_targetPidStart) +
                         ",\"dark\":" + dark + "}");
                     Console.Out.Flush();

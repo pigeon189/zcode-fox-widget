@@ -216,6 +216,26 @@ async function pollEvalReload(cdp, expression, deadlineMs, tries = 2) {
   }
   return null
 }
+// 菜单/二级页在用例之间可能被收起：先确保一级菜单打开，再点「位置与行为…」。
+async function ensureMenuOpen(cdp) {
+  const open = await cdp.eval("(function(){return !!document.querySelector('.zcwv-menu.zcwv-menu-open')})()")
+  if (open) return true
+  const clicked = await cdp.eval(
+    "(function(){var b=document.querySelector('.zcwv-menu-btn');if(!b)return false;b.click();return true})()"
+  )
+  if (!clicked) return false
+  await new Promise((r) => setTimeout(r, 300))
+  return !!(await cdp.eval("(function(){return !!document.querySelector('.zcwv-menu.zcwv-menu-open')})()"))
+}
+async function openMorePanel(cdp) {
+  if (!(await ensureMenuOpen(cdp))) return false
+  const clicked = await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcwv-menu-row button');" +
+      "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='位置与行为…'){bs[i].click();return true}}return false})()"
+  )
+  if (!clicked) return false
+  return !!(await pollEval(cdp, "(function(){return !!document.querySelector('.zcwv-more.zcwv-panel-open')})()", 3000))
+}
 
 const server = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'server.mjs')], {
   cwd: PLUGIN_ROOT,
@@ -1090,9 +1110,25 @@ try {
     )
   )
   check('记账二级页：返回按钮收起面板', !!bookClosed && bookClosed.open === false, JSON.stringify(bookClosed))
-  // ⑨f 关于 / 自检（v1.3.3）：菜单入口打开面板，textarea 里是脱敏后的诊断 JSON
+  // ⑨f 关于 / 自检（v1.3.3）：入口已收进版本更新面板，textarea 里是脱敏后的诊断 JSON
+  const aboutInMenu = await cdp.eval(
+    "(function(){var bs=document.querySelectorAll('.zcwv-menu-row button');" +
+      "for(var i=0;i<bs.length;i++)if(bs[i].textContent==='关于 / 自检…')return true;return false})()"
+  )
+  check('关于 / 自检：设置菜单不再单独占一行', aboutInMenu === false, JSON.stringify(aboutInMenu))
   await cdp.eval(
     "(function(){var bs=document.querySelectorAll('.zcwv-menu-row button');" +
+      "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='检查更新…'){bs[i].click();return true}}return false})()"
+  )
+  const aboutEntry = await pollEval(
+    cdp,
+    "(function(){var p=document.querySelector('.zcwv-update.zcwv-panel-open');if(!p)return false;" +
+      "var bs=p.querySelectorAll('button');for(var i=0;i<bs.length;i++)if(bs[i].textContent==='关于 / 自检…')return true;return false})()",
+    6000
+  )
+  check('关于 / 自检：入口已放进检查更新面板', aboutEntry === true, JSON.stringify(aboutEntry))
+  await cdp.eval(
+    "(function(){var p=document.querySelector('.zcwv-update');if(!p)return false;var bs=p.querySelectorAll('button');" +
       "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='关于 / 自检…'){bs[i].click();return true}}return false})()"
   )
   const ABOUT_PROBE =
@@ -1199,10 +1235,75 @@ try {
     !!menuStruct && menuStruct.seps === 2 && menuStruct.rolesAlpha === 1,
     JSON.stringify(menuStruct)
   )
+  // 位置与行为二级菜单（issue #11）：默认位置 / 避让滚动条 / 隐藏菜单按钮 /
+  // 每轮消耗提示四项从一级菜单收进二级页，一级只留一个入口。
+  const mergedMenu = JSON.parse(
+    await cdp.eval(
+      "(function(){var rows=document.querySelectorAll('.zcwv-menu-row');" +
+        "var has=function(t){for(var i=0;i<rows.length;i++){if(rows[i].textContent.indexOf(t)!==-1)return true}return false};" +
+        "var more=0;for(var i=0;i<rows.length;i++){var b=rows[i].querySelector('button');" +
+        "if(b&&b.textContent==='位置与行为…')more++}" +
+        "return JSON.stringify({more:more,gap:has('避让滚动条'),hide:has('隐藏菜单按钮'),cost:has('每轮消耗提示')})})()"
+    )
+  )
+  check(
+    '位置与行为：四项已从一级菜单收起，一级只留一个入口',
+    !!mergedMenu && mergedMenu.more === 1 && mergedMenu.gap === false && mergedMenu.hide === false && mergedMenu.cost === false,
+    JSON.stringify(mergedMenu)
+  )
+  const moreOpened = await openMorePanel(cdp)
+  const moreShape = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-more');if(!p)return null;" +
+        "var rows=p.querySelectorAll('.zcwv-book-row');var txt=p.textContent;" +
+        "var sel=document.querySelector('select.zcwv-corner-select');" +
+        "return JSON.stringify({open:p.classList.contains('zcwv-panel-open'),rows:rows.length," +
+        "labels:['默认位置','避让滚动条','隐藏菜单按钮','每轮消耗提示'].every(function(t){return txt.indexOf(t)!==-1})," +
+        "corners:sel?sel.options.length:0,corner:sel?sel.value:null," +
+        "checks:p.querySelectorAll('input[type=checkbox]').length," +
+        "numbers:p.querySelectorAll('input[type=number]').length})})()"
+    )
+  )
+  check(
+    '位置与行为二级页：四项齐备（默认位置四角 / 三个开关 / 两个数字框）',
+    moreOpened === true && !!moreShape && moreShape.open === true && moreShape.rows === 4 && moreShape.labels === true &&
+      moreShape.corners === 4 && moreShape.corner === 'br' && moreShape.checks === 3 && moreShape.numbers === 2,
+    JSON.stringify({ opened: moreOpened, shape: moreShape })
+  )
+  // 默认位置（issue #11）：切到左上后立即搬过去并落盘；再切回右下复位。
+  // root 的 left/top 有 160ms 过渡，位置断言要等动画结束再量。
+  const cornerChanged = JSON.parse(
+    await cdp.eval(
+      "(function(){var s=document.querySelector('select.zcwv-corner-select');if(!s)return null;" +
+        "s.value='tl';s.dispatchEvent(new Event('change'));" +
+        "return JSON.stringify({value:s.value})})()"
+    )
+  )
+  await new Promise((r) => setTimeout(r, 700))
+  const cornerPos = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.querySelector('.zcwv-root').getBoundingClientRect();" +
+        "return JSON.stringify({left:Math.round(r.left),top:Math.round(r.top)})})()"
+    )
+  )
+  const cornerSaved = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check(
+    '默认位置：切到左上后立即贴左上角并写入配置',
+    !!cornerChanged && cornerChanged.value === 'tl' && !!cornerPos && cornerPos.left <= 8 && cornerPos.top <= 8 &&
+      cornerSaved.defaultCorner === 'tl',
+    JSON.stringify({ dom: cornerChanged, pos: cornerPos, saved: cornerSaved.defaultCorner })
+  )
+  await cdp.eval(
+    "(function(){var s=document.querySelector('select.zcwv-corner-select');if(!s)return false;s.value='br';" +
+      "s.dispatchEvent(new Event('change'));return true})()"
+  )
+  await new Promise((r) => setTimeout(r, 700))
+  const cornerResetSaved = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
+  check('默认位置：切回右下并落盘（后续用例位置不受影响）', cornerResetSaved.defaultCorner === 'br', JSON.stringify({ saved: cornerResetSaved.defaultCorner }))
   // 隐藏菜单按钮（移植 DSH）：开启后按钮不再出现、右键角色唤出菜单且落地持久化
   const hideRow = JSON.parse(
     await cdp.eval(
-      "(function(){var rows=document.querySelectorAll('.zcwv-menu-row');" +
+      "(function(){var rows=document.querySelectorAll('.zcwv-more .zcwv-book-row');" +
         "for(var i=0;i<rows.length;i++){if(rows[i].textContent.indexOf('隐藏菜单按钮')!==-1){" +
         "var c=rows[i].querySelector('input[type=checkbox]');if(!c)return null;c.click();" +
         "return JSON.stringify({found:true,checked:c.checked,cls:c.className})}}return null})()"
@@ -1261,17 +1362,27 @@ try {
     !!menuClosed && menuClosed.open === false && !!openedByRight && openedByRight.open === true && openedByRight.anchored === true,
     JSON.stringify({ closed: menuClosed, right: openedByRight })
   )
-  // 复原：关掉菜单并把开关拨回（后续用例依赖按钮可点）
+  // 复原：右键唤出的菜单还开着，从一级入口重新打开二级页并把开关拨回
+  // （后续用例依赖按钮可点）
+  const moreReopened = await openMorePanel(cdp)
   await cdp.eval(
-    "(function(){document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));" +
-      "var rows=document.querySelectorAll('.zcwv-menu-row');for(var i=0;i<rows.length;i++){" +
-      "if(rows[i].textContent.indexOf('隐藏菜单按钮')!==-1){var c=rows[i].querySelector('input[type=checkbox]');" +
-      "if(c&&c.checked)c.click()}}return 'ok'})()"
+    "(function(){var rows=document.querySelectorAll('.zcwv-more .zcwv-book-row');" +
+      "for(var i=0;i<rows.length;i++){if(rows[i].textContent.indexOf('隐藏菜单按钮')!==-1){" +
+      "var c=rows[i].querySelector('input[type=checkbox]');if(c&&c.checked)c.click()}}return 'ok'})()"
   )
   // 同上：saveConfig 300ms 去抖后再读落盘值
   await new Promise((r) => setTimeout(r, 700))
   const hideRestored = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
-  check('隐藏菜单按钮：关闭后恢复原状（配置回 false）', hideRestored.menuBtnHide === false, JSON.stringify({ saved: hideRestored.menuBtnHide }))
+  check(
+    '隐藏菜单按钮：从二级页关闭后恢复原状（配置回 false）',
+    moreReopened === true && hideRestored.menuBtnHide === false,
+    JSON.stringify({ opened: moreReopened, saved: hideRestored.menuBtnHide })
+  )
+  await cdp.eval(
+    "(function(){var p=document.querySelector('.zcwv-more');if(!p)return false;var bs=p.querySelectorAll('button');" +
+      "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='返回'){bs[i].click();return true}}return false})()"
+  )
+  await new Promise((r) => setTimeout(r, 300))
   await cdp.eval(
     "(function(){var bs=document.querySelectorAll('button');for(var i=0;i<bs.length;i++){" +
       "if(bs[i].textContent==='按压泡泡设置'){bs[i].click();return true}}return false})()"
@@ -2671,9 +2782,10 @@ try {
   )
   const upCloseArmed = JSON.parse(
     await cdp.eval(
-      "(function(){var p=document.querySelector('.zcwv-update');var bs=p.querySelectorAll('button');" +
+      "(function(){var p=document.querySelector('.zcwv-update');var bs=p.querySelectorAll('button');var label='';" +
         "for(var i=0;i<bs.length;i++){if(bs[i].textContent==='\\u5173\\u95ed\\u63d2\\u4ef6'){bs[i].click();break}}" +
-        "return JSON.stringify({armed:window.__upClose===true,label:bs[bs.length-1].textContent})})()"
+        "for(var j=0;j<bs.length;j++)if(bs[j].textContent==='\\u786e\\u8ba4\\u5173\\u95ed\\uff1f')label=bs[j].textContent;" +
+        "return JSON.stringify({armed:window.__upClose===true,label:label})})()"
     )
   )
   check(
@@ -2949,6 +3061,29 @@ try {
   )
   check('等确认提醒：同一事件只提醒一次（按事件时间戳去重，不刷屏）', alertAgain === false, JSON.stringify(alertAgain))
   // 桩是页面内覆盖的（见上），不需要 removeScriptToEvaluateOnNewDocument
+
+  // 默认位置（issue #11）的启动路径：清掉上次拖动位置后重启，按 defaultCorner
+  // 落点；这里同时覆盖「浮层首帧早于配置」那条补正（localStorage 镜像仍是旧角落）。
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 1.5, defaultCorner: 'tl' }),
+  })
+  await cdp.eval("(function(){localStorage.removeItem('zcw-pos');return true})()")
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+  const startPos = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.querySelector('.zcwv-root').getBoundingClientRect();" +
+        "return JSON.stringify({left:Math.round(r.left),top:Math.round(r.top)," +
+        "corner:localStorage.getItem('zcw-default-corner')})})()"
+    )
+  )
+  check(
+    '默认位置：没有上次位置时按配置角落启动（左上），并同步本地镜像',
+    !!startPos && startPos.left <= 8 && startPos.top <= 8 && startPos.corner === 'tl',
+    JSON.stringify(startPos)
+  )
 
   // （原 ⑮「接管看门狗」用例已随该修复一并回滚：实测它没有解决宿主暂停，
   //   而「接管中 6 秒无活动就交还」本身还有副作用——指针停在角色上超过 6 秒后

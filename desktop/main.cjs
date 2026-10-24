@@ -145,8 +145,12 @@ function setPetMode(value) {
   // 那就是普通模式的正确行为）；还没有跟随消息时等下一拍即可。
   if (win && !win.isDestroyed()) {
     if (petMode) {
-      const b = win.getBounds()
-      applyFrame({ x: 0, y: 0, width: b.width, height: b.height, pet: 1 })
+      if (lastFollowerMsg && lastFollowerMsg.fs) {
+        hideOverlay('fullscreen-foreground')
+      } else {
+        const b = win.getBounds()
+        applyFrame({ x: 0, y: 0, width: b.width, height: b.height, pet: 1 })
+      }
     } else if (lastFollowerMsg) {
       applyHostBounds(lastFollowerMsg)
     }
@@ -671,6 +675,10 @@ function applyHostBounds(msg) {
   // 的位置/大小解耦：失焦、被盖住、最小化、启动加载中都不影响桌宠显示，唯一
   // 关心的是 ZCode 进程存活（msg.gone → 一起退出）。
   if (petMode) {
+    if (msg.fs) {
+      hideOverlay('fullscreen-foreground')
+      return
+    }
     applyFrame({ x: 0, y: 0, width: winBounds.width, height: winBounds.height, pet: 1 })
     return
   }
