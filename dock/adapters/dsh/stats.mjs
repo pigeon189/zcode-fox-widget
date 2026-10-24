@@ -147,6 +147,10 @@ export function readDshStats(opts = {}) {
   const toolCalls = []
   const toolResults = new Map()
   const sessions = new Set()
+  const heatUses = []
+  const heatTurnStarts = []
+  const heatToolCalls = []
+  const heatSince = since > 0 ? Math.max(0, now - 371 * 86400000) : since
   let costAmount = 0
   let costCurrency = 'CNY'
   for (const f of files) {
@@ -155,6 +159,13 @@ export function readDshStats(opts = {}) {
     const events = parseFile(f.file)
     for (const e of events) {
       if (e.time > now + 5 * 60_000) continue
+      const inHeat = heatSince !== since && inRange(e.time, heatSince, until)
+      if (inHeat) {
+        // 热力图单独留一份最近 53 周的日聚合，不受 7/30 天范围影响。
+        if (e.kind === 'use') heatUses.push(e)
+        else if (e.kind === 'turnStart') heatTurnStarts.push(e)
+        else if (e.kind === 'toolCall') heatToolCalls.push(e)
+      }
       if (!inRange(e.time, since, until)) continue
       if (e.sessionId) sessions.add(e.sessionId)
       if (e.kind === 'use') {
@@ -272,6 +283,23 @@ export function readDshStats(opts = {}) {
     avgDurationMs: t.timed ? t.totalMs / t.timed : null,
   }))
 
+  let heatmapDays
+  if (heatSince !== since) {
+    const heatMap = new Map()
+    const rowOf = (day) => {
+      let d = heatMap.get(day)
+      if (!d) {
+        d = { dayIndex: day, totalTokens: 0, turnCount: 0, toolCallCount: 0 }
+        heatMap.set(day, d)
+      }
+      return d
+    }
+    for (const u of heatUses) rowOf(dayIndexOf(u.time, offset)).totalTokens += u.total
+    for (const e of heatTurnStarts) rowOf(dayIndexOf(e.time, offset)).turnCount += 1
+    for (const c of heatToolCalls) rowOf(dayIndexOf(c.time, offset)).toolCallCount += 1
+    heatmapDays = [...heatMap.values()]
+  }
+
   return buildStats({
     range,
     now,
@@ -292,6 +320,7 @@ export function readDshStats(opts = {}) {
     models: [...modelMap.values()],
     toolList,
     days: [...dayMap.values()],
+    heatmapDays,
     dayModels: [...dayModelMap.entries()].flatMap(([dayIndex, byModel]) =>
       [...byModel.entries()].map(([modelId, totalTokens]) => ({ dayIndex, modelId, totalTokens }))
     ),

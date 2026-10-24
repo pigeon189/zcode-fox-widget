@@ -2,6 +2,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, nativeImage } = require('electron')
+const { overlayWorkAreaBounds } = require('./window-bounds.cjs')
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(name)
@@ -145,59 +146,22 @@ let overlayShown = true
 let manuallyHidden = false
 let petBusy = false
 let rendererInteractive = false
-let fullscreenBeneath = false
 let zOrderTimer = null
 
-// 浮层的鼠标策略：渲染层只在指针压到角色/菜单/气泡上时要求交互；
-// 另外两个更高优先级：吸附模式下宿主不在前台时整体隐身，桌宠模式下方有
-// 无边框全屏窗口时强制穿透（把点击还给全屏应用）。
+// 浮层的鼠标策略：渲染层只在指针压到角色/菜单/气泡上时要求交互。
+// 全屏视频/无边框全屏应用上方仍保留角色：指针不在角色上时点击穿透给应用，
+// 压在角色上时正常点击/拖动（不能因为「下方全屏」就永久忽略鼠标）。
 function applyMousePolicy() {
   if (!win || win.isDestroyed() || noClickThrough) return
   try {
-    win.setIgnoreMouseEvents(!rendererInteractive || !overlayShown || (!petBusy && fullscreenBeneath), { forward: true })
+    win.setIgnoreMouseEvents(!rendererInteractive || !overlayShown, { forward: true })
   } catch (err) {}
-}
-
-function isAuxOverlayWindow(w) {
-  const title = String((w && w.title) || '')
-  return /^fox-dock overlay/i.test(title) || (/小挂件/.test(title) && /electron\.exe$/i.test(String((w && w.exe) || '')))
-}
-
-function isDesktopWindow(w) {
-  const cls = String((w && w.cls) || '')
-  return cls === 'Progman' || cls === 'WorkerW' || cls === 'Shell_TrayWnd'
-}
-
-function dipRectOf(w) {
-  const r = w && w.rect
-  if (!r) return null
-  const physical = { x: r.x, y: r.y, width: r.w, height: r.h }
-  try {
-    if (screen.screenToDipRect) {
-      const dip = screen.screenToDipRect(null, physical)
-      if (dip && dip.width > 0 && dip.height > 0) return dip
-    }
-  } catch (err) {}
-  const d = screen.getDisplayNearestPoint({ x: r.x + r.w / 2, y: r.y + r.h / 2 })
-  const scale = (d && d.scaleFactor) || 1
-  return { x: r.x / scale, y: r.y / scale, width: r.w / scale, height: r.h / scale }
-}
-
-function isFullscreenWindow(w) {
-  if (!w || !w.rect || !w.title || isDesktopWindow(w)) return false
-  const r = dipRectOf(w)
-  if (!r) return false
-  const center = { x: r.x + r.width / 2, y: r.y + r.height / 2 }
-  const d = screen.getDisplayNearestPoint(center)
-  const b = d && d.bounds
-  if (!b) return false
-  const tol = 2
-  return r.x <= b.x + tol && r.y <= b.y + tol && r.x + r.width >= b.x + b.width - tol && r.y + r.height >= b.y + b.height - tol
 }
 
 function setOverlayShown(show) {
   const v = !!show
   if (v && manuallyHidden) return
+  if (process.env.FOX_DOCK_ZORDER_DEBUG) console.log('[zorder] setOverlayShown', v, 'current', overlayShown)
   if (v === overlayShown) return
   overlayShown = v
   try {
@@ -216,39 +180,13 @@ function setOverlayShown(show) {
 }
 
 async function syncZOrder() {
-  if (!win || win.isDestroyed() || !daemonPort) return
-  // 拖拽/按压期间不跟 z-order 走：角色被拖到桌面/别的窗口上时不能中途隐身。
-  if (petBusy) {
-    setOverlayShown(true)
-    fullscreenBeneath = false
-    applyMousePolicy()
-    return
-  }
-  let state = null
-  let hits = []
-  try {
-    state = await daemonApi('/v1/state')
-    const pet = (state && state.pet) || {}
-    const rect = pet.rect
-    if (rect && Number.isFinite(rect.x)) {
-      const x = Math.round(rect.x + rect.width / 2)
-      const y = Math.round(rect.y + rect.height / 2)
-      const hit = await daemonApi('/hit?x=' + x + '&y=' + y + '&exclude=' + process.pid)
-      hits = Array.isArray(hit && hit.hits) ? hit.hits : []
-    }
-  } catch (err) {
-    return
-  }
-  // 取「角色所在位置」的最上层窗口，而不是全屏 z-order 最上层：Explorer 会有
-  // 1×1 的隐藏辅助窗常驻 z=1，按整屏列表会把桌宠永远判成被盖住。
-  const top = hits.find((w) => w && !isAuxOverlayWindow(w)) || null
-  const pet = (state && state.pet) || {}
-  const attached = pet.mode === 'attached' && !!pet.hwnd
-  const hostOnTop = !!(top && attached && String(top.hwnd) === String(pet.hwnd))
-  // 吸附模式：宿主不在角色位置的最上层就整体隐身（与旧挂件「桌宠模式关闭」一致），
-  // 这样别的窗口可以自然盖住它；桌宠模式保持常显。
-  setOverlayShown(!attached || hostOnTop)
-  fullscreenBeneath = !attached && !!top && isFullscreenWindow(top)
+  if (!win || win.isDestroyed()) return
+  // 不再按 z-order 隐身。之前的实现用宿主窗口中心做命中，只要该点被
+  // 输入法辅助窗（TabTip/TextInputHost）、QQ、全屏播放器等盖住，就把
+  // 整个浮层设为 opacity 0；用户把角色吸附到 ZCode 后立刻“消失”。
+  // 角色层本身点外穿透，保留显示才是桌宠的预期；手动隐藏仍由
+  // manuallyHidden / toggleVisible 负责。
+  setOverlayShown(true)
   applyMousePolicy()
 }
 
@@ -313,7 +251,7 @@ function toggleVisible() {
   refreshTray()
 }
 
-function openConsole() {
+function openConsole(page) {
   const consoleDir = path.join(__dirname, '..', 'console')
   if (!fs.existsSync(path.join(consoleDir, 'main.cjs'))) {
     console.warn('[fox-dock] console not built yet')
@@ -328,6 +266,8 @@ function openConsole() {
     delete env.NODE_OPTIONS
     const args = [consoleDir, '--daemon-port=' + daemonPort]
     if (dataDir) args.push('--data-dir=' + dataDir)
+    const safePage = String(page || '')
+    if (/^(sessions|overview|usage|stats|quota|vendors|roles|settings|about)(\?[A-Za-z0-9%&=_.:-]*)?$/.test(safePage)) args.push('--page=' + safePage)
     const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore', env })
     child.unref()
     consoleProcess = child
@@ -371,7 +311,9 @@ function buildMenu() {
       click: (item) => toggleAutoStart(item.checked).then(refreshTray),
     },
     { type: 'separator' },
-    { label: '退出 fox-dock', click: quitDock },
+    // 「本次退出」：只停本次的守护进程与浮层，不动上面的「开机自启」开关——
+    // 下次开机（自启开时）或手动 npm start 照常拉起（语义见设置页「开机自启」说明）。
+    { label: '退出 fox-dock（本次退出）', click: quitDock },
   ])
 }
 
@@ -428,7 +370,10 @@ function setupHotkeys() {
 app.whenReady().then(() => {
   const primary = screen.getPrimaryDisplay()
   const chosen = displayMode === 'primary' ? primary : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-  const work = chosen.workArea
+  // 窗口与工作区精确重合（兜底角落要贴住工作区角）；仅当工作区==整屏
+  // （任务栏自动隐藏）时留 1 DIP 不可见缝，避免被当作全屏窗口压住任务栏
+  // 滑出热区（1.x v1.16.2 issue #8；见 window-bounds.cjs）。
+  const work = overlayWorkAreaBounds(chosen.workArea, chosen.bounds)
   console.log(
     '[fox-dock] overlay display=' + chosen.id + ' ' + work.width + 'x' + work.height + ' @' + chosen.scaleFactor + 'x' + (chosen.id === primary.id ? ' (primary)' : '')
   )
@@ -479,6 +424,11 @@ app.whenReady().then(() => {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   } catch (err) {}
   if (!noClickThrough) win.setIgnoreMouseEvents(true, { forward: true })
+  try {
+    // DPI 缩放下 Electron 会对无边框 toolbar 窗口做尺寸取整；留档实际矩形，
+    // 「是否仍与整屏重合（任务栏热区）」这类排查不用再猜（与 1.x v1.16.2 同款）。
+    console.log('[fox-dock] window-bounds-actual ' + JSON.stringify(win.getBounds()))
+  } catch (err) {}
   win.webContents.on('will-navigate', (event, url) => {
     if (!String(url).startsWith('file://')) event.preventDefault()
   })
@@ -510,8 +460,9 @@ app.whenReady().then(() => {
     } catch (err) {}
   }, 3000).unref?.()
 
-  // daemon 没了就退出：否则桌面上会留一只「点不动的狐狸」，而用户根本不知道
-  // 后台已经挂了。8 次 × 1.5s ≈ 12s，足够跨过 watchdog 的重启窗口。
+  // daemon 连续不可达才退出：否则桌面上会留一只「点不动的狐狸」，而用户根本
+  // 不知道后台已经挂了。60 次 × 1.5s ≈ 90s，要能跨过 daemon 卡死后 watchdog
+  // 自动重启的窗口；短时探活失败（GC、磁盘抖动、首次统计）不再让桌宠突然消失。
   if (daemonPort) {
     let fails = 0
     const timer = setInterval(async () => {
@@ -523,7 +474,7 @@ app.whenReady().then(() => {
         }
       } catch (err) {}
       fails++
-      if (fails >= 8) {
+      if (fails >= 60) {
         clearInterval(timer)
         console.log('[fox-dock] daemon unreachable, overlay quits')
         app.quit()
@@ -554,6 +505,23 @@ app.whenReady().then(() => {
       return { ok: false, error: String((err && err.message) || err) }
     }
   })
+  // 读路由同样只走主进程：渲染层不持有令牌、不直连网络（拖拽期间渲染进程
+  // 网络会被挂起，主进程转发也一并解决了这一点）。
+  ipcMain.handle('daemon-read', async (_e, payload) => {
+    const lock = lockInfo()
+    if (!lock || !lock.port) return null
+    try {
+      const res = await fetch('http://127.0.0.1:' + lock.port + String(payload.path || ''), {
+        method: 'GET',
+        headers: { 'x-fox-token': lock.token || '' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(3000),
+      })
+      return await res.json()
+    } catch (err) {
+      return null
+    }
+  })
   ipcMain.handle('alpha-mask', (_e, roleId) => alphaMask(roleId))
   ipcMain.handle('role-image', (_e, roleId) => roleImageData(roleId))
 
@@ -574,7 +542,7 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.on('open-console', () => openConsole())
+  ipcMain.on('open-console', (_event, page) => openConsole(page))
   ipcMain.on('hide-overlay', () => {
     manuallyHidden = true
     try {

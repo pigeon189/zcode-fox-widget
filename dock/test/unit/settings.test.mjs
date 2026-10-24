@@ -148,6 +148,15 @@ test('settings: 桌宠模式 / 更新清单 / 自动检查', () => {
   assert.equal(normalizeSettings({ updateManifestUrl: 'https://x/' + 'a'.repeat(400) }).updateManifestUrl.length, 300)
 })
 
+test('settings: 失焦兜底角落（迁移 1.x defaultCorner）', () => {
+  assert.equal(normalizeSettings({}).fallbackCorner, 'br', '默认右下角')
+  for (const c of ['bl', 'tr', 'tl']) {
+    assert.equal(normalizeSettings({ fallbackCorner: c }).fallbackCorner, c, '合法值应原样保留：' + c)
+  }
+  assert.equal(normalizeSettings({ fallbackCorner: 'middle' }).fallbackCorner, 'br', '非法值回落右下角')
+  assert.equal(normalizeSettings({ fallbackCorner: 42 }).fallbackCorner, 'br', '非字符串回落右下角')
+})
+
 test('settings: 2.0 字段写回后仍然合并保留', () => {
   const dir = tempDir()
   try {

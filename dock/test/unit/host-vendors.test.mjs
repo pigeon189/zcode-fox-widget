@@ -87,7 +87,28 @@ test('host-vendors：识别 zcode 服务并收敛字段，去掉 keySource', asy
     assert.equal(cc.fiveHour.exceeded, false)
     assert.deepEqual(cc.pool, { available: 1, total: 2, cooldownFree: 2, kind: '' })
     const glm = r.vendors.find((v) => v.id === 'glm')
-    assert.equal(glm.percentRemaining, 0.0675)
+    assert.equal(glm.percentRemaining, 6.8, '1.x 源的 0–1 比例换算成 dock UI 消费的 0–100 百分数')
+  } finally {
+    server.close()
+  }
+})
+
+test('host-vendors：plan 百分比缺失/null 不编 0，满额度显示 100', async () => {
+  const server = await startMock({
+    vendors: [
+      // 1.x 引擎 total 不可得时发 null；满额度时发比例 1.0
+      { id: 'glm-null', name: 'GLM Plan', kind: 'local-log', available: true, percentRemaining: null, remaining: 0, total: 0 },
+      { id: 'glm-full', name: 'GLM Plan', kind: 'local-log', available: true, percentRemaining: 1, remaining: 500000000, total: 500000000 },
+    ],
+  })
+  const port = server.address().port
+  try {
+    _resetHostVendorCache()
+    const r = await readHostVendors('zcode', { ports: [port], force: true })
+    const n = r.vendors.find((v) => v.id === 'glm-null')
+    assert.equal(n.percentRemaining, undefined, 'null 不允许走 num() 变 0（把读不到伪装成用光）')
+    const f = r.vendors.find((v) => v.id === 'glm-full')
+    assert.equal(f.percentRemaining, 100)
   } finally {
     server.close()
   }

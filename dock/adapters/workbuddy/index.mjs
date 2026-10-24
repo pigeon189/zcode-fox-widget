@@ -6,6 +6,14 @@
 import { readCreditUsage } from './transcripts.mjs'
 import { listWorkbuddySessions, readWorkbuddyContext } from './context.mjs'
 import { readWorkbuddyStats } from './stats.mjs'
+import {
+  getLiveStatus as readWorkbuddyLive,
+  getSessionDetail as readWorkbuddySessionDetail,
+  getSessions as readWorkbuddySessions,
+  readToolUsageRows as readWorkbuddyToolRows,
+  readUsageRows as readWorkbuddyUsageRows,
+} from './sessions.mjs'
+import { prov, unavailable } from '../../shared/provenance.mjs'
 
 const REASON_TEXT = {
   'projects-missing': '找不到 WorkBuddy 的会话目录（~/.workbuddy/projects）',
@@ -25,7 +33,13 @@ export const workbuddyAdapter = {
   roleDefault: 'xiaoke',
   accent: '#7db6ff',
   match: { exeBasenames: ['workbuddy.exe'] },
-  capabilities: { billing: true, follow: true, context: true, stats: true },
+  capabilities: {
+    billing: true,
+    follow: true,
+    context: true,
+    stats: true,
+    sessions: { list: true, detail: true, live: true, actions: [] },
+  },
 
   getStats(opts = {}) {
     return readWorkbuddyStats(opts)
@@ -37,6 +51,26 @@ export const workbuddyAdapter = {
 
   listSessions(opts = {}) {
     return listWorkbuddySessions(opts)
+  },
+
+  getSessions(opts = {}) {
+    return readWorkbuddySessions(opts)
+  },
+
+  getSessionDetail(sessionId, opts = {}) {
+    return readWorkbuddySessionDetail(sessionId, opts)
+  },
+
+  getLiveStatus(opts = {}) {
+    return readWorkbuddyLive(opts)
+  },
+
+  readUsageRows(opts = {}) {
+    return readWorkbuddyUsageRows(opts)
+  },
+
+  readToolUsageRows(opts = {}) {
+    return readWorkbuddyToolRows(opts)
   },
 
   createBilling(ctx = {}) {
@@ -79,6 +113,16 @@ export const workbuddyAdapter = {
           usage: {
             todayTokens: r.today.tokens,
             turnTokens: r.lastTurn ? r.lastTurn.tokens : 0,
+          },
+          provenance: {
+            // 积分是宿主自己算好的，不折算成钱（折算会让人误以为是账单）。
+            today: prov('exact', 'local-log', 'workbuddy:transcripts#rawUsage.credit'),
+            turn: r.lastTurn
+              ? prov('exact', 'local-log', 'workbuddy:transcripts#rawUsage.credit')
+              : unavailable('no-data', 'workbuddy:transcripts', 'local-log'),
+            balance: unavailable('host-unsupported', 'workbuddy:db', 'unknown'),
+            quota: unavailable('host-unsupported', 'workbuddy:db', 'unknown'),
+            usage: prov('exact', 'local-log', 'workbuddy:transcripts#rawUsage'),
           },
           source: 'workbuddy:transcripts',
         }

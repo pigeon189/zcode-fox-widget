@@ -207,3 +207,47 @@ export function mainMetric(snapshot, displayMode = 'auto', agentId = '') {
   if (snapshot.balance) return { value: fmtMoney(snapshot.balance.amount, snapshot.balance.currency), label: '余额', sub: '', tone: 'neutral' }
   return { value: '—', label: '暂无数据', sub: '', tone: 'neutral' }
 }
+
+// ---------- 会话状态（D034） ----------
+export const SESSION_STATUS_LABELS = {
+  working: '工作中',
+  waiting_input: '等待输入',
+  waiting_permission: '等待确认',
+  error: '出错',
+  done: '已完成',
+  idle: '空闲',
+  unknown: '状态未知',
+}
+
+export function sessionStatusLabel(status) {
+  return SESSION_STATUS_LABELS[status] || SESSION_STATUS_LABELS.unknown
+}
+
+export function fmtDuration(ms) {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  const sec = Math.round(n / 1000)
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  // 超过一天的时长用「N 天 H:MM」：纯 H:MM 在 >99 小时会显示成 120:42，
+  // 容易被读成分:秒。
+  if (h >= 24) {
+    const days = Math.floor(h / 24)
+    const hh = h % 24
+    return days + ' 天 ' + hh + ':' + String(m).padStart(2, '0')
+  }
+  if (h > 0) return h + ':' + String(m).padStart(2, '0')
+  return m + ':' + String(s).padStart(2, '0')
+}
+
+export function fmtRelativeShort(ms, now = Date.now()) {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n <= 0) return '—'
+  const diff = now - n
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3600_000) return Math.round(diff / 60_000) + ' 分钟前'
+  if (diff < 86400_000) return Math.round(diff / 3600_000) + ' 小时前'
+  if (diff < 2 * 86400_000) return '昨天'
+  return Math.round(diff / 86400_000) + ' 天前'
+}

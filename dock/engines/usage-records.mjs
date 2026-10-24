@@ -30,6 +30,7 @@
 import { getSharedDb } from './turn-cost.mjs'
 import { costOfUsage } from './pricing.mjs'
 import { resolveBillingSource } from './source.mjs'
+import { findProviderBaseUrl } from './discover.mjs'
 
 let statements = null
 let statementsConn = null
@@ -101,12 +102,16 @@ function priceRow(r) {
   // 已用」把它和 CommandCode 的 credit 折算（¥4.26，其中 8 千万 cache 读占大头）
   // 加在一起显示 ¥5.73 —— 用户看到的是「我一共才花了 1 块多」。credit 池的钱在
   // 买 credit 时就付了，不该并进任何厂商的按量账单。
-  const billSrc = resolveBillingSource(r.provider_id, r.model_id)
-  const prepaid = billSrc.source === 'plan' || billSrc.source === 'cmdgo'
+  // baseUrl 传进判据链（1.x v1.16.1 火山分流同款）：ark 的官方路径能区分订阅
+  //（/api/coding、/api/plan → volc，金额记 0）与按量（/api/v3 → volc-api，真金白银），
+  // 只看 provider/model 会把订阅接入错算成原厂按量账单。
+  const billSrc = resolveBillingSource(r.provider_id, r.model_id, findProviderBaseUrl(r.provider_id))
+  const prepaid = billSrc.source === 'plan' || billSrc.source === 'cmdgo' || billSrc.source === 'volc'
   // 金额归零之后，CommandCode 的厂商标签也归到它自己（第三方转售，不是 DeepSeek
-  // 的订阅）：否则面板里两个来源的 tokens 并成一格、看不出钱花在哪。订阅套餐行
-  // 仍按模型厂商归组（GLM Plan 就是 GLM 自己的配额）。
-  const reseller = billSrc.source === 'cmdgo'
+  // 的订阅）：否则面板里两个来源的 tokens 并成一格、看不出钱花在哪。火山同理：
+  // 托管模型（deepseek-v3 等）经 ark 出网，标签归「火山方舟 / 火山 Plan」，不并进
+  // 原厂的按量合计。订阅套餐行（GLM Plan）仍按模型厂商归组。
+  const reseller = billSrc.source === 'cmdgo' || billSrc.source === 'volc' || billSrc.source === 'volc-api'
   return {
     ts: Number(r.started_at) || 0,
     model: r.model_id || '',

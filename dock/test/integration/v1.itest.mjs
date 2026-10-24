@@ -199,6 +199,22 @@ test('v1: 厂商页走内置 engines，响应里没有完整密钥', async () =>
   const text = JSON.stringify(r)
   assert.equal(/sk-[A-Za-z0-9_-]{16,}/.test(text), false, '厂商响应不得包含完整 key')
   assert.ok(r.vendors.every((v) => !('key' in v) && !('apiKey' in v)))
+  // 厂商状态必须带真实 provenance（第 1 轮审查意见 6）：origin 按 kind 映射，
+  // 不得由前端按 available 布尔编造；unavailable 必带 reason，asOf 是 daemon
+  // 组装时刻（数字毫秒），不是渲染时刻。
+  const KINDS = ['exact', 'estimated', 'unavailable']
+  const ORIGINS = ['api', 'local-db', 'local-log', 'pricing-table', 'user', 'unknown']
+  assert.ok(
+    r.vendors.every((v) => v.prov && KINDS.includes(v.prov.kind) && ORIGINS.includes(v.prov.origin) && Number.isFinite(v.prov.asOf) && v.prov.asOf > 0),
+    '每个厂商状态都要带合法 prov'
+  )
+  assert.ok(r.vendors.every((v) => v.prov.kind !== 'unavailable' || typeof v.prov.reason === 'string'))
+  const localLog = r.vendors.find((v) => v.kind === 'local-log')
+  if (localLog && localLog.available) {
+    assert.ok(['local-log', 'api'].includes(localLog.prov.origin), 'local-log 厂商的 origin 只能是 local-log/api（按取源链实际来源）')
+  }
+  const remote = r.vendors.find((v) => v.kind === 'balance' && v.available)
+  if (remote) assert.equal(remote.prov.origin, 'api')
 })
 
 test('v1: 导入候选不含完整 key；凭据写入/删除走保险库', { skip: process.platform !== 'win32' }, async () => {

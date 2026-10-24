@@ -79,6 +79,9 @@ export function transition(state, event, opts = {}) {
         agentId: '',
         lastAgentId: s.agentId || s.lastAgentId,
         profileOf: s.profileOf || s.agentId,
+        // attached 的 rect 是宿主窗口矩形，不是角色位置；直接带进 floating
+        // 会让角色跳到宿主原来的屏幕坐标。清空后由浮层落到右下角兜底。
+        rect: null,
       })
     }
 

@@ -61,6 +61,12 @@ const STATES = [
   { id: 'bubble-long', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.showBubble('我已经一分钟没有听到Gemini 4的故事了', 'ZCode', { ms: 0 }) } },
   { id: 'say', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.say() } },
   { id: 'hide-money', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setSettings({ hideMoney: true }); window.__pet.openQuick() } },
+  { id: 'chip-working', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setLive({ aggregate: 'working', counts: { working: 1, waiting: 0, error: 0, done: 0 }, byAgent: { zcode: { working: 1, waiting: 0, error: 0, done: 0, total: 1 } } }) } },
+  { id: 'chip-waiting', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setLive({ aggregate: 'waiting_permission', counts: { working: 0, waiting: 1, error: 0, done: 0 }, byAgent: { zcode: { working: 0, waiting: 1, error: 0, done: 0, total: 1 } } }) } },
+  { id: 'chip-error', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setLive({ aggregate: 'error', counts: { working: 0, waiting: 0, error: 1, done: 0 }, byAgent: { zcode: { working: 0, waiting: 0, error: 1, done: 0, total: 1 } } }) } },
+  { id: 'chip-done', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setLive({ aggregate: 'done', counts: { working: 0, waiting: 0, error: 0, done: 1 }, byAgent: { zcode: { working: 0, waiting: 0, error: 0, done: 1, total: 1 } } }) } },
+  { id: 'chip-multi', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setLive({ aggregate: 'working', counts: { working: 7, waiting: 3, error: 0, done: 0 }, byAgent: { zcode: { working: 7, waiting: 3, error: 0, done: 0, total: 10 } } }) } },
+  { id: 'quick-sessions', run: () => { window.__pet.debugAttach('zcode', '0x1', { x: 520, y: 180, w: 960, h: 620 }, { h: 'right', v: 'bottom' }); window.__pet.setLive({ aggregate: 'working', counts: { working: 1, waiting: 1, error: 0, done: 1 } }); window.__pet.openQuick() } },
 ]
 
 async function main() {

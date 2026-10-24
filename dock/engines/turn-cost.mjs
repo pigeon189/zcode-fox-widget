@@ -17,6 +17,7 @@ import { createRequire } from 'node:module'
 import { DB_FILE, ROLLOUT_DIR } from './paths.mjs'
 import { costOfUsage } from './pricing.mjs'
 import { resolveBillingSource } from './source.mjs'
+import { findProviderBaseUrl } from './discover.mjs'
 
 const require = createRequire(import.meta.url)
 const TAIL_BYTES = 256 * 1024
@@ -200,10 +201,14 @@ function readFromDatabase() {
     }
     const c = costOfUsage(r.model_id, usage, tsMs, r.provider_id)
     if (!c.tokens) continue // 纯失败且没有处理任何 token 的行不进统计
-    // CommandCode 反代（预付 credit 池）按配额扣、不是该厂商的按量账单：金额记 0、
-    // 不计可计价——与 usage-records 的「今日已用」同一口径（那里的注释有完整来历）。
-    // 这一轮于是落到前端的 billable=false 分支按 tokens 展示，不显示虚构金额。
-    const prepaid = resolveBillingSource(r.provider_id, r.model_id).source === 'cmdgo'
+    // CommandCode 反代（预付 credit 池）与火山订阅接入（ark 官方 /api/coding、
+    // /api/plan 路径）按配额扣、不是该厂商的按量账单：金额记 0、不计可计价——与
+    // usage-records 的「今日已用」同一口径（那里的注释有完整来历）。火山按量
+    //（/api/v3）不在其列，真金白银照算。baseUrl 传进判据链用于区分两者
+    //（1.x v1.16.1 分流同款）。
+    const prepaid = ['cmdgo', 'volc'].includes(
+      resolveBillingSource(r.provider_id, r.model_id, findProviderBaseUrl(r.provider_id)).source
+    )
     const rowAmount = prepaid ? 0 : c.amount
     const cur = c.currency || 'CNY'
     amounts[cur] = (amounts[cur] || 0) + rowAmount

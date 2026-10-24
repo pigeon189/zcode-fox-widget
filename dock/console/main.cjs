@@ -11,6 +11,7 @@ function arg(name, fallback = '') {
 
 const dataDir = arg('--data-dir', process.env.FOX_DOCK_DATA || '')
 const daemonPort = arg('--daemon-port', process.env.FOX_DOCK_PORT || '')
+const initialPage = arg('--page', '')
 const UI_DIR = path.join(__dirname, '..', 'ui')
 const APP_ICON = path.join(__dirname, '..', 'assets', 'app-icon.png')
 
@@ -89,21 +90,33 @@ async function apiRequest(pathname, options = {}) {
   if (!port) return { status: 503, ok: false, data: { ok: false, error: 'daemon-not-running' } }
   const headers = { 'Content-Type': 'application/json' }
   if (lock && lock.token) headers['x-fox-token'] = lock.token
-  try {
-    const res = await fetch('http://127.0.0.1:' + port + pathname, {
-      method: options.method || 'GET',
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: AbortSignal.timeout(options.timeoutMs || 15000),
-    })
-    let data = null
+  const method = options.method || 'GET'
+  const transient = (err) =>
+    /fetch failed|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|socket hang up/i.test(
+      String((err && err.message) || err) + ' ' + String((err && err.cause && err.cause.code) || '')
+    )
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      data = await res.json()
-    } catch (err) {}
-    return { status: res.status, ok: res.ok, data }
-  } catch (err) {
-    return { status: 0, ok: false, data: { ok: false, error: String((err && err.message) || err) } }
+      const res = await fetch('http://127.0.0.1:' + port + pathname, {
+        method,
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: AbortSignal.timeout(options.timeoutMs || 15000),
+      })
+      let data = null
+      try {
+        data = await res.json()
+      } catch (err) {}
+      return { status: res.status, ok: res.ok, data }
+    } catch (err) {
+      // daemon 被 watchdog 重启的窗口通常 <2s：连接类错误重试，超时不重试。
+      if (method !== 'GET' || !transient(err) || attempt === 2) {
+        return { status: 0, ok: false, data: { ok: false, error: String((err && err.message) || err) } }
+      }
+      await new Promise((r) => setTimeout(r, 250 * Math.pow(3, attempt)))
+    }
   }
+  return { status: 0, ok: false, data: { ok: false, error: 'fetch failed' } }
 }
 
 async function streamLoop() {
@@ -143,6 +156,9 @@ async function streamLoop() {
         }
       }
     }
+    // 服务端正常关闭（daemon 重启/升级）也必须重连；原逻辑只在异常时重连，
+    // 正常 EOF 后 SSE 永久断开，界面就会一直停在「连接中断，重试中」。
+    scheduleStream(1000)
   } catch (err) {
     if (String(err && err.name) === 'AbortError') return
     streamFails += 1
@@ -207,7 +223,7 @@ function createWindow() {
     } catch (err) {}
   })
   win.loadFile(path.join(UI_DIR, 'console.html'), {
-    query: { port: String(daemonPort || ''), dataDirPresent: dataDir ? '1' : '0' },
+    query: { port: String(daemonPort || ''), dataDirPresent: dataDir ? '1' : '0', ...(initialPage ? { page: initialPage } : {}) },
   })
   win.once('ready-to-show', () => {
     if (saved && saved.maximized) win.maximize()
@@ -289,13 +305,20 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     if (win) {
       try {
         if (win.webContents.isCrashed()) win.reload()
       } catch (err) {}
       if (!win.isVisible()) win.show()
       if (win.isMinimized()) win.restore()
+      const pageArg = (argv || []).find((a) => String(a).startsWith('--page='))
+      const page = pageArg ? String(pageArg).slice('--page='.length) : ''
+      if (/^(sessions|overview|usage|stats|quota|vendors|roles|settings|about)(\?[A-Za-z0-9%&=_.:-]*)?$/.test(page)) {
+        try {
+          win.webContents.executeJavaScript('location.hash=' + JSON.stringify('#' + page))
+        } catch (err) {}
+      }
       win.focus()
     }
   })

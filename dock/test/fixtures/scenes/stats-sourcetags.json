@@ -1,0 +1,674 @@
+{
+  "state": {
+    "pet": {
+      "mode": "attached",
+      "agentId": "zcode",
+      "lastAgentId": "zcode",
+      "profileOf": "zcode",
+      "hwnd": "0x1",
+      "rect": null,
+      "display": null
+    },
+    "agents": [
+      {
+        "id": "zcode",
+        "name": "ZCode",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x1",
+            "pid": 100,
+            "title": "TianShu v0.2"
+          }
+        ],
+        "accent": "#f0a04b",
+        "roleDefault": "fox",
+        "context": true
+      },
+      {
+        "id": "workbuddy",
+        "name": "WorkBuddy",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x2",
+            "pid": 200,
+            "title": "WorkBuddy"
+          }
+        ],
+        "accent": "#22b8a0",
+        "roleDefault": "xiaoke",
+        "context": true
+      },
+      {
+        "id": "kimi",
+        "name": "Kimi Code",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x3",
+            "pid": 300,
+            "title": "Kimi Code"
+          }
+        ],
+        "accent": "#b07cff",
+        "roleDefault": "kimi",
+        "context": true
+      },
+      {
+        "id": "dsh",
+        "name": "DeepSeek Harness",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x4",
+            "pid": 400,
+            "title": "DeepSeek Harness"
+          }
+        ],
+        "accent": "#4d6bfe",
+        "roleDefault": "whale",
+        "context": true
+      }
+    ],
+    "live": {
+      "aggregate": "idle",
+      "counts": {
+        "working": 0,
+        "waiting": 0,
+        "waiting_permission": 0,
+        "waiting_input": 0,
+        "error": 0,
+        "done": 0,
+        "idle": 0,
+        "unknown": 0
+      },
+      "byAgent": {}
+    }
+  },
+  "agents": [
+    {
+      "id": "zcode",
+      "name": "ZCode",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x1",
+          "pid": 100,
+          "title": "TianShu v0.2"
+        }
+      ],
+      "accent": "#f0a04b",
+      "roleDefault": "fox",
+      "context": true
+    },
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x2",
+          "pid": 200,
+          "title": "WorkBuddy"
+        }
+      ],
+      "accent": "#22b8a0",
+      "roleDefault": "xiaoke",
+      "context": true
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x3",
+          "pid": 300,
+          "title": "Kimi Code"
+        }
+      ],
+      "accent": "#b07cff",
+      "roleDefault": "kimi",
+      "context": true
+    },
+    {
+      "id": "dsh",
+      "name": "DeepSeek Harness",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x4",
+          "pid": 400,
+          "title": "DeepSeek Harness"
+        }
+      ],
+      "accent": "#4d6bfe",
+      "roleDefault": "whale",
+      "context": true
+    }
+  ],
+  "snapshots": {
+    "zcode": {
+      "ok": true,
+      "supported": true,
+      "unit": "money",
+      "capturedAt": 1792555200000,
+      "today": {
+        "amount": 12.34,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 12.34
+        }
+      },
+      "turn": {
+        "amount": 0.28,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 0.28
+        },
+        "at": 1792555140000
+      },
+      "balance": {
+        "amount": 63.2,
+        "currency": "CNY"
+      },
+      "quota": {
+        "usedPct": 28,
+        "remainingPct": 72
+      },
+      "quotaCard": {
+        "kind": "windows",
+        "title": "GLM Plan",
+        "plan": "GLM Plan",
+        "source": "zplan",
+        "windows": [
+          {
+            "key": "5h",
+            "label": "5 小时",
+            "usedPct": 28,
+            "remainingPct": 72,
+            "resetAt": 1792566000000,
+            "prov": {
+              "kind": "exact",
+              "origin": "api",
+              "source": "vendor:zplan",
+              "asOf": 1792555200000
+            }
+          },
+          {
+            "key": "week",
+            "label": "本周",
+            "usedPct": 42,
+            "remainingPct": 58,
+            "resetAt": 1792728000000,
+            "prov": {
+              "kind": "exact",
+              "origin": "api",
+              "source": "vendor:zplan",
+              "asOf": 1792555200000
+            }
+          }
+        ]
+      },
+      "details": [
+        {
+          "label": "今日 tokens",
+          "value": "2.40M"
+        },
+        {
+          "label": "当前厂商",
+          "value": "GLM Plan"
+        }
+      ],
+      "period": null,
+      "source": "zcode:db.sqlite",
+      "usage": {
+        "todayTokens": 2400000,
+        "turnTokens": 180000
+      },
+      "provenance": {
+        "today": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 GLM 谷",
+          "asOf": 1792555200000
+        },
+        "turn": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 GLM 谷",
+          "asOf": 1792555200000
+        },
+        "balance": {
+          "kind": "exact",
+          "origin": "api",
+          "source": "vendor:zplan",
+          "asOf": 1792555200000
+        },
+        "quota": {
+          "kind": "exact",
+          "origin": "api",
+          "source": "vendor:zplan",
+          "asOf": 1792555200000
+        },
+        "usage": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite#model_usage",
+          "asOf": 1792555200000
+        }
+      }
+    }
+  },
+  "contexts": {
+    "zcode": {
+      "supported": true,
+      "confidence": "exact",
+      "sessionId": "ses_parent",
+      "title": "重构 billing 适配器",
+      "model": "deepseek-v4.1-flash",
+      "used": 475318,
+      "limit": 1000000,
+      "limitSource": "host",
+      "pct": 47.5,
+      "breakdown": {
+        "input": 20000,
+        "cacheRead": 400000,
+        "output": 30000
+      },
+      "points": [
+        {
+          "t": 1792551600000,
+          "used": 300000
+        },
+        {
+          "t": 1792552800000,
+          "used": 380000
+        },
+        {
+          "t": 1792554000000,
+          "used": 430000
+        },
+        {
+          "t": 1792554600000,
+          "used": 475318
+        }
+      ],
+      "updatedAt": 1792555200000,
+      "provenance": {
+        "used": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite#model_usage",
+          "asOf": 1792555200000
+        },
+        "limit": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite",
+          "asOf": 1792555200000
+        }
+      }
+    }
+  },
+  "liveSessions": [],
+  "live": {
+    "aggregate": "idle",
+    "counts": {
+      "working": 0,
+      "waiting": 0,
+      "waiting_permission": 0,
+      "waiting_input": 0,
+      "error": 0,
+      "done": 0,
+      "idle": 0,
+      "unknown": 0
+    },
+    "byAgent": {}
+  },
+  "details": {},
+  "settings": {
+    "schema": 3,
+    "roleId": "fox",
+    "theme": "light",
+    "scale": 1,
+    "showChip": true,
+    "menuButton": "hover",
+    "displayMode": "auto",
+    "contextWarnPct": 80,
+    "quotaWarnPct": 0,
+    "budgetMoney": 0,
+    "weeklyBudget": 0,
+    "monthlyBudget": 0,
+    "costAnomalyX": 0,
+    "autoStart": true,
+    "confirmAlert": true,
+    "live": {
+      "enabled": true
+    },
+    "permission": {
+      "takeover": false,
+      "waitMs": 15000,
+      "notify": "whenHidden",
+      "hotkeys": {
+        "allow": "Ctrl+Alt+Y",
+        "deny": "Ctrl+Alt+N"
+      }
+    },
+    "ingest": {
+      "enabled": true
+    },
+    "retentionDays": 30,
+    "profiles": {},
+    "hotkeys": {
+      "toggle": "Ctrl+Alt+F",
+      "console": "Ctrl+Alt+D",
+      "hideMoney": "Ctrl+Alt+H"
+    },
+    "pet": {
+      "mode": "attached",
+      "agentId": "zcode",
+      "lastAgentId": "zcode",
+      "profileOf": "zcode",
+      "hwnd": "0x1",
+      "rect": null,
+      "display": null
+    }
+  },
+  "roles": [],
+  "profiles": {
+    "zcode": {
+      "roleId": "fox"
+    }
+  },
+  "vendors": [],
+  "usage": {
+    "today": {
+      "date": "2026-10-21",
+      "groups": []
+    },
+    "days": []
+  },
+  "breakdown": null,
+  "stats": {
+    "zcode": {
+      "supported": true,
+      "range": "7d",
+      "generatedAt": 1792555200000,
+      "timeZone": "Asia/Shanghai",
+      "source": "zcode:db.sqlite",
+      "unit": "tokens",
+      "currency": "CNY",
+      "cost": {
+        "amount": 15.55,
+        "currency": "CNY"
+      },
+      "credits": null,
+      "provenance": {
+        "tokens": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite#model_usage",
+          "asOf": 1792555200000
+        },
+        "cost": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10",
+          "asOf": 1792555200000
+        },
+        "credits": {
+          "kind": "unavailable",
+          "origin": "unknown",
+          "source": "fixture",
+          "asOf": 1792555200000
+        },
+        "models": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite",
+          "asOf": 1792555200000
+        },
+        "tools": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite#tool_usage",
+          "asOf": 1792555200000
+        },
+        "turns": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite#turn_usage",
+          "asOf": 1792555200000
+        }
+      },
+      "summary": {
+        "totalTokens": 3020000,
+        "inputTokens": 2500000,
+        "outputTokens": 520000,
+        "reasoningTokens": 12000,
+        "cacheCreationTokens": 0,
+        "cacheReadTokens": 2100000,
+        "cacheHitRate": 0.84,
+        "totalSessions": 6,
+        "totalTurns": 32,
+        "toolCallCount": 120,
+        "toolErrorRate": 0.02,
+        "modelErrorRate": 0.01,
+        "avgTimeToFirstTokenMs": 820,
+        "avgTurnDurationMs": 42000,
+        "activeDays": 6,
+        "currentStreakDays": 4,
+        "longestSessionMs": 3600000,
+        "longestStreakDays": 5,
+        "peakDayTokens": 620000,
+        "peakDayDate": "2026-10-21",
+        "favoriteModel": {
+          "modelId": "deepseek-v4.1-flash",
+          "totalTokens": 1800000,
+          "share": 0.6
+        },
+        "totalCredits": null
+      },
+      "heatmap": {
+        "startDate": "2026-10-15",
+        "endDate": "2026-10-21",
+        "maxTokens": 620000,
+        "weeks": [
+          {
+            "weekIndex": 0,
+            "days": [
+              {
+                "date": "2026-10-15",
+                "level": 0,
+                "totalTokens": 120000,
+                "turnCount": 1,
+                "toolCallCount": 0
+              },
+              {
+                "date": "2026-10-16",
+                "level": 1,
+                "totalTokens": 210000,
+                "turnCount": 2,
+                "toolCallCount": 2
+              },
+              {
+                "date": "2026-10-17",
+                "level": 2,
+                "totalTokens": 0,
+                "turnCount": 3,
+                "toolCallCount": 4
+              },
+              {
+                "date": "2026-10-18",
+                "level": 3,
+                "totalTokens": 340000,
+                "turnCount": 4,
+                "toolCallCount": 6
+              },
+              {
+                "date": "2026-10-19",
+                "level": 4,
+                "totalTokens": 180000,
+                "turnCount": 5,
+                "toolCallCount": 8
+              },
+              {
+                "date": "2026-10-20",
+                "level": 0,
+                "totalTokens": 260000,
+                "turnCount": 6,
+                "toolCallCount": 10
+              },
+              {
+                "date": "2026-10-21",
+                "level": 1,
+                "totalTokens": 420000,
+                "turnCount": 7,
+                "toolCallCount": 12
+              }
+            ]
+          }
+        ]
+      },
+      "dailyModelUsage": [
+        {
+          "date": "2026-10-15",
+          "models": [
+            {
+              "modelId": "deepseek-v4.1-flash",
+              "totalTokens": 120000
+            }
+          ]
+        },
+        {
+          "date": "2026-10-16",
+          "models": [
+            {
+              "modelId": "deepseek-v4.1-flash",
+              "totalTokens": 210000
+            }
+          ]
+        },
+        {
+          "date": "2026-10-17",
+          "models": [
+            {
+              "modelId": "deepseek-v4.1-flash",
+              "totalTokens": 0
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "models": [
+            {
+              "modelId": "deepseek-v4.1-flash",
+              "totalTokens": 340000
+            }
+          ]
+        },
+        {
+          "date": "2026-10-19",
+          "models": [
+            {
+              "modelId": "deepseek-v4.1-flash",
+              "totalTokens": 180000
+            }
+          ]
+        },
+        {
+          "date": "2026-10-20",
+          "models": [
+            {
+              "modelId": "deepseek-v4.1-flash",
+              "totalTokens": 260000
+            }
+          ]
+        },
+        {
+          "date": "2026-10-21",
+          "models": [
+            {
+              "modelId": "deepseek-v4.1-flash",
+              "totalTokens": 420000
+            }
+          ]
+        }
+      ],
+      "models": [
+        {
+          "modelId": "deepseek-v4.1-flash",
+          "totalTokens": 1800000,
+          "inputTokens": 1500000,
+          "outputTokens": 300000,
+          "requestCount": 50,
+          "share": 0.6
+        },
+        {
+          "modelId": "glm-5.3",
+          "totalTokens": 1220000,
+          "inputTokens": 1000000,
+          "outputTokens": 220000,
+          "requestCount": 30,
+          "share": 0.4
+        }
+      ],
+      "tools": [
+        {
+          "toolName": "Bash",
+          "callCount": 80,
+          "errorCount": 2,
+          "errorRate": 0.025,
+          "avgDurationMs": 1200
+        },
+        {
+          "toolName": "Read",
+          "callCount": 40,
+          "errorCount": 0,
+          "errorRate": 0,
+          "avgDurationMs": 80
+        }
+      ]
+    }
+  },
+  "adapters": [
+    {
+      "id": "zcode",
+      "name": "ZCode",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "dsh",
+      "name": "DeepSeek Harness",
+      "billing": true,
+      "context": true,
+      "follow": true
+    }
+  ],
+  "bindings": [],
+  "update": {
+    "history": []
+  },
+  "ingest": {
+    "enabled": true,
+    "integrationDir": "E:\\fox-dock\\integrations\\zcode-plugin"
+  }
+}

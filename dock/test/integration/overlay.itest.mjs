@@ -51,6 +51,14 @@ async function json(url, options) {
   return res.json()
 }
 
+function putSettings(body) {
+  return fetch('http://127.0.0.1:' + port + '/v1/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
+    body: JSON.stringify(body),
+  })
+}
+
 async function waitFor(fn, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs
   let last = null
@@ -64,6 +72,28 @@ async function waitFor(fn, timeoutMs, label) {
     await sleep(150)
   }
   throw new Error('timeout: ' + label + (last ? ' (' + last.message + ')' : ''))
+}
+
+async function findBlankPoint(geom) {
+  const data = await json('http://127.0.0.1:' + port + '/windows').catch(() => ({ windows: [] }))
+  const wins = (data.windows || []).filter((w) => {
+    const title = String(w.title || '').toLowerCase()
+    if (title.includes('fox-dock')) return false
+    if (['Progman', 'WorkerW', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd'].includes(String(w.cls || ''))) return false
+    return true
+  })
+  const inside = (x, y) =>
+    wins.some((w) => {
+      const r = w.rect || {}
+      return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
+    })
+  const dpr = geom.dpr || 1
+  for (let y = 40; y < geom.h - 40; y += 80) {
+    for (let x = 40; x < geom.w - 40; x += 80) {
+      if (!inside(x * dpr, y * dpr)) return { x, y }
+    }
+  }
+  return { x: 20, y: 20 }
 }
 
 class Cdp {
@@ -310,8 +340,11 @@ test('pet: 四象限贴边 / 窗口内自由位置 / 左侧镜像', async () => 
     )
   )
   const dpr = await cdp.eval('devicePixelRatio')
-  const box = { x: 200 / dpr, y: 100 / dpr, w: 800 / dpr, h: 600 / dpr }
-  assert.ok(Math.abs(out.left - box.x) < 2 && Math.abs(out.top - box.y) < 2, JSON.stringify(out) + ' dpr=' + dpr)
+  // 浮层窗口四周留了 4 DIP 任务栏安全边距（window-bounds.cjs），物理坐标要
+  // 先减窗口原点才是页面 CSS 坐标。
+  const origin = JSON.parse(await cdp.eval('JSON.stringify(window.__pet.origin || {x:0,y:0})'))
+  const box = { x: 200 / dpr - origin.x, y: 100 / dpr - origin.y, w: 800 / dpr, h: 600 / dpr }
+  assert.ok(Math.abs(out.left - box.x) < 2 && Math.abs(out.top - box.y) < 2, JSON.stringify(out) + ' dpr=' + dpr + ' origin=' + JSON.stringify(origin))
   assert.equal(out.mirror, true)
   assert.ok(out.right > out.left && out.bottom > out.top, JSON.stringify(out))
   // 默认不避让滚动条：右/下与窗口边缘齐平（不再固定留 17px）。
@@ -323,9 +356,7 @@ test('pet: 四象限贴边 / 窗口内自由位置 / 左侧镜像', async () => 
 
 test('pet: 拖到桌面空白进入悬浮，保留角色', async () => {
   const geom = JSON.parse(await cdp.eval('JSON.stringify({w:innerWidth,h:innerHeight,dpr:devicePixelRatio})'))
-  const left = fakeWin.rect.x / geom.dpr
-  const bottom = (fakeWin.rect.y + fakeWin.rect.h) / geom.dpr
-  const blank = left > 80 ? { x: 20, y: 20 } : bottom < geom.h - 60 ? { x: 20, y: geom.h - 30 } : { x: geom.w - 20, y: 20 }
+  const blank = await findBlankPoint(geom)
   let st = null
   for (let attempt = 0; attempt < 2 && !st; attempt++) {
     await dragTo(blank.x, blank.y)
@@ -336,7 +367,6 @@ test('pet: 拖到桌面空白进入悬浮，保留角色', async () => {
   }
   assert.ok(st, 'floating state')
   assert.equal(st.pet.profileOf, 'generic')
-  await waitFor(async () => (await cdp.eval("!document.getElementById('chip-unlink').hidden")), 4000, 'unlink')
   const pos = JSON.parse(await cdp.eval("(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y})})()"))
   assert.ok(Math.abs(pos.x - blank.x) < 140 && Math.abs(pos.y - blank.y) < 140, '落点不能被 follow 拉回：' + JSON.stringify({ pos, blank }))
 })
@@ -354,10 +384,12 @@ test('pet: 控制台改设置后浮层 2 秒内生效（隐藏金额）', async 
   await cdp.eval(
     "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:{amount:0.28,currency:'CNY'}});" +
       "window.__pet.setContext({supported:true,pct:47.5,used:475318,limit:1000000});" +
+      "window.__pet.closeQuick();" +
       "window.__pet.debugFloat('zcode',400,300);" +
       "window.__pet.setSettings({hideMoney:true})"
   )
-  assert.equal(await cdp.eval("document.getElementById('chip-value').textContent"), '•••')
+  // 隐藏金额 = 连胶囊一起隐藏，不能只把金额变成 •••。
+  assert.equal(await cdp.eval("document.getElementById('chip').hidden"), true, 'hideMoney 应隐藏整个胶囊')
   // 隐藏金额时连消耗气泡一起不弹，而不是只把金额变成 •••
   await cdp.eval("window.__pet.showBubble('本轮 ¥0.28','ZCode',{ms:0})")
   assert.equal(await cdp.eval("document.getElementById('bubble').hidden"), true, 'hideMoney 应隐藏整个气泡')
@@ -423,6 +455,86 @@ test('pet: 大浮窗打开时气泡避开浮窗', async () => {
   await cdp.eval('window.__pet.hideBubble();window.__pet.closeQuick()')
 })
 
+test('pet: 台词/内容变化时快览卡 top 不动，气泡不压卡片', async () => {
+  await cdp.eval(
+    "window.__pet.setSettings({hideMoney:false,turnBubble:false});" +
+      "window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'});" +
+      "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:null," +
+      "quotaCard:{kind:'balance',title:'DeepSeek',balance:{amount:3.16,currency:'CNY'}}});" +
+      "window.__pet.openQuick()"
+  )
+  await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 3000, 'quick for stability')
+  await sleep(400) // 等 loadQuickSessions 的异步内容先落定
+  const box = async () =>
+    JSON.parse(
+      await cdp.eval(
+        "(function(){var el=document.getElementById('quick');var q=el.getBoundingClientRect();" +
+          "return JSON.stringify({x:q.x,y:q.y,w:q.width,h:q.height,top:el.style.top,left:el.style.left})})()"
+      )
+    )
+  const first = await box()
+  const icon = JSON.parse(
+    await cdp.eval(
+      "(function(){var q=document.getElementById('quick').getBoundingClientRect();var b=document.getElementById('quick-refresh').getBoundingClientRect();" +
+        "var s=document.querySelector('#quick-refresh svg').getBoundingClientRect();" +
+        "return JSON.stringify({right:q.right-b.right,top:b.top-q.top,w:b.width,h:b.height,text:document.getElementById('quick-refresh').textContent.trim()," +
+        "offX:(b.left+b.width/2)-(s.left+s.width/2),offY:(b.top+b.height/2)-(s.top+s.height/2),sw:s.width,sh:s.height})})()"
+    )
+  )
+  assert.ok(Math.abs(icon.right - 12) <= 2, '刷新键应贴右上角：' + JSON.stringify(icon))
+  assert.ok(Math.abs(icon.top - 12) <= 2, '刷新键应贴顶：' + JSON.stringify(icon))
+  assert.ok(icon.w >= 28 && icon.h >= 28, '刷新键尺寸应与控制台一致：' + JSON.stringify(icon))
+  assert.ok(Math.abs(icon.offX) <= 1 && Math.abs(icon.offY) <= 1, 'SVG 图标应在按钮内居中：' + JSON.stringify(icon))
+  assert.ok(Math.abs(icon.sw - 16) <= 1 && Math.abs(icon.sh - 16) <= 1, '图标尺寸应与控制台统一为 16px：' + JSON.stringify(icon))
+  assert.equal(icon.text, '', '刷新键应使用 SVG 图标，不显示字符')
+  // 1) 快览卡内容变多：只能向下长，top/left 不能因底部夹取被推上去。
+  await cdp.eval(
+    "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:null," +
+      "quotaCard:{kind:'windows',title:'DeepSeek',windows:[" +
+      "{label:'5 小时',usedPct:68.2,remainingPct:31.8},{label:'本周',usedPct:67.3,remainingPct:32.7},{label:'月度池',usedPct:33.7,remainingPct:66.3}]}});" +
+      "window.__pet.setContext({supported:true,pct:47.5,used:475318,limit:1000000})"
+  )
+  await sleep(300)
+  const grown = await box()
+  assert.equal(grown.top, first.top, '内容变多不能改 top：' + JSON.stringify({ first, grown }))
+  assert.equal(grown.left, first.left, '内容变多不能改 left：' + JSON.stringify({ first, grown }))
+  // 2) 连续不同长度的台词：top/left 与卡片高度都不动。
+  for (const text of ['短', '我已经一分钟没有听到Gemini 4的故事了', '压力一只黑色嘎啦嘛？！']) {
+    await cdp.eval('window.__pet.showSay(' + JSON.stringify(text) + ')')
+    await sleep(140)
+    const now = await box()
+    assert.equal(now.top, first.top, 'showSay 后 top 漂移：' + text + ' ' + JSON.stringify({ first, now }))
+    assert.equal(now.left, first.left, 'showSay 后 left 漂移：' + text)
+    assert.equal(now.h, grown.h, '台词不能改变快览卡高度：' + text)
+  }
+  // 3) 气泡/台词不能盖住快览卡。
+  await cdp.eval("window.__pet.showBubble('我已经一分钟没有听到Gemini 4的故事了','ZCode',{ms:0})")
+  await waitFor(async () => (await cdp.eval("!document.getElementById('bubble').hidden")), 2000, 'bubble for stability')
+  const overlap = JSON.parse(
+    await cdp.eval(
+      "(function(){var names=['bubble','say'];var out={};" +
+        "for(var i=0;i<names.length;i++){var a=document.getElementById(names[i]).getBoundingClientRect();" +
+        "var b=document.getElementById('quick').getBoundingClientRect();" +
+        "var w=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left));" +
+        "var h=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));out[names[i]]=w*h;}" +
+        "return JSON.stringify(out)})()"
+    )
+  )
+  assert.equal(overlap.bubble, 0, '气泡压住快览卡：' + JSON.stringify(overlap))
+  assert.equal(overlap.say, 0, '台词压住快览卡：' + JSON.stringify(overlap))
+  const inside = JSON.parse(
+    await cdp.eval(
+      "(function(){var out={};var names=['bubble','say'];" +
+        "for(var i=0;i<names.length;i++){var r=document.getElementById(names[i]).getBoundingClientRect();" +
+        "out[names[i]]={ok:r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,l:r.left,t:r.top,r:r.right,b:r.bottom};}" +
+        "out.viewport={w:innerWidth,h:innerHeight};return JSON.stringify(out)})()"
+    )
+  )
+  assert.equal(inside.bubble.ok, true, '气泡不能被裁到屏幕外：' + JSON.stringify(inside))
+  assert.equal(inside.say.ok, true, '台词不能被裁到屏幕外：' + JSON.stringify(inside))
+  await cdp.eval('window.__pet.hideBubble();window.__pet.closeQuick();window.__pet.setSettings({turnBubble:true})')
+})
+
 test('pet: 按下角色压扁，松手回弹', async () => {
   await cdp.eval("window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'})")
   const c = JSON.parse(
@@ -486,6 +598,11 @@ test('pet: 菜单换角色，吸附只有一个总开关', async () => {
   assert.doesNotMatch(text, /设置…|解除吸附|桌宠模式/)
   await cdp.eval("document.querySelectorAll('.menu-role')[2].click()")
   await waitFor(async () => /roles\/gpt\.png/.test(await cdp.eval("document.getElementById('fox-img').src")), 4000, 'role gpt')
+  // 换角色不能先显示目标又弹回旧角色（settings 轮询晚到时曾出现 1s 闪烁）。
+  for (let i = 0; i < 6; i++) {
+    await sleep(250)
+    assert.match(await cdp.eval("document.getElementById('fox-img').src"), /roles\/gpt\.png/, 'role must stay on target')
+  }
   // 让宠物处于「悬浮沿用 generic」状态，再从控制台改 generic 的档案角色；
   // 外面这只角色必须跟着换，而不是等下次重新吸附。
   await fetch('http://127.0.0.1:' + port + '/v1/pet/float', {
@@ -500,6 +617,84 @@ test('pet: 菜单换角色，吸附只有一个总开关', async () => {
     body: JSON.stringify({ roleId: 'kimi' }),
   })
   await waitFor(async () => /roles\/kimi\.png/.test(await cdp.eval("document.getElementById('fox-img').src")), 6000, 'role follows profile')
+})
+
+test('pet: 右键菜单收窄到约 196px，文本不截断、贴边不越界', async () => {
+  await cdp.eval("window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'})")
+  await cdp.eval('window.__pet.openMenu(innerWidth-4, 200)')
+  await waitFor(async () => (await cdp.eval("!document.getElementById('menu').hidden")), 2000, 'menu narrow')
+  await sleep(250) // 等角色图片撑开按钮
+  const m = JSON.parse(
+    await cdp.eval(
+      "(function(){var el=document.getElementById('menu');var r=el.getBoundingClientRect();" +
+        "var items=[].slice.call(el.querySelectorAll('.menu-item'));" +
+        "var roles=[].slice.call(el.querySelectorAll('.menu-role'));" +
+        "var sizes=[].slice.call(el.querySelectorAll('.menu-size'));" +
+        "return JSON.stringify({w:r.width,left:r.left,right:r.right,vw:innerWidth,scroll:el.scrollWidth,client:el.clientWidth," +
+        "clipped:items.filter(function(x){return x.scrollWidth>x.clientWidth+1}).map(function(x){return x.textContent})," +
+        "roleTops:roles.map(function(x){return Math.round(x.getBoundingClientRect().top)})," +
+        "sizeTops:sizes.map(function(x){return Math.round(x.getBoundingClientRect().top)})})})()"
+    )
+  )
+  assert.ok(m.w <= 197 && m.w >= 190, '菜单宽度应收窄到约 196px：' + JSON.stringify(m))
+  assert.ok(m.right <= m.vw - 7 && m.left >= 7, '菜单不能越出屏幕：' + JSON.stringify(m))
+  assert.equal(m.scroll <= m.client + 1, true, '菜单不应出现横向滚动：' + JSON.stringify(m))
+  assert.deepEqual(m.clipped, [], '菜单项文本不能被截断：' + JSON.stringify(m.clipped))
+  // 6 个内置角色按 4+2 换行：前 4 个在同一行；4 个大小档也在同一行。
+  assert.equal(new Set(m.roleTops.slice(0, 4)).size, 1, '角色第一行应放 4 个：' + JSON.stringify(m.roleTops))
+  assert.equal(new Set(m.sizeTops).size, 1, '大小 4 档应在同一行：' + JSON.stringify(m.sizeTops))
+  // 贴左边打开也不能为负。
+  await cdp.eval('window.__pet.openMenu(4, 200)')
+  await sleep(150)
+  const left = await cdp.eval("document.getElementById('menu').getBoundingClientRect().left")
+  assert.ok(left >= 7, '贴左边不能为负：' + left)
+})
+
+test('pet: 按模型换角色连续两拍才切，手动选角关闭自动', async () => {
+  await putSettings({ autoRoleByModel: true })
+  await waitFor(async () => (await cdp.eval('window.__pet.settings.autoRoleByModel')), 5000, 'auto role on')
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){window.__pet.debugAttach('generic','0xauto',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'});" +
+        "var img=function(){return document.getElementById('fox-img').src};" +
+        "var base=img();" +
+        "var a=window.__pet.autoRoleTick('deepseek-chat','deepseek',2001);var s1=img();" +
+        "var b=window.__pet.autoRoleTick('deepseek-chat','deepseek',2001);" + // 同一拍重复调用
+        "var c=window.__pet.autoRoleTick('deepseek-chat','deepseek',2002);var s2=img();" +
+        "var d=window.__pet.autoRoleTick('mystery-model','mystery',2003);var s3=img();" +
+        "return JSON.stringify({base:base,s1:s1,s2:s2,s3:s3,a:a,b:b,c:c,d:d})})()"
+    )
+  )
+  assert.equal(out.a.streak, 1, '第一拍只累计')
+  assert.equal(out.a.roleId, null, '第一拍不能切')
+  assert.equal(out.s1, out.base, '第一拍角色不变')
+  assert.equal(out.b.streak, 1, '同一 capturedAt 不能推进 streak')
+  assert.equal(out.c.streak, 2)
+  assert.equal(out.c.roleId, 'whale')
+  assert.match(out.s2, /roles\/whale\.png/, '第二拍切到大肥鱼：' + out.s2)
+  assert.equal(out.d.roleId, null, '认不出模型要清空')
+  assert.equal(out.s3, out.base, '认不出模型回落到原角色：' + out.s3)
+  // 手动选角：写 profile，并把 autoRoleByModel 关掉。
+  await cdp.eval('window.__pet.openMenu(200,200)')
+  await waitFor(async () => (await cdp.eval("!document.getElementById('menu').hidden")), 2000, 'menu for pick')
+  await cdp.eval("document.querySelectorAll('.menu-role')[2].click()") // gpt
+  await waitFor(async () => /roles\/gpt\.png/.test(await cdp.eval("document.getElementById('fox-img').src")), 4000, 'manual gpt')
+  const saved = await waitFor(
+    async () => {
+      const s = await json('http://127.0.0.1:' + port + '/v1/settings')
+      return s && s.ok && s.settings.autoRoleByModel === false ? s.settings : null
+    },
+    5000,
+    'manual pick disables autoRoleByModel'
+  )
+  assert.equal(saved.autoRoleByModel, false)
+  // 自动关闭后，模型族再怎么变也不能覆盖手动角色。
+  await cdp.eval(
+    "window.__pet.autoRoleTick('deepseek-chat','deepseek',2101);" +
+      "window.__pet.autoRoleTick('deepseek-chat','deepseek',2102)"
+  )
+  await sleep(400)
+  assert.match(await cdp.eval("document.getElementById('fox-img').src"), /roles\/gpt\.png/, '手动角色不能被自动切覆盖')
 })
 
 test('pet: petMode 立即脱离吸附，followMs 即时生效', async () => {
@@ -547,4 +742,205 @@ test('pet: 解除吸附并重置', async () => {
   }, 5000, 'idle')
   assert.equal(st.pet.profileOf, '')
   await waitFor(async () => (await cdp.eval("document.getElementById('chip').hidden")), 4000, 'chip hidden')
+})
+
+test('pet: 今日预算同日同阈值只提醒一次，勿扰/隐藏金额/阈值为 0 不弹', async () => {
+  // 先把预算写到 daemon：浮层每 2 秒同步一次设置，本地 setSettings 不能被轮询改回去。
+  await putSettings({ budgetMoney: 10, budgetCredit: 0, dnd: false, hideMoney: false })
+  await waitFor(async () => (await cdp.eval('window.__pet.settings.budgetMoney')) === 10, 5000, 'budget applied')
+  const first = JSON.parse(
+    await cdp.eval(
+      "(function(){window.__pet.setSettings({hideMoney:false,dnd:false,budgetMoney:10,budgetCredit:0,turnBubble:false});" +
+        "window.__pet.clearBudget();window.__pet.hideBubble();" +
+        "window.__pet.debugAttach('generic','0xbudget',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'});" +
+        "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.5,currency:'CNY'},turn:null," +
+        "quotaCard:{kind:'balance',title:'DeepSeek',balance:{amount:3.16,currency:'CNY'}}});" +
+        "var a=window.__pet.checkBudget();" +
+        "var out={a:a,text:document.getElementById('bubble-text').textContent,shown:!document.getElementById('bubble').hidden};" +
+        "window.__pet.hideBubble();" +
+        "out.second=window.__pet.checkBudget();" +
+        "return JSON.stringify(out)})()"
+    )
+  )
+  assert.equal(first.a.kind, 'money')
+  assert.equal(first.a.threshold, 10)
+  assert.match(first.text, /今日已用.*预算/)
+  assert.equal(first.shown, true, '达到预算应弹气泡')
+  assert.equal(first.second, null, '同日同阈值只提醒一次')
+  // hideBubble 的 hidden 标志在 160ms 过渡后落下；等它落定再确认没有第二次弹出。
+  await sleep(250)
+  assert.equal(await cdp.eval("document.getElementById('bubble').hidden"), true, '第二次不能再弹')
+  // localStorage.setItem 失败时退回内存去重（重载会再提醒一次，属已记录降级）。
+  const fallback = JSON.parse(
+    await cdp.eval(
+      "(function(){var proto=Object.getPrototypeOf(window.localStorage);var orig=proto.setItem;" +
+        "proto.setItem=function(){throw new Error('quota')};" +
+        "try{window.__pet.setSettings({budgetMoney:10});window.__pet.clearBudget();window.__pet.hideBubble();" +
+        "var a=window.__pet.checkBudget();window.__pet.hideBubble();" +
+        "var b=window.__pet.checkBudget();return JSON.stringify({a:a,b:b});}" +
+        "finally{proto.setItem=orig}})()"
+    )
+  )
+  assert.equal(fallback.a && fallback.a.kind, 'money', 'setItem 失败仍要提醒一次')
+  assert.equal(fallback.b, null, '内存去重同样只提醒一次')
+  // 勿扰 / 隐藏金额：直接不提醒；阈值为 0 = 关闭。整段同步执行，避免设置轮询插入。
+  const suppress = JSON.parse(
+    await cdp.eval(
+      "(function(){var out={};" +
+        "window.__pet.setSettings({dnd:true});window.__pet.clearBudget();out.dnd=window.__pet.checkBudget()===null;" +
+        "window.__pet.setSettings({dnd:false,hideMoney:true});window.__pet.clearBudget();out.hideMoney=window.__pet.checkBudget()===null;" +
+        "window.__pet.setSettings({hideMoney:false,budgetMoney:0});window.__pet.clearBudget();out.zero=window.__pet.checkBudget()===null;" +
+        "window.__pet.setSettings({budgetMoney:10});" +
+        "return JSON.stringify(out)})()"
+    )
+  )
+  assert.deepEqual(suppress, { dnd: true, hideMoney: true, zero: true })
+  // 积分宿主走 budgetCredit。
+  await putSettings({ budgetMoney: 0, budgetCredit: 50 })
+  await waitFor(async () => (await cdp.eval('window.__pet.settings.budgetCredit')) === 50, 5000, 'credit budget applied')
+  const credit = JSON.parse(
+    await cdp.eval(
+      "(function(){window.__pet.setSettings({budgetMoney:0,budgetCredit:50});window.__pet.clearBudget();" +
+        "window.__pet.setSnapshot({ok:true,supported:true,unit:'credit',today:{amount:80,currency:'CREDIT'},turn:null});" +
+        "var a=window.__pet.checkBudget();" +
+        "return JSON.stringify({a:a,text:document.getElementById('bubble-text').textContent})})()"
+    )
+  )
+  assert.equal(credit.a.kind, 'credit')
+  assert.equal(credit.a.threshold, 50)
+  assert.match(credit.text, /积分/)
+  // 收尾：清掉预算与提醒记录，避免影响其他用例/复跑。
+  await cdp.eval(
+    'window.__pet.hideBubble();window.__pet.clearBudget();' +
+      'window.__pet.setSettings({budgetMoney:0,budgetCredit:0,dnd:false,hideMoney:false,turnBubble:true})'
+  )
+  await putSettings({ budgetMoney: 0, budgetCredit: 0, dnd: false, hideMoney: false })
+})
+
+test('pet: 宿主最小化/消失后兜底到屏幕右下角', async () => {
+  await cdp.eval("window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'})")
+  const r = await cdp.eval('window.__pet.debugHostLost()')
+  assert.equal(r.hadHost, true, '应先处于吸附状态')
+  // 直接贴住窗口右下角（窗口正常时与工作区严格重合，无任何观感间距）。
+  const margin = 0
+  assert.ok(Math.abs(r.pos.x - (r.viewport.w - r.size - margin)) <= 2, '水平应贴右下角：' + JSON.stringify(r))
+  assert.ok(Math.abs(r.pos.y - (r.viewport.h - r.size - margin)) <= 2, '垂直应贴右下角：' + JSON.stringify(r))
+  // 兜底在右下角时角色面向屏幕内侧（朝左，不 mirror）。
+  const mirror = await cdp.eval("document.getElementById('fox').classList.contains('mirror')")
+  assert.equal(mirror, false, '右下角兜底应面向屏幕内侧（不 mirror）')
+})
+
+test('pet: 失焦兜底位置可配置且朝向面向屏幕内侧', async () => {
+  // debugHostLost 是异步的（内部写回 floating.rect），单独 await；其余同步拍。
+  const prep = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "window.__pet.setSettings({fallbackCorner:'bl'});" +
+        "var a=window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'}).pos;" +
+        "return JSON.stringify({a:a,vw:innerWidth,vh:innerHeight})})()"
+    )
+  )
+  const r = await cdp.eval('window.__pet.debugHostLost()')
+  const mirror = await cdp.eval("document.getElementById('fox').classList.contains('mirror')")
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "window.__pet.setSettings({fallbackCorner:'br'});" +
+        "var r2=window.__pet.debugRectResult({ok:true,rect:{x:520,y:180,w:960,h:620},background:true},1500);" +
+        "var mirror2=document.getElementById('fox').classList.contains('mirror');" +
+        "var r3=window.__pet.debugRectResult({ok:true,rect:{x:520,y:180,w:960,h:620},background:false});" +
+        "var mirror3=document.getElementById('fox').classList.contains('mirror');" +
+        "return JSON.stringify({r2:r2,mirror2:mirror2,r3:r3,mirror3:mirror3})})()"
+    )
+  )
+  // 左下角兜底：水平贴左缘、垂直贴下缘，面向右侧屏幕内侧（mirror 开）。
+  assert.ok(Math.abs(r.pos.x - 0) <= 2, 'bl 应水平贴左缘：' + JSON.stringify({ r, prep }))
+  assert.ok(Math.abs(r.pos.y - (r.viewport.h - r.size - 0)) <= 2, 'bl 应垂直贴下缘：' + JSON.stringify({ r, prep }))
+  assert.equal(mirror, true, '左下角兜底应面向屏幕内侧（mirror）')
+  // 切回右下角再触发失前台：贴右下角、面向左侧屏幕内侧（mirror 关）。
+  assert.ok(Math.abs(out.r2.pos.x - (r.viewport.w - out.r2.size - 0)) <= 2, 'br 应水平贴右下角：' + JSON.stringify(out))
+  assert.equal(out.mirror2, false, '右下角兜底应面向屏幕内侧（不 mirror）')
+  // 回前台恢复吸附：位置回吸附位、朝向覆盖被清除。
+  assert.ok(Math.abs(out.r3.pos.x - prep.a.x) <= 1, '回前台应恢复吸附：' + JSON.stringify(out))
+  assert.equal(out.mirror3, false, '恢复右缘吸附后不应 mirror')
+})
+
+test('pet: 宿主失前台约 0.5 秒后落兜底，回前台恢复吸附', async () => {
+  // 一段同步 eval 完成「吸附 → 失前台第一拍 → 持续 0.6 秒 → 回前台」四步，
+  // 用 place() 的目标坐标（__pet 返回值）断言，避开 fox 的 140ms 位移过渡。
+  const out = JSON.parse(
+    await cdp.eval(
+      "(function(){" +
+        "var a=window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'}).pos;" +
+        "var r1=window.__pet.debugRectResult({ok:true,rect:{x:520,y:180,w:960,h:620},background:true});" +
+        "var r2=window.__pet.debugRectResult({ok:true,rect:{x:520,y:180,w:960,h:620},background:true},600);" +
+        "var r3=window.__pet.debugRectResult({ok:true,rect:{x:520,y:180,w:960,h:620},background:false});" +
+        "return JSON.stringify({a:a,r1:r1,r2:r2,r3:r3,ms:window.__pet.hostBackgroundMs,vw:innerWidth,vh:innerHeight})})()"
+    )
+  )
+  assert.equal(out.ms, 500, '防抖阈值应为 0.5 秒')
+  // 防抖内（第一拍）：不落位，仍贴吸附位。
+  assert.ok(
+    Math.abs(out.r1.pos.x - out.a.x) <= 1 && Math.abs(out.r1.pos.y - out.a.y) <= 1,
+    '0.5 秒内不应落兜底：' + JSON.stringify(out)
+  )
+  // 吸附位必须与兜底位可区分（否则后续断言没有意义）。
+  assert.ok(out.a.x < out.vw - out.r2.size - 100 && out.a.y < out.vh - out.r2.size - 100, '吸附位不应已贴右下角：' + JSON.stringify(out))
+  // 持续失前台超过阈值：直接贴住右下角（无间距）。
+  assert.ok(Math.abs(out.r2.pos.x - (out.vw - out.r2.size - 0)) <= 2, '失前台超阈值应水平贴右下角：' + JSON.stringify(out))
+  assert.ok(Math.abs(out.r2.pos.y - (out.vh - out.r2.size - 0)) <= 2, '失前台超阈值应垂直贴右下角：' + JSON.stringify(out))
+  // 回前台：自动恢复吸附位（不解除绑定，D041 只挪位置不隐身）。
+  assert.ok(
+    Math.abs(out.r3.pos.x - out.a.x) <= 1 && Math.abs(out.r3.pos.y - out.a.y) <= 1,
+    '回前台应恢复吸附：' + JSON.stringify(out)
+  )
+  assert.equal(out.r3.since, 0, '回前台应清掉防抖计时')
+})
+
+test('pet: 换角色零延迟淡入，reduced-motion 下关闭', async () => {
+  // 后台 syncRole 每 ~1.5s 会把角色拉回档案值；断言期间先把 zcode 档案钉到
+  // 目标角色，避免「切到 gpt 又被拉回 fox」的竞态（与菜单换角色测试同手法）。
+  const putProfile = (id, roleId) =>
+    fetch('http://127.0.0.1:' + port + '/v1/profiles/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-fox-token': token },
+      body: JSON.stringify({ roleId }),
+    })
+  await cdp.eval("window.__pet.debugApplyRole('fox')")
+  // 常规：opacity 过渡存在（180ms，处于 D039 允许的一次性功能动画区间）。
+  const dur = await cdp.eval("getComputedStyle(document.getElementById('fox-img')).transitionDuration")
+  assert.match(dur, /^0\.18s/, '切角色淡入应为 180ms opacity 过渡：' + dur)
+  await cdp.eval("window.__pet.debugApplyRole('kimi')")
+  let dipped = false
+  for (let i = 0; i < 25 && !dipped; i++) {
+    await sleep(30)
+    dipped = parseFloat(await cdp.eval("getComputedStyle(document.getElementById('fox-img')).opacity")) < 0.99
+  }
+  assert.equal(dipped, true, '切角色后新图应从低透明度淡入')
+  await waitFor(
+    async () => (await cdp.eval("getComputedStyle(document.getElementById('fox-img')).opacity")) === '1',
+    3000,
+    'fade settle to 1'
+  )
+  // prefers-reduced-motion：CSS 过渡与 JS 淡入都要关闭（D039 红线）。
+  // Chromium 对 transition:none 的计算值可能表示为 1e-06s（1 纳秒），按秒解析。
+  await putProfile('zcode', 'gpt')
+  await waitFor(async () => (await cdp.eval("window.__pet.roleFor('zcode')")) === 'gpt', 5000, 'profile gpt applied')
+  await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  try {
+    const durReduced = await cdp.eval("getComputedStyle(document.getElementById('fox-img')).transitionDuration")
+    assert.ok(
+      Number.parseFloat(durReduced) < 0.001,
+      'reduced-motion 下不应有过渡：' + durReduced
+    )
+    await cdp.eval("window.__pet.debugApplyRole('gpt')")
+    await sleep(200)
+    assert.equal(await cdp.eval("getComputedStyle(document.getElementById('fox-img')).opacity"), '1', 'reduced-motion 下不淡入')
+    assert.match(await cdp.eval("document.getElementById('fox-img').src"), /roles\/gpt\.png/, 'reduced-motion 下角色仍要切换')
+  } finally {
+    await cdp.send('Emulation.setEmulatedMedia', { features: [] })
+  }
+  await putProfile('zcode', 'fox')
+  await cdp.eval("window.__pet.debugApplyRole('fox')")
+  await waitFor(async () => /roles\/fox\.png/.test(await cdp.eval("document.getElementById('fox-img').src")), 3000, 'role back to fox')
 })

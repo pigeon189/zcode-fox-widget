@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>fox-dock 组件画廊</title>
     <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="console.css" />
     <style>
       body {
         margin: 0;
@@ -14,7 +15,7 @@
         font: 13px/1.5 var(--font-ui);
       }
       h1 {
-        margin: 0 0 16px;
+        margin: 0 0 8px;
         font-size: 20px;
         font-weight: 700;
       }
@@ -25,7 +26,7 @@
       }
       .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
         gap: 16px;
       }
       .card {
@@ -34,11 +35,15 @@
         border-radius: var(--r-lg);
         padding: 16px;
       }
+      .row-demo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .sess-demo { display: flex; align-items: center; gap: 8px; height: var(--row-h); border-bottom: 1px solid var(--border); }
+      .sess-demo .sess-title { flex: 1; }
     </style>
   </head>
   <body>
     <h1>fox-dock 组件画廊</h1>
-    <p>占位页：M4 将在这里展示全部组件 × 状态 × 双主题。当前用于验证截图基建。</p>
+    <p style="color: var(--text-2)">全部新组件 × 状态 × 双主题。用于人工复核与截图归档；数据为静态示例。</p>
+
     <h2>设计令牌</h2>
     <div class="grid">
       <div class="card">主文字 --text</div>
@@ -47,6 +52,65 @@
       <div class="card" style="color: var(--ok)">成功 --ok</div>
       <div class="card" style="color: var(--warn)">警告 --warn</div>
       <div class="card" style="color: var(--bad)">错误 --bad</div>
+    </div>
+
+    <h2>可信度标签 SourceTag（full / dot）</h2>
+    <div class="card row-demo">
+      <span class="source-tag full prov-official"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg><span>官方接口</span></span>
+      <span class="source-tag full prov-local"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>本地日志</span></span>
+      <span class="source-tag full prov-estimate"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 2h16v20H4z"/><path d="M8 6h8"/></svg><span>估算</span></span>
+      <span class="source-tag full prov-unavailable"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg><span>不可得</span></span>
+      <span class="source-tag dot prov-official" role="img" aria-label="数据来源：官方接口"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+      <span class="source-tag dot prov-local" role="img" aria-label="数据来源：本地日志"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6v20h12V8z"/></svg></span>
+      <span class="source-tag dot prov-estimate" role="img" aria-label="数据来源：估算"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 2h16v20H4z"/></svg></span>
+      <span class="source-tag dot prov-unavailable" role="img" aria-label="数据来源：不可得"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg></span>
+    </div>
+
+    <h2>会话状态</h2>
+    <div class="card row-demo">
+      <span class="status-dot working"></span><span class="spin"></span><span>工作中</span>
+      <span class="status-dot waiting_permission"></span><span>等待确认</span>
+      <span class="status-dot waiting_input"></span><span>等待输入</span>
+      <span class="status-dot error"></span><span>出错</span>
+      <span class="status-dot done"></span><span>已完成</span>
+      <span class="status-dot idle"></span><span>空闲</span>
+      <span class="status-dot unknown"></span><span>状态未知</span>
+    </div>
+
+    <h2>会话行（48px）与子任务（40px）</h2>
+    <div class="card" style="padding: 0 16px">
+      <div class="sess-demo">
+        <span class="status-dot working"></span>
+        <span class="sess-title">重构 billing 适配器</span>
+        <span class="small muted">ZCode · deepseek-v4.1-flash</span>
+      </div>
+      <div class="sess-demo" style="height: 40px; padding-left: 24px; background: var(--surface-2)">
+        <span class="status-dot error"></span>
+        <span class="sess-title">子任务：补测试</span>
+        <span class="small muted">出错</span>
+      </div>
+    </div>
+
+    <h2>按钮与徽标</h2>
+    <div class="card row-demo">
+      <button class="btn primary">主要</button>
+      <button class="btn secondary">次要</button>
+      <button class="btn ghost">幽灵</button>
+      <button class="btn danger">危险</button>
+      <span class="badge ok">正常</span>
+      <span class="badge warn">延迟</span>
+      <span class="badge bad">出错</span>
+      <span class="badge neutral">未接入</span>
+    </div>
+
+    <h2>进度</h2>
+    <div class="card">
+      <div class="row-demo" style="width: 100%">
+        <span class="status-dot working"></span><span>工作中</span>
+        <span class="status-dot error"></span><span>出错</span>
+        <span class="status-dot done"></span><span>已完成</span>
+      </div>
+      <div class="progress" style="margin-top: 12px; height: 6px"><span style="width: 63%"></span></div>
     </div>
   </body>
 </html>

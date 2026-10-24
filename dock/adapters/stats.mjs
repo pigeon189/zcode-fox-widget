@@ -11,6 +11,36 @@
 export const STATS_RANGES = ['all', '7d', '30d']
 export const DAY_MS = 86400000
 
+import { prov, unavailable } from '../shared/provenance.mjs'
+
+// 统计来源 → provenance 默认值。适配器可用 input.provenance 覆盖单字段。
+function statsOriginOf(source) {
+  const s = String(source || '')
+  if (s.startsWith('zcode')) return 'local-db'
+  if (s.startsWith('workbuddy') || s.startsWith('dsh')) return 'local-log'
+  if (s.startsWith('kimi')) return 'api'
+  return 'unknown'
+}
+
+function statsProvenance(input, now, hasTokens, hasCredits) {
+  const source = String(input.source || 'stats')
+  const origin = statsOriginOf(source)
+  const declared = input.provenance && typeof input.provenance === 'object' ? input.provenance : {}
+  const mk = (name, present, kind = 'exact', o = origin) => {
+    if (declared[name]) return declared[name]
+    if (!present) return unavailable('no-data', source, o, { asOf: now })
+    return prov(kind, o, source, { asOf: now })
+  }
+  return {
+    tokens: mk('tokens', hasTokens),
+    cost: mk('cost', input.cost != null, 'estimated', 'pricing-table'),
+    credits: mk('credits', input.credits != null, 'exact', 'local-log'),
+    models: mk('models', hasTokens),
+    tools: mk('tools', (input.tools && Number(input.tools.toolCallCount) > 0) || (input.toolList || []).length > 0),
+    turns: mk('turns', (input.turns && Number(input.turns.totalTurns) > 0) || hasTokens),
+  }
+}
+
 export function rangeSince(range, now = Date.now()) {
   const r = STATS_RANGES.includes(range) ? range : 'all'
   const t = Number(now) || Date.now()
@@ -81,15 +111,22 @@ export function buildStats(input = {}) {
     }))
     .sort((a, b) => b.callCount - a.callCount)
 
-  const dayMap = new Map()
-  for (const d of input.days || []) {
-    const key = Math.round(num(d.dayIndex))
-    const row = dayMap.get(key) || { dayIndex: key, totalTokens: 0, turnCount: 0, toolCallCount: 0 }
-    row.totalTokens += Math.max(0, Math.round(num(d.totalTokens)))
-    row.turnCount += Math.max(0, Math.round(num(d.turnCount)))
-    row.toolCallCount += Math.max(0, Math.round(num(d.toolCallCount)))
-    dayMap.set(key, row)
+  const toDayMap = (rows) => {
+    const map = new Map()
+    for (const d of rows || []) {
+      const key = Math.round(num(d.dayIndex))
+      const row = map.get(key) || { dayIndex: key, totalTokens: 0, turnCount: 0, toolCallCount: 0 }
+      row.totalTokens += Math.max(0, Math.round(num(d.totalTokens)))
+      row.turnCount += Math.max(0, Math.round(num(d.turnCount)))
+      row.toolCallCount += Math.max(0, Math.round(num(d.toolCallCount)))
+      map.set(key, row)
+    }
+    return map
   }
+  const dayMap = toDayMap(input.days)
+  // 热力图与统计范围解耦：始终展示最近 53 周（GitHub 绿墙），避免 7/30 天
+  // 视图只有几列、右侧大片空白。适配器没给历史时退回当前范围的数据。
+  const heatDayMap = toDayMap(input.heatmapDays && input.heatmapDays.length ? input.heatmapDays : input.days)
   const modelDayMap = new Map()
   for (const d of input.dayModels || []) {
     const key = Math.round(num(d.dayIndex))
@@ -149,9 +186,31 @@ export function buildStats(input = {}) {
     })
   }
 
+  // 53 列 = 52 个完整周 + 当前周；起点对齐到周日，最后一列是本周。
+  const heatEndDay = endDay
+  const heatEndWeekday = new Date(heatEndDay * DAY_MS).getUTCDay()
+  const heatStartDay = heatEndDay - (52 * 7 + heatEndWeekday)
+  let heatPeakTokens = 0
+  let heatPeakDate = null
+  const heatDays = []
+  for (let d = heatStartDay; d <= heatEndDay; d++) {
+    const row = heatDayMap.get(d) || { totalTokens: 0, turnCount: 0, toolCallCount: 0 }
+    if (row.totalTokens > heatPeakTokens) {
+      heatPeakTokens = row.totalTokens
+      heatPeakDate = dateKeyOfDay(d)
+    }
+    heatDays.push({
+      date: dateKeyOfDay(d),
+      level: levelFor(row.totalTokens, 0),
+      totalTokens: row.totalTokens,
+      turnCount: row.turnCount,
+      toolCallCount: row.toolCallCount,
+    })
+  }
+  for (const cell of heatDays) cell.level = levelFor(cell.totalTokens, heatPeakTokens)
   const weeks = []
   let week = null
-  for (const cell of days) {
+  for (const cell of heatDays) {
     const weekday = new Date(Number(cell.date.slice(0, 4)), Number(cell.date.slice(5, 7)) - 1, Number(cell.date.slice(8, 10))).getDay()
     if (!week || weekday === 0) {
       week = { weekIndex: weeks.length, days: Array.from({ length: 7 }, () => null) }
@@ -183,6 +242,10 @@ export function buildStats(input = {}) {
   const requests = num(totals.modelRequestCount)
   const toolCalls = num(toolTotals.toolCallCount)
   const totalCredits = input.credits != null ? Math.round(num(input.credits) * 10000) / 10000 : null
+  const provenance =
+    input.provenance && input.provenance.__final === true
+      ? input.provenance
+      : statsProvenance(input, now, tokenSum > 0 || num(totals.totalTokens) > 0, totalCredits !== null)
 
   return {
     supported: true,
@@ -194,6 +257,7 @@ export function buildStats(input = {}) {
     currency: input.currency || '',
     cost: input.cost && typeof input.cost === 'object' ? input.cost : null,
     credits: input.credits != null ? Math.round(num(input.credits) * 10000) / 10000 : null,
+    provenance,
     summary: {
       totalTokens: num(totals.totalTokens),
       inputTokens,
@@ -219,9 +283,10 @@ export function buildStats(input = {}) {
       totalCredits,
     },
     heatmap: {
-      startDate: dateKeyOfDay(startDay),
-      endDate: dateKeyOfDay(endDay),
-      maxTokens: peakDayTokens,
+      startDate: dateKeyOfDay(heatStartDay),
+      endDate: dateKeyOfDay(heatEndDay),
+      maxTokens: heatPeakTokens,
+      peakDate: heatPeakDate,
       weeks,
     },
     dailyModelUsage: modelDays,
@@ -232,10 +297,20 @@ export function buildStats(input = {}) {
 
 export function emptyStats(range, reason, notes = {}) {
   const stats = buildStats({ range })
+  const source = String(notes.source || '')
+  const provBase = (r = reason) => unavailable(String(r || 'no-data'), source, 'unknown', { asOf: Date.now() })
   return {
     ...stats,
     supported: false,
     reason: String(reason || 'no-data'),
     note: notes.note || '',
+    provenance: {
+      tokens: provBase(),
+      cost: provBase(),
+      credits: provBase(),
+      models: provBase(),
+      tools: provBase(),
+      turns: provBase(),
+    },
   }
 }

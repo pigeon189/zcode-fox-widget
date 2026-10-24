@@ -4,7 +4,7 @@
 把它拖到宿主窗口上松手，角色会吸附到窗口边缘、换成该宿主的形象，并把数字切换成对应的
 余额 / 额度 / 今日消耗口径。
 
-> **当前版本：2.0.0-pre.1（预发布）**
+> **当前版本：2.0.0-pre.2（预发布）**
 > 发布 tag 为 `dock-v*`，只走 GitHub prerelease + 独立分支 `dock-pre`。
 > 与 ZCode / WorkBuddy 两条旧挂件线完全隔离：旧挂件只读 `main` 的 `plugin.json`
 > 和 `v*` 正式 release，**不会收到这个版本**。不要把本包覆盖安装到旧挂件目录。
@@ -14,7 +14,7 @@
 需要 Windows 10/11、Node.js 22.5+；Electron 运行时可复用已安装的挂件运行时。
 
 1. 从 [Releases](https://github.com/pigeon189/zcode-fox-widget/releases) 下载
-   `dock-2.0.0-pre.1.tar.gz` 并解压。
+   `dock-2.0.0-pre.2.tar.gz` 并解压。
 2. 进入解压后的目录，双击 `launch\启动 fox-dock.vbs`；
    或执行：
 
@@ -33,10 +33,12 @@
   支持窗口四角/边缘吸附和窗口内自由位置，贴左侧自动镜像。
 - **角色与气泡**：六个内置角色、导入 PNG / JPEG / WebP / GIF；单击角色打开快览卡，
   右键打开菜单；气泡、台词、按压队列、隐藏金额、勿扰都可在控制台调整。
-- **控制台九页**：总览、上下文、用量、统计、额度与余额、厂商与密钥、角色与气泡、设置、关于与诊断。
+- **控制台九页**：总览、会话、用量、统计、额度与余额、厂商与密钥、角色与气泡、设置、关于与诊断；上下文并入会话详情标签。
   「统计」按宿主展示累计 Token、峰值单日、最长聊天、连续天数、活动热力图、每日模型趋势、模型占比与工具用量。
 - **多厂商余额**：内置 45 个厂商/订阅/中转站模板。当前 provider 的余额、CommandCode
   月度/5 小时/周窗口、GLM Plan、DeepSeek、Kimi 等都能读取；GOAT 月度池统一按 $80 显示。
+- **会话实时层**：跨 agent 会话列表/详情/回合/工具/上下文，工作/等待/出错/完成状态（SSE 增量），父任务与子任务；Kimi 没有历史时显示「状态未知」，不伪造。
+- **可信度标签**：每个金额/Token/百分比标出来源（官方接口 / 本地日志 / 估算 / 不可得），缺失不补 0。
 - **上下文统计**：四宿主读取当前会话占用、上限、请求构成、压缩记录与趋势；读不到就显示
   「暂无」，不补 0。
 - **安全**：API Key 存 Windows DPAPI 保险库，只显示掩码；宿主数据默认只读；`/v1` 写接口
@@ -94,8 +96,9 @@ npm test               :: 单元测试
 npm run test:it        :: 集成测试（真窗口 + daemon + Electron）
 npm run test:all       :: 全部
 npm run test:ui        :: 控制台布局 / 可访问名称 / axe
-npm run visual         :: 32 张控制台视觉基线
-npm run test:pet       :: 48 张宠物层截图
+npm run visual         :: 36 张控制台视觉基线（9 页 × 双主题 × 两视口）
+npm run test:pet       :: 100 张宠物层截图（含会话状态/角标/快览会话）
+npm run bench          :: 会话/下钻基准（合成数据）
 npm run test:electron:console
 npm run doctor         :: 查看当前窗口与适配器命中
 npm run start / stop / status / install-app

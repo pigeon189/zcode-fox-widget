@@ -80,3 +80,21 @@ test('bridge: rect 对正常窗口返回可用矩形', async () => {
   // 桥与 snapshot 必须看到同一个矩形（差 1px 容差）
   assert.ok(Math.abs(r.rect.x - w.rect.x) <= 1 && Math.abs(r.rect.y - w.rect.y) <= 1)
 })
+
+test('bridge: rect 带前台标记（background），供浮层做失前台兜底', async () => {
+  // 被枚举窗口在测试运行时大概率不在前台，具体真假取决于当时的前台窗口；
+  // 这里能稳定断言的是：ok 时 background 必须是布尔并与矩形一同返回。
+  const w = windows.find((x) => x.rect.w > 200 && x.rect.h > 200) || windows[0]
+  const r = await bridge.rect(w.hwnd)
+  assert.equal(r.ok, true)
+  assert.equal(typeof r.background, 'boolean', 'background 必须是布尔：' + JSON.stringify(r))
+  assert.ok(r.rect.w > 0)
+})
+
+test('bridge: 子进程退出后按需重启（吸附/窗口枚举自愈）', async () => {
+  bridge.stop()
+  await new Promise((r) => setTimeout(r, 150))
+  const wins = await bridge.snapshot()
+  assert.ok(wins.length > 0, 'restarted bridge should return windows')
+  assert.equal(bridge.running, true)
+})

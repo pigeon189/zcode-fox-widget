@@ -2,7 +2,7 @@ import { h } from '../vendor/preact.module.js'
 import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Badge, Button, Card, EmptyState } from '../components/base.mjs'
-import { fmtDateTime, fmtNum } from '../lib/format.mjs'
+import { fmtDateTime, fmtNum, fmtRelativeShort } from '../lib/format.mjs'
 
 const html = htm.bind(h)
 
@@ -73,6 +73,34 @@ export function AboutPage({ app }) {
                 <td class="right"><${Badge} tone=${a.context ? 'ok' : 'neutral'}>${a.context ? '已接入' : '仅计费'}</${Badge}></td>
               </tr>`
             )}
+          </tbody>
+        </table>
+      </${Card}>
+
+      <${Card} title="接入诊断" class="group" actions=${html`<${Button} variant="ghost" icon="copy" onClick=${() => {
+        const dir = diag && diag.ingest && diag.ingest.integrationDir
+        if (!dir) return app.toast('没有找到集成目录', 'bad')
+        navigator.clipboard.writeText(dir).then(() => app.toast('已复制集成目录路径')).catch(() => app.toast('复制失败', 'bad'))
+      }}>复制集成目录路径</${Button}>`}>
+        <table class="table">
+          <thead><tr><th>Agent</th><th>数据源</th><th>实时通道</th><th class="right">最后事件</th><th class="right">状态</th></tr></thead>
+          <tbody>
+            ${adapters.filter((a) => a.id !== 'generic').map((a) => {
+              const by = (app.live && app.live.byAgent && app.live.byAgent[a.id]) || null
+              const lastAt = by && by.lastAt ? by.lastAt : 0
+              const channel = a.id === 'zcode' ? '钩子' : a.id === 'workbuddy' || a.id === 'dsh' ? '日志尾随' : a.id === 'kimi' ? '本机 HTTP' : '无'
+              const source = a.id === 'zcode' ? 'db.sqlite' : a.id === 'workbuddy' ? 'transcripts' : a.id === 'dsh' ? 'sessions (zstd)' : a.id === 'kimi' ? '/coding/v1/usages' : '—'
+              const active = by && (by.working > 0 || by.waiting > 0)
+              const stale = active && (!lastAt || Date.now() - lastAt > 30000)
+              const status = !diag ? ['neutral', '未知'] : stale ? ['warn', '延迟'] : lastAt ? ['ok', '正常'] : ['neutral', '未接入']
+              return html`<tr>
+                <td>${a.name}</td>
+                <td class="small muted mono">${source}</td>
+                <td class="small">${channel}</td>
+                <td class="right small muted" data-visual-mask>${lastAt ? fmtRelativeShort(lastAt) : '—'}</td>
+                <td class="right"><${Badge} tone=${status[0]}>${status[1]}</${Badge}></td>
+              </tr>`
+            })}
           </tbody>
         </table>
       </${Card}>

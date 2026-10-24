@@ -333,15 +333,19 @@ export function readAppStats(opts = {}) {
          GROUP BY tool_name ORDER BY callCount DESC`
       )
       .all(since, until)
-    const days = [
+    const dailyRows = (from) => [
       ...db.prepare(`SELECT CAST((started_at + ?) / ? AS INTEGER) AS dayIndex,
            COALESCE(SUM(computed_total_tokens), 0) AS totalTokens
-         FROM model_usage WHERE started_at >= ? AND started_at <= ? GROUP BY dayIndex`).all(offset, 86400000, since, until),
+         FROM model_usage WHERE started_at >= ? AND started_at <= ? GROUP BY dayIndex`).all(offset, 86400000, from, until),
       ...db.prepare(`SELECT CAST((started_at + ?) / ? AS INTEGER) AS dayIndex, COUNT(*) AS turnCount
-         FROM turn_usage WHERE started_at >= ? AND started_at <= ? GROUP BY dayIndex`).all(offset, 86400000, since, until),
+         FROM turn_usage WHERE started_at >= ? AND started_at <= ? GROUP BY dayIndex`).all(offset, 86400000, from, until),
       ...db.prepare(`SELECT CAST((started_at + ?) / ? AS INTEGER) AS dayIndex, COUNT(*) AS toolCallCount
-         FROM tool_usage WHERE started_at >= ? AND started_at <= ? GROUP BY dayIndex`).all(offset, 86400000, since, until),
+         FROM tool_usage WHERE started_at >= ? AND started_at <= ? GROUP BY dayIndex`).all(offset, 86400000, from, until),
     ]
+    const days = dailyRows(since)
+    // 热力图固定看最近 53 周；range=7d/30d 时补一组历史日聚合，不让活动墙只剩几列。
+    const heatSince = since > 0 ? Math.max(0, now - 371 * 86400000) : since
+    const heatmapDays = heatSince === since ? days : dailyRows(heatSince)
     const dayModels = db
       .prepare(
         `SELECT CAST((started_at + ?) / ? AS INTEGER) AS dayIndex,
@@ -375,6 +379,7 @@ export function readAppStats(opts = {}) {
       models,
       toolList,
       days,
+      heatmapDays,
       dayModels,
     })
   } catch (err) {

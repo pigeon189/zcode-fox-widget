@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..')
-const PAGES = ['overview', 'context', 'usage', 'stats', 'quota', 'vendors', 'roles', 'settings', 'about']
+const PAGES = ['overview', 'sessions', 'usage', 'stats', 'quota', 'vendors', 'roles', 'settings', 'about']
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(name)
@@ -61,7 +61,7 @@ async function main() {
     const { AxeBuilder } = withAxe ? await loadAxe() : { AxeBuilder: null }
     const browser = await chromium.launch({ channel: 'msedge', headless: true })
     for (const theme of themes) {
-      for (const vp of [{ width: 960, height: 680 }, { width: 760, height: 560 }]) {
+      for (const vp of [{ width: 1280, height: 800 }, { width: 960, height: 680 }, { width: 760, height: 560 }]) {
       for (const page of PAGES) {
         const ctx = await browser.newContext({ viewport: vp, colorScheme: theme, reducedMotion: 'reduce' })
         const p = await ctx.newPage()
@@ -108,6 +108,44 @@ async function main() {
         if (layout.overflow) problems.push(page + '/' + theme + '/' + vp.width + ' 出现横向滚动')
         if (layout.small.length) problems.push(page + '/' + theme + '/' + vp.width + ' 字号 <12：' + layout.small.slice(0, 4).join(', '))
         if (layout.unnamed.length) problems.push(page + '/' + theme + '/' + vp.width + ' 无可访问名称：' + layout.unnamed.slice(0, 4).join(', '))
+        // 2.0-pre.2 几何断言：会话行 48 / 表头 36 / 计数磁贴 56（<1100 为 48）。
+        if (page === 'sessions') {
+          const geo = await p.evaluate(() => {
+            const h = (sel) => {
+              const el = document.querySelector(sel)
+              if (!el) return null
+              return Math.round(el.getBoundingClientRect().height * 10) / 10
+            }
+            const tag = (sel) => {
+              const el = document.querySelector(sel)
+              if (!el) return null
+              const r = el.getBoundingClientRect()
+              return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10 }
+            }
+            return {
+              row: h('.sess-row'),
+              head: h('.sess-table thead th'),
+              tile: h('.live-tile'),
+              dot: tag('.source-tag.dot'),
+            }
+          })
+          if (geo.row != null && Math.abs(geo.row - 48) > 1) problems.push(page + '/' + theme + '/' + vp.width + ' 会话行高 ' + geo.row + '（期望 48）')
+          if (geo.head != null && Math.abs(geo.head - 36) > 1) problems.push(page + '/' + theme + '/' + vp.width + ' 表头高 ' + geo.head + '（期望 36）')
+          if (geo.tile != null && Math.abs(geo.tile - (vp.width <= 1100 ? 48 : 56)) > 1) problems.push(page + '/' + theme + '/' + vp.width + ' 计数磁贴高 ' + geo.tile)
+          if (geo.dot && (Math.abs(geo.dot.w - 16) > 1 || Math.abs(geo.dot.h - 16) > 1)) problems.push(page + '/' + theme + '/' + vp.width + ' SourceTag dot ' + JSON.stringify(geo.dot))
+        }
+
+        // 动画红线：除 .spin 外不允许无限动画（D039）。
+        const anims = await p.evaluate(() => {
+          const inf = document.getAnimations().filter((a) => a.effect && a.effect.getTiming().iterations === Infinity)
+          const offenders = inf.filter((a) => {
+            const t = a.effect && a.effect.target
+            return !(t && t.closest && t.closest('.spin'))
+          })
+          return { total: inf.length, offenders: offenders.length }
+        })
+        if (anims.offenders > 0) problems.push(page + '/' + theme + '/' + vp.width + ' 存在 idle 无限动画 x' + anims.offenders)
+
         const nativeSelects = await p.evaluate(() => document.querySelectorAll('select').length)
         if (nativeSelects) problems.push(page + '/' + theme + '/' + vp.width + ' 仍有原生 select x' + nativeSelects)
 
@@ -156,7 +194,7 @@ async function main() {
     console.error('UI 自检失败：' + problems.length + ' 项')
     process.exit(1)
   }
-  console.log('UI 自检通过：' + PAGES.length + ' 页 × ' + themes.length + ' 主题 × 2 视口（布局 / 可访问名称 / axe' + (withAxe ? '' : ' 已关闭') + '）')
+  console.log('UI 自检通过：' + PAGES.length + ' 页 × ' + themes.length + ' 主题 × 3 视口（布局 / 可访问名称 / axe' + (withAxe ? '' : ' 已关闭') + '）')
 }
 
 main().catch((err) => {

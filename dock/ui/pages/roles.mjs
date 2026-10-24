@@ -51,13 +51,22 @@ export function RolesPage({ app }) {
       const d = await app.api('/v1/profiles/' + encodeURIComponent(app.viewAgent), { method: 'PUT', body: patch })
       setProfile(d.profile)
       app.toast('已保存')
+      return true
     } catch (e) {
       app.toast(String(e.message || e), 'bad')
+      return false
     }
   }
 
   async function pick(id) {
-    await save({ roleId: id })
+    // 手动选角 = 明确覆盖：同时关闭「按模型换角色」，与宠物菜单保持一致。
+    // 否则 autoRoleByModel 开启时模型族角色会覆盖这里选的角色。
+    if (!(await save({ roleId: id }))) return
+    try {
+      await app.api('/v1/settings', { method: 'PUT', body: { autoRoleByModel: false } })
+    } catch (e) {
+      app.toast('已选角色，但关闭「按模型换角色」失败：' + String(e.message || e), 'bad')
+    }
     await app.reloadState()
     app.refresh()
   }

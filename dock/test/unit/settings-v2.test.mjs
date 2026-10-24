@@ -19,12 +19,18 @@ function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'fox-dock-set2-'))
 }
 
-test('settings v2: 默认 schema=2，档案与宠物状态都有默认值', () => {
+test('settings v2: 默认 schema=3，档案、宠物与会话权限都有默认值', () => {
   const s = normalizeSettings({})
-  assert.equal(s.schema, 2)
+  assert.equal(s.schema, 3)
   assert.deepEqual(s.profiles, {})
   assert.deepEqual(s.pet, DEFAULTS.pet)
   assert.equal(s.hotkeys.toggle, 'Ctrl+Alt+F')
+  assert.equal(s.live.enabled, true)
+  assert.equal(s.permission.takeover, false, '权限接管默认必须关闭')
+  assert.equal(s.permission.waitMs, 15000)
+  assert.equal(s.permission.notify, 'whenHidden')
+  assert.equal(s.ingest.enabled, true)
+  assert.equal(s.retentionDays, 30)
 })
 
 test('settings v2: v1 文件迁移会备份原文件并补 schema/档案/宠物', () => {
@@ -33,7 +39,7 @@ test('settings v2: v1 文件迁移会备份原文件并补 schema/档案/宠物'
     const file = path.join(dir, 'settings.json')
     fs.writeFileSync(file, JSON.stringify({ roleId: 'kimi', scale: 1.25, mystery: 1 }))
     const s = readSettings(file)
-    assert.equal(s.schema, 2)
+    assert.equal(s.schema, 3)
     assert.equal(s.roleId, 'kimi')
     assert.equal(s.scale, 1.25)
     assert.equal('mystery' in s, false)
@@ -47,13 +53,27 @@ test('settings v2: v1 文件迁移会备份原文件并补 schema/档案/宠物'
   }
 })
 
-test('settings v2: schema=2 的文件不会被再次迁移', () => {
+test('settings v2: schema=2 的文件升级到 3 并留下 .v2.bak', () => {
+  const dir = tempDir()
+  try {
+    const file = path.join(dir, 'settings.json')
+    fs.writeFileSync(file, JSON.stringify({ ...normalizeSettings({ roleId: 'gpt' }), schema: 2 }))
+    assert.equal(migrateSettingsFile(file), true)
+    assert.equal(fs.existsSync(file + '.v2.bak'), true)
+    assert.equal(readSettings(file).schema, 3)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('settings v2: schema=3 的文件不会被再次迁移', () => {
   const dir = tempDir()
   try {
     const file = path.join(dir, 'settings.json')
     fs.writeFileSync(file, JSON.stringify(normalizeSettings({ roleId: 'gpt' })))
     assert.equal(migrateSettingsFile(file), false)
     assert.equal(fs.existsSync(file + '.v1.bak'), false)
+    assert.equal(fs.existsSync(file + '.v2.bak'), false)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

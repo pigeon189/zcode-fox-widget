@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fox-dock.local/schemas/ingest.v1.json",
+  "title": "fox-dock ingest v1",
+  "description": "POST /v1/ingest 请求体。体积上限 16KB，未知字段丢弃；__proto__/constructor/prototype 一律丢弃。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "agent", "event", "sessionId"],
+  "properties": {
+    "v": { "const": 1 },
+    "agent": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,23}$" },
+    "event": {
+      "enum": [
+        "session_start", "turn_start", "tool_start", "tool_end", "waiting_input",
+        "permission_request", "permission_resolved", "turn_end", "error", "usage"
+      ]
+    },
+    "sessionId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,80}$" },
+    "turnId": { "type": "string", "maxLength": 80 },
+    "at": { "type": "integer", "minimum": 0 },
+    "title": { "type": "string", "maxLength": 200 },
+    "cwd": { "type": "string", "maxLength": 400 },
+    "model": { "type": "string", "maxLength": 80 },
+    "provider": { "type": "string", "maxLength": 80 },
+    "tool": { "type": "string", "maxLength": 80 },
+    "toolInput": { "type": "string", "maxLength": 400, "description": "仅文本预览，服务端再脱敏并截断 400 字" },
+    "requestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,40}$" },
+    "wait": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["decision"] },
+        "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 30000 }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cacheRead": { "type": "number", "minimum": 0 },
+        "cacheWrite": { "type": "number", "minimum": 0 },
+        "reasoning": { "type": "number", "minimum": 0 }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "currency"],
+      "properties": {
+        "amount": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3,8}$" }
+      }
+    }
+  }
+}

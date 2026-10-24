@@ -208,8 +208,23 @@ function openDb(file) {
   const hit = connections.get(file)
   if (hit) return hit
   if (Date.now() - lastFailAt < 5000) return null
+  let db = null
   try {
-    const db = new sqlite.DatabaseSync(file, { readOnly: true, timeout: 2000 })
+    db = new sqlite.DatabaseSync(file, { readOnly: true, timeout: 2000 })
+    const tables = new Set(
+      db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table'`)
+        .all()
+        .map((r) => String(r.name))
+    )
+    const usageCols = tables.has('model_usage')
+      ? new Set(db.prepare(`PRAGMA table_info(model_usage)`).all().map((r) => String(r.name)))
+      : new Set()
+    // 标题生成、压缩摘要、子 agent 都会写 model_usage；只有 main_turn 代表
+    // 「这一轮对话结束时」的上下文占用。压缩请求本身会把整段旧上下文算进去，
+    // 若当成当前占用，压缩后预警会一直挂着到下一轮对话。
+    const mainOnly = usageCols.has('query_source') ? ` AND (query_source IS NULL OR query_source = 'main_turn')` : ''
+    const mMainOnly = usageCols.has('query_source') ? ` AND (m.query_source IS NULL OR m.query_source = 'main_turn')` : ''
     const stmts = {
       latestSession: db.prepare(
         `SELECT id, title, time_updated, time_compacting
@@ -223,34 +238,48 @@ function openDb(file) {
                 cache_read_input_tokens, cache_creation_input_tokens, computed_total_tokens,
                 COALESCE(completed_at, started_at) AS ts, context_exceeded
          FROM model_usage
-         WHERE session_id = ? AND status = 'completed' AND computed_total_tokens > 0
+         WHERE session_id = ? AND status = 'completed' AND computed_total_tokens > 0${mainOnly}
          ORDER BY COALESCE(completed_at, started_at) DESC LIMIT 1`
       ),
       points: db.prepare(
         `SELECT COALESCE(completed_at, started_at) AS ts, computed_total_tokens AS used
          FROM model_usage
-         WHERE session_id = ? AND status = 'completed' AND computed_total_tokens > 0
+         WHERE session_id = ? AND status = 'completed' AND computed_total_tokens > 0${mainOnly}
          ORDER BY COALESCE(completed_at, started_at) DESC LIMIT 240`
       ),
       sessions: db.prepare(
         `SELECT s.id, s.title, s.time_updated,
            (SELECT m.model_id FROM model_usage m
-             WHERE m.session_id = s.id AND m.status = 'completed'
+             WHERE m.session_id = s.id AND m.status = 'completed'${mMainOnly}
              ORDER BY COALESCE(m.completed_at, m.started_at) DESC LIMIT 1) AS model_id,
            (SELECT m.computed_total_tokens FROM model_usage m
-             WHERE m.session_id = s.id AND m.status = 'completed'
+             WHERE m.session_id = s.id AND m.status = 'completed'${mMainOnly}
              ORDER BY COALESCE(m.completed_at, m.started_at) DESC LIMIT 1) AS used,
            (SELECT COUNT(*) FROM model_usage m
-             WHERE m.session_id = s.id AND m.status = 'completed') AS requests
+             WHERE m.session_id = s.id AND m.status = 'completed'${mMainOnly}) AS requests
          FROM session s
          WHERE s.parent_id IS NULL AND COALESCE(s.time_archived, 0) = 0
          ORDER BY s.time_updated DESC LIMIT ?`
       ),
     }
-    const conn = { db, stmts, at: Date.now() }
+    // 压缩事件是 part 表里的 {"type":"compaction"}；session.time_compacting
+    // 只在压缩进行中非空，结束后会清空，不能作为“压缩过”的依据。
+    if (tables.has('part')) {
+      try {
+        stmts.compaction = db.prepare(
+          `SELECT MAX(time_created) AS lastAt, COUNT(*) AS count
+           FROM part
+           WHERE session_id = ? AND json_valid(data) AND json_extract(data, '$.type') = 'compaction'`
+        )
+      } catch (err) {}
+    }
+    const conn = { db, stmts, at: Date.now(), compactionCache: null }
     connections.set(file, conn)
     return conn
   } catch (err) {
+    try {
+      if (db) db.close()
+    } catch (e) {}
     lastFailAt = Date.now()
     return null
   }
@@ -299,31 +328,56 @@ export function readZcodeContext(opts = {}) {
     if (!session) return { supported: false, reason: 'no-session' }
 
     const last = conn.stmts.lastUsage.get(session.id)
-    if (!last) return { supported: false, reason: 'no-session', sessionId: session.id, title: String(session.title || '') }
+    let compaction
+    if (conn.stmts.compaction) {
+      // part 表可能很大；以 session.time_updated 为缓存键，同一会话在 5 秒内
+      // 不重复 JSON 解析全部 part。压缩会更新 time_updated，最坏延迟 5 秒。
+      const ckey = session.id + '|' + (Number(session.time_updated) || 0) + '|' + (Number(session.time_compacting) || 0)
+      const cached = conn.compactionCache
+      let row = null
+      if (cached && cached.key === ckey && now - cached.at < 5000) {
+        row = cached.value
+      } else {
+        row = conn.stmts.compaction.get(session.id)
+        conn.compactionCache = { key: ckey, at: now, value: row }
+      }
+      const count = Number(row && row.count) || 0
+      const lastAt = Number(row && row.lastAt) || 0
+      if (count > 0 && lastAt > 0) compaction = { count, lastAt, derived: false }
+    }
+    if (!compaction && session.time_compacting) {
+      compaction = { count: 1, lastAt: Number(session.time_compacting), derived: true }
+    }
+    if (!last && !compaction) {
+      return { supported: false, reason: 'no-session', sessionId: session.id, title: String(session.title || '') }
+    }
 
     const points = conn.stmts.points
       .all(session.id)
       .map((r) => ({ t: Number(r.ts) || 0, used: Number(r.used) || 0 }))
       .filter((p) => p.t > 0)
       .reverse()
-    const lim = resolveContextLimit(last.model_id, { env, now })
-    const used = Math.max(0, Number(last.computed_total_tokens) || 0)
-    const compaction = session.time_compacting
-      ? { count: 1, lastAt: Number(session.time_compacting), derived: true }
-      : undefined
+    const lastTs = Number(last && last.ts) || 0
+    // 压缩发生在上一次主回合之后：旧回合的 token 数已经不代表当前上下文。
+    // 返回 used=null（而不是 0 或旧值），预警随即解除；下一轮对话会给出新值。
+    // time_compacting 只是「正在压缩」的瞬时标记，不能据此判定压缩已完成。
+    const compactedSince = !!compaction && !compaction.derived && compaction.lastAt > lastTs
+    const used = last && !compactedSince ? Math.max(0, Number(last.computed_total_tokens) || 0) : null
+    const model = String((last && last.model_id) || '')
+    const lim = resolveContextLimit(model, { env, now })
     return {
       supported: true,
-      confidence: 'exact',
+      confidence: used == null ? 'derived' : 'exact',
       sessionId: String(session.id),
       title: String(session.title || ''),
-      model: String(last.model_id || ''),
+      model,
       limit: lim.limit,
       limitSource: lim.source,
       used,
-      breakdown: breakdownOf(last),
+      breakdown: used == null ? undefined : breakdownOf(last),
       compaction,
       points,
-      updatedAt: Number(last.ts) || Number(session.time_updated) || now,
+      updatedAt: Math.max(lastTs, (compaction && compaction.lastAt) || 0) || Number(session.time_updated) || now,
     }
   } catch (err) {
     try {

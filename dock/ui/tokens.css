@@ -20,6 +20,8 @@
   --c3: #8b5cf6;
   --c4: #10b981;
   --c5: #94a3b8;
+  --c6: #ec4899;
+  --c7: #0891b2;
   --on-accent: #111111;
   --on-vendor: #ffffff;
   --vendor-relay: #8b5cf6;
@@ -99,6 +101,35 @@
   }
 }
 
+/* 2.0-pre.2：状态与可信度标签（浅/深共用；只引用已有变量） */
+:root {
+  --st-working: var(--info);
+  --st-waiting: var(--warn);
+  --st-error: var(--bad);
+  --st-done: var(--ok);
+  --st-idle: var(--text-3);
+  --prov-official-fg: var(--ok-strong);
+  --prov-official-bg: color-mix(in srgb, var(--ok) 14%, transparent);
+  --prov-local-fg: var(--info-strong);
+  --prov-local-bg: color-mix(in srgb, var(--info) 14%, transparent);
+  --prov-estimate-fg: var(--warn-strong);
+  --prov-estimate-bg: color-mix(in srgb, var(--warn) 16%, transparent);
+  --prov-unavail-fg: var(--text-3);
+  --prov-unavail-bg: var(--surface-2);
+  --row-h: 48px;
+}
+
+@keyframes fd-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes fd-nudge {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
 /* ZCode 深色参考：中性灰底，不再偏蓝 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -118,6 +149,8 @@
     --c3: #b48cff;
     --c4: #46bf72;
     --c5: #9a9a9a;
+    --c6: #f472b6;
+    --c7: #22d3ee;
     --accent-strong: #f6c48a;
     --focus: #4099ff;
     --ok-strong: #46bf72;
@@ -145,6 +178,8 @@
   --c3: #b48cff;
   --c4: #46bf72;
   --c5: #9a9a9a;
+  --c6: #f472b6;
+  --c7: #22d3ee;
   --accent-strong: #f6c48a;
   --focus: #4099ff;
   --ok-strong: #46bf72;

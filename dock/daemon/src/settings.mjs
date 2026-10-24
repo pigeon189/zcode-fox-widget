@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const SCHEMA = 2
+export const SCHEMA = 3
 
 export const ROLES = ['fox', 'whale', 'gpt', 'kimi', 'xiaoke', 'gemini']
 // 角色 id 也允许用户导入的 id（roles.mjs 同款安全字符集）；未知/不存在的 id
@@ -29,9 +29,14 @@ export const PET_MODES = ['idle', 'attached', 'floating']
 export const SCALES = [0.75, 1, 1.25, 1.5]
 export const CHATTER_MS = [0, 180000, 300000, 600000]
 export const FLOATING_DATA = ['last', 'all']
+// 失焦/最小化兜底角落（迁移 1.x defaultCorner）：右下/左下/右上/左上
+export const FALLBACK_CORNERS = ['br', 'bl', 'tr', 'tl']
 export const MENU_BUTTON = ['hover', 'always', 'hidden']
 export const SHOW_STYLES = ['chip', 'bubble-card']
 export const UPDATE_CHANNELS = ['stable', 'prerelease']
+export const PERMISSION_NOTIFY = ['always', 'whenHidden', 'off']
+export const PERMISSION_WAIT_MS = [8000, 15000, 30000]
+export const RETENTION_DAYS = [7, 30, 90]
 
 export const DEFAULT_PROFILE = {
   roleId: '',
@@ -67,6 +72,8 @@ export const DEFAULTS = {
   turnBubbleMs: 5000,
   // 今日预算（元）。0 = 不设
   budgetMoney: 0,
+  // 今日预算（积分）。0 = 不设；仅对 unit=credit / 币种 CREDIT 的宿主生效
+  budgetCredit: 0,
   weeklyBudget: 0,
   monthlyBudget: 0,
   // 额度剩余低于该百分比时提醒（0 = 不提醒）
@@ -80,12 +87,17 @@ export const DEFAULTS = {
   displayMode: 'auto', // auto | today | balance | quota
   // 绑定后按宿主默认角色换人（zcode→fox、wb→小克、kimi→kimi 娘、dsh→大肥鱼）
   autoRole: true,
+  // 按当前模型族自动换角色（GLM→fox、DeepSeek→whale…，连续两拍确认）。
+  // 默认开；用户在菜单/角色页手动选角后由前端关闭，尊重手动选择。
+  autoRoleByModel: true,
   // 每个宿主单独指定的角色；空 = 用适配器默认
   rolesByAdapter: {},
   // 面板打开时显示 7 天用量块
   showWeek: true,
   // 桌宠模式：不吸附/不跟随，角色可自由摆在屏幕上
   petMode: false,
+  // 宿主失前台/最小化/被覆盖时的兜底角落（也是无历史位置时的首帧落点）
+  fallbackCorner: 'br',
   autoAttachNewAgent: false,
   reattachOnRestart: true,
   floatingData: 'last',
@@ -106,6 +118,28 @@ export const DEFAULTS = {
     console: 'Ctrl+Alt+D',
     hideMoney: 'Ctrl+Alt+H',
   },
+  // 2.0-pre.2（schema 3）：会话实时层与权限接管
+  live: {
+    enabled: true,
+  },
+  permission: {
+    // 接管权限请求：默认关（D036）。关闭时只通知 + 跳转宿主。
+    takeover: false,
+    // 超时后交回宿主原生弹窗。
+    waitMs: 15000,
+    notify: 'whenHidden',
+    hotkeys: {
+      allow: 'Ctrl+Alt+Y',
+      deny: 'Ctrl+Alt+N',
+    },
+  },
+  ingest: {
+    enabled: true,
+  },
+  // 只影响 fox-dock 自己的 live-sessions 缓存，不删宿主数据。
+  retentionDays: 30,
+  // 跨 agent 的自定义 agent 上限由 ingest 层维护；这里只留开关。
+  onboarded: false,
   // 每个 agent 一份档案；键是适配器 id
   profiles: {},
   // 宠物状态机（持久化，重启后按身份键恢复）
@@ -257,6 +291,17 @@ export function normalizeSettings(raw) {
   const theme = pickEnum(r.theme, THEMES, DEFAULTS.theme)
   const displayMode = pickEnum(r.displayMode, DISPLAY_MODES, DEFAULTS.displayMode)
   const hot = r.hotkeys && typeof r.hotkeys === 'object' ? r.hotkeys : {}
+  // 升级迁移：旧设置文件没有 autoRoleByModel 字段，但 profiles 里已有手动
+  // 选角。默认 true 会在升级后用模型族角色覆盖这些手动选择；把这类历史
+  // 配置视为 opt-out（false）。新装（无手动 profile）仍保持默认 true。
+  const rawProfiles = r.profiles && typeof r.profiles === 'object' ? r.profiles : {}
+  const hasManualProfileRole = Object.values(rawProfiles).some(
+    (p) => p && typeof p === 'object' && typeof p.roleId === 'string' && p.roleId
+  )
+  const autoRoleByModel =
+    r.autoRoleByModel === undefined && hasManualProfileRole
+      ? false
+      : bool(r.autoRoleByModel, DEFAULTS.autoRoleByModel)
   return {
     schema: SCHEMA,
     roleId,
@@ -271,6 +316,7 @@ export function normalizeSettings(raw) {
     turnBubble: bool(r.turnBubble, DEFAULTS.turnBubble),
     turnBubbleMs: Math.round(clampNum(r.turnBubbleMs, 2000, 15000, DEFAULTS.turnBubbleMs)),
     budgetMoney: Math.round(clampNum(r.budgetMoney, 0, 1000000, DEFAULTS.budgetMoney) * 100) / 100,
+    budgetCredit: Math.round(clampNum(r.budgetCredit, 0, 1000000, DEFAULTS.budgetCredit) * 100) / 100,
     weeklyBudget: Math.round(clampNum(r.weeklyBudget, 0, 10000000, DEFAULTS.weeklyBudget) * 100) / 100,
     monthlyBudget: Math.round(clampNum(r.monthlyBudget, 0, 100000000, DEFAULTS.monthlyBudget) * 100) / 100,
     quotaWarnPct: Math.round(clampNum(r.quotaWarnPct, 0, 100, DEFAULTS.quotaWarnPct)),
@@ -281,9 +327,11 @@ export function normalizeSettings(raw) {
     theme,
     displayMode,
     autoRole: bool(r.autoRole, DEFAULTS.autoRole),
+    autoRoleByModel,
     rolesByAdapter: normalizeRolesByAdapter(r.rolesByAdapter),
     showWeek: bool(r.showWeek, DEFAULTS.showWeek),
     petMode: bool(r.petMode, DEFAULTS.petMode),
+    fallbackCorner: pickEnum(r.fallbackCorner, FALLBACK_CORNERS, DEFAULTS.fallbackCorner),
     autoAttachNewAgent: bool(r.autoAttachNewAgent, DEFAULTS.autoAttachNewAgent),
     reattachOnRestart: bool(r.reattachOnRestart, DEFAULTS.reattachOnRestart),
     floatingData: pickEnum(r.floatingData, FLOATING_DATA, DEFAULTS.floatingData),
@@ -301,18 +349,44 @@ export function normalizeSettings(raw) {
       console: normalizeHotkey(hot.console, DEFAULTS.hotkeys.console),
       hideMoney: normalizeHotkey(hot.hideMoney, DEFAULTS.hotkeys.hideMoney),
     },
+    live: { enabled: bool(r.live && r.live.enabled, DEFAULTS.live.enabled) },
+    permission: normalizePermission(r.permission),
+    ingest: { enabled: bool(r.ingest && r.ingest.enabled, DEFAULTS.ingest.enabled) },
+    retentionDays: pickNumber(r.retentionDays, RETENTION_DAYS, DEFAULTS.retentionDays),
+    onboarded: bool(r.onboarded, DEFAULTS.onboarded),
     profiles: normalizeProfiles(r.profiles),
     pet: normalizePet(r.pet),
+  }
+}
+
+function pickNumber(value, allowed, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return allowed.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best), fallback)
+}
+
+function normalizePermission(raw) {
+  const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  const hot = r.hotkeys && typeof r.hotkeys === 'object' ? r.hotkeys : {}
+  return {
+    takeover: bool(r.takeover, DEFAULTS.permission.takeover) === true,
+    waitMs: pickNumber(r.waitMs, PERMISSION_WAIT_MS, DEFAULTS.permission.waitMs),
+    notify: pickEnum(r.notify, PERMISSION_NOTIFY, DEFAULTS.permission.notify),
+    hotkeys: {
+      allow: normalizeHotkey(hot.allow, DEFAULTS.permission.hotkeys.allow),
+      deny: normalizeHotkey(hot.deny, DEFAULTS.permission.hotkeys.deny),
+    },
   }
 }
 
 function normalizeHotkey(v, fallback) {
   // 缺省（字段不存在）用默认键；显式空串表示用户关闭了这个热键。
   if (v == null) return fallback
-  const s = String(v).trim()
+  const s = String(v).trim().replace(/\bWin\b/gi, 'Super')
   if (!s) return ''
-  // 只收 Electron accelerator 的安全子集，避免写进全局热键时抛错
-  if (!/^(Ctrl|Alt|Shift|Super)(\+(Ctrl|Alt|Shift|Super))*\+([A-Z0-9]|F[1-9]|F1[0-2])$/i.test(s)) return fallback
+  // 只收 Electron accelerator 的安全子集，避免写进全局热键时抛错。
+  // 允许 Ctrl/Alt/Shift/Super + 字母数字或 F1–F24（D039 权限热键需要）。
+  if (!/^(Ctrl|Alt|Shift|Super)(\+(Ctrl|Alt|Shift|Super))*\+([A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4]))$/i.test(s)) return fallback
   return s.slice(0, 60)
 }
 
@@ -356,12 +430,14 @@ function writeAtomic(file, value) {
   fs.renameSync(tmp, file)
 }
 
-// v1 → v2：只做一次，备份坏不了原文件。
+// v1/v2 → v3：只做一次，备份坏不了原文件。老 schema 文件必须无损升级：
+// 已有字段原样保留，新字段补默认值。
 export function migrateSettingsFile(file) {
   const raw = readRaw(file)
   if (!raw || raw.schema === SCHEMA) return false
+  const from = raw.schema == null ? 1 : Number(raw.schema) === 1 ? 1 : 2
   try {
-    const backup = file + '.v1.bak'
+    const backup = file + '.v' + from + '.bak'
     if (!fs.existsSync(backup)) fs.copyFileSync(file, backup)
   } catch (err) {}
   writeAtomic(file, normalizeSettings(raw))
@@ -396,6 +472,15 @@ export function writeSettings(file, patch) {
   if (p.profiles && typeof p.profiles === 'object') nextRaw.profiles = mergeProfiles(cur.profiles, p.profiles)
   if (p.hotkeys && typeof p.hotkeys === 'object') nextRaw.hotkeys = { ...cur.hotkeys, ...p.hotkeys }
   if (p.pet && typeof p.pet === 'object') nextRaw.pet = { ...cur.pet, ...p.pet }
+  if (p.live && typeof p.live === 'object') nextRaw.live = { ...cur.live, ...p.live }
+  if (p.ingest && typeof p.ingest === 'object') nextRaw.ingest = { ...cur.ingest, ...p.ingest }
+  if (p.permission && typeof p.permission === 'object') {
+    nextRaw.permission = {
+      ...cur.permission,
+      ...p.permission,
+      hotkeys: { ...(cur.permission && cur.permission.hotkeys), ...(p.permission.hotkeys || {}) },
+    }
+  }
   const next = normalizeSettings(nextRaw)
   writeAtomic(file, next)
   return next

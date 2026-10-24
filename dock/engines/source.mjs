@@ -17,6 +17,13 @@ const SOURCE_DEFS = {
   // CommandCode 套餐（月度池 + 5小时/周窗口；反代或官方 API provider 接入）：
   // 主显示走三重额度卡片；行级计价仍按模型名走 pricing（per-call 真金白银口径另议）
   cmdgo: { source: 'cmdgo', vendor: 'commandcode', label: 'CommandCode', currency: 'USD', timeMode: 'none' },
+  // 已确认专用接入路径的火山 Plan（订阅窗口 5小时/周/月）：与 cmdgo 同款
+  // 预付池口径——托管模型名（deepseek-v3 / glm-4…）不指向真实按量账单，金额必须归零
+  //（1.x v1.16.1 同款分流：按官方 Base URL 路径区分订阅与按量，迁移于 dock 2.0）
+  volc: { source: 'volc', vendor: 'volc', label: '火山 Plan', currency: 'CNY', timeMode: 'none' },
+  // 火山方舟按量（ark.*.volces.com /api/v3）：平台域名只证明平台，不证明订阅；
+  // 保留 Ark 平台身份，避免托管模型被按模型名归到原厂的按量账单
+  'volc-api': { source: 'volc-api', vendor: 'volc', label: '火山方舟', currency: 'CNY', timeMode: 'none' },
   glm: { source: 'glm', vendor: 'glm', label: 'GLM 按量', currency: 'CNY', timeMode: 'none' },
   ds: { source: 'ds', vendor: 'deepseek', label: 'DeepSeek 余额', currency: 'CNY', timeMode: 'peak-valley' },
   'mimo-api': { source: 'mimo-api', vendor: 'mimo', label: 'MiMo API', currency: 'CNY', timeMode: 'none' },
@@ -49,12 +56,40 @@ function modelBasename(modelId) {
   return slash === -1 ? m : m.slice(slash + 1)
 }
 
+function isVolcHost(host) {
+  return ['volces.com', 'volcengineapi.com'].some((domain) => host === domain || host.endsWith('.' + domain))
+}
+
+// 只信任已核实的官方直连地址；域名家族只证明平台，不能证明套餐。
+// 不接受 query/hash/userinfo/非默认端口，避免代理参数或非标准入口误判订阅。
+export function volcModeByUrl(baseUrl) {
+  try {
+    const u = new URL(String(baseUrl || '').trim())
+    if (u.protocol !== 'https:' || u.hostname !== 'ark.cn-beijing.volces.com' ||
+        u.port || u.username || u.password || u.search || u.hash) return 'unknown'
+    const pathname = u.pathname.replace(/\/+$/, '')
+    if (pathname === '/api/v3') return 'api'
+    if (pathname === '/api/coding' || pathname === '/api/coding/v3') return 'coding'
+    if (pathname === '/api/plan' || pathname === '/api/plan/v3') return 'agent'
+  } catch (err) {}
+  return 'unknown'
+}
+
+function isGlmPlanProvider(pid) {
+  // 火山套餐由官方 URL 路径判定（volcModeByUrl）；providerId 里的 coding-plan
+  // 不再作为 GLM 套餐证据排除火山（如 volc-engineering 供应商命名会误吞）。
+  return pid.includes('start-plan') || pid.includes('zcode-plan') ||
+    (pid.includes('coding-plan') && !pid.includes('volc'))
+}
+
 function sourceByHost(host) {
   if (!host) return null
   // MiMo 双端点：Token Plan 与按量 API 是两个不同域名，先精确后模糊
   if (host === 'token-plan-cn.xiaomimimo.com' || host.startsWith('token-plan')) return 'mimo-plan'
   if (host.endsWith('xiaomimimo.com') || host === 'mimo.mi.com' || host.endsWith('.mimo.mi.com')) return 'mimo-api'
   if (host === 'api.deepseek.com' || host.endsWith('.deepseek.com')) return 'ds'
+  // 平台域名不证明订阅；先保留 Ark 平台身份，避免托管模型被归到原厂。
+  if (isVolcHost(host)) return 'volc-api'
   if (host === 'open.bigmodel.cn' || host.endsWith('.bigmodel.cn') || host === 'api.z.ai' || host.endsWith('.z.ai')) return 'glm'
   if (host === 'api.openai.com' || host.endsWith('.openai.com')) return 'openai'
   if (host === 'api.anthropic.com' || host.endsWith('.anthropic.com') || host === 'claude.ai' || host.endsWith('.claude.ai')) return 'claude'
@@ -69,7 +104,7 @@ function sourceByHost(host) {
 
 function sourceByProviderId(pid) {
   if (!pid) return null
-  if (pid.indexOf('start-plan') !== -1 || pid.indexOf('coding-plan') !== -1 || pid.indexOf('zcode-plan') !== -1) return 'plan'
+  if (isGlmPlanProvider(pid)) return 'plan'
   if (pid.indexOf('bigmodel') !== -1 || pid.indexOf('zhipu') !== -1 || pid.indexOf('glm') !== -1 || pid.indexOf('zai') !== -1) return 'glm'
   if (pid.indexOf('deepseek') !== -1) return 'ds'
   if (pid.indexOf('mimo') !== -1 || pid.indexOf('xiaomi') !== -1) return 'mimo-api'
@@ -103,8 +138,24 @@ function sourceByModel(modelId) {
 export function resolveBillingSource(providerId, modelId, baseUrl, opts) {
   const pid = String(providerId || '').trim().toLowerCase()
   let source = null
+  // 0) 火山平台订阅/按量分流（1.x v1.16.1 同款）：ark 官方 Base URL 的路径能
+  //    证明套餐——/api/coding、/api/plan 是订阅窗口（金额记 0、配额看 volc-plan
+  //    卡），/api/v3 与其余路径是按量（真金白银）。域名家族命中时 providerId 不再
+  //    参与猜测（仅用于查配置）：接入的 providerId 可能是无关键词的 UUID，也可能
+  //    恰好带 coding-plan 字样，都不能推翻官方路径的事实。
+  const hostSource0 = sourceByHost(hostnameOf(baseUrl))
+  if (hostSource0 === 'volc-api') {
+    const volcMode = volcModeByUrl(baseUrl)
+    const plan = volcMode === 'coding' || volcMode === 'agent'
+    return {
+      ...sourceDef(plan ? 'volc' : 'volc-api'),
+      volcMode,
+      ...(plan ? { planType: volcMode, label: volcMode === 'coding' ? '火山 Coding Plan' : '火山 Agent Plan' } : {}),
+    }
+  }
   // 1) 订阅/套餐型 provider 优先：走配额口径，不看它挂什么域名
-  if (pid && (pid.indexOf('start-plan') !== -1 || pid.indexOf('coding-plan') !== -1)) source = 'plan'
+  //    （isGlmPlanProvider 排除 volc：火山套餐由上面的官方 URL 路径判定）
+  if (pid && isGlmPlanProvider(pid)) source = 'plan'
   // 1.5) CommandCode 套餐（反代或官方 API provider）：额度口径，但不改行级计价
   //      （仍按模型）。官方 API 的 providerId 形如 `commandcode-goat-1`，不含
   //      `cmdgo`，必须单独认，否则会按模型名被算成 OpenAI/DeepSeek 的真金白银。

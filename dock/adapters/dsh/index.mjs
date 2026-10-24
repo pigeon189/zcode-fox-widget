@@ -10,6 +10,15 @@ import { readDshwLedger, scanDshUsage } from './sessions.mjs'
 import { listDshSessions, readDshContext } from './context.mjs'
 import { periodFor } from '../../engines/pricing.mjs'
 import { readDshStats } from './stats.mjs'
+import {
+  getLiveStatus as readDshLive,
+  getSessionDetail as readDshSessionDetail,
+  getSessions as readDshSessions,
+  readToolUsageRows as readDshToolRows,
+  readUsageRows as readDshUsageRows,
+} from './live.mjs'
+import { prov, unavailable } from '../../shared/provenance.mjs'
+import { PRICING_SNAPSHOT_DATE } from '../../shared/pricing-meta.mjs'
 
 function fmtTokens(n) {
   const v = Number(n) || 0
@@ -34,7 +43,13 @@ export const dshAdapter = {
     exeBasenames: ['deepseek harness.exe'],
     exeIncludes: ['/dsh-windows/'],
   },
-  capabilities: { billing: true, follow: true, context: true, stats: true },
+  capabilities: {
+    billing: true,
+    follow: true,
+    context: true,
+    stats: true,
+    sessions: { list: true, detail: true, live: true, actions: [] },
+  },
 
   getStats(opts = {}) {
     return readDshStats(opts)
@@ -46,6 +61,26 @@ export const dshAdapter = {
 
   listSessions(opts = {}) {
     return listDshSessions(opts)
+  },
+
+  getSessions(opts = {}) {
+    return readDshSessions(opts)
+  },
+
+  getSessionDetail(sessionId, opts = {}) {
+    return readDshSessionDetail(sessionId, opts)
+  },
+
+  getLiveStatus(opts = {}) {
+    return readDshLive(opts)
+  },
+
+  readUsageRows(opts = {}) {
+    return readDshUsageRows(opts)
+  },
+
+  readToolUsageRows(opts = {}) {
+    return readDshToolRows(opts)
   },
 
   createBilling(ctx = {}) {
@@ -168,6 +203,35 @@ export const dshAdapter = {
           usage: {
             todayTokens: today ? today.tokens : 0,
             turnTokens: turn ? turn.tokens : 0,
+          },
+          provenance: {
+            today:
+              todaySource === 'dsh:sessions'
+                ? prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' deepseek', {
+                    asOf: now(),
+                    note: 'token × 价目表（DeepSeek 峰谷）',
+                  })
+                : today
+                  ? prov('estimated', 'user', 'dsh:.dshw-usage.json', {
+                      asOf: now(),
+                      note: '旧账本余额差，仅金额、不含 tokens',
+                    })
+                  : unavailable('no-data', 'dsh:sessions', 'local-log'),
+            turn: turn
+              ? prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' deepseek', {
+                  asOf: now(),
+                  note: 'token × 价目表',
+                })
+              : unavailable('no-data', 'dsh:sessions', 'local-log'),
+            balance: balance.ok
+              ? prov('exact', 'api', 'api.deepseek.com/user/balance')
+              : unavailable('auth', 'api.deepseek.com/user/balance', 'api'),
+            quota: balance.ok
+              ? prov('exact', 'api', 'api.deepseek.com/user/balance')
+              : unavailable('auth', 'api.deepseek.com/user/balance', 'api'),
+            usage: sessions.ok
+              ? prov('exact', 'local-log', 'dsh:sessions')
+              : unavailable('no-data', 'dsh:sessions', 'local-log'),
           },
           source: todaySource + (balance.ok ? ' + api.deepseek.com' : ''),
         }

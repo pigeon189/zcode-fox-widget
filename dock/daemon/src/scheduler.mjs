@@ -30,7 +30,8 @@ export function createContextScheduler({
 
   function fingerprint(ctx) {
     if (!ctx) return ''
-    return [ctx.supported, ctx.sessionId, ctx.used, ctx.limit, ctx.pct, ctx.updatedAt, ctx.reason || ''].join('|')
+    const compaction = ctx.compaction ? ctx.compaction.lastAt || '' : ''
+    return [ctx.supported, ctx.sessionId, ctx.used, ctx.limit, ctx.pct, ctx.updatedAt, compaction, ctx.reason || ''].join('|')
   }
 
   async function tick() {

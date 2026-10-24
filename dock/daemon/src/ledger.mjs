@@ -77,6 +77,15 @@ export function recordSnapshot(file, { adapterId, adapterName, snapshot, now }) 
     amounts,
     // token 是同一口径下的量纲补充（金额/积分/百分比仍各自成组）
     tokens: Math.max(0, Math.round(Number(snapshot.usage && snapshot.usage.todayTokens) || 0)),
+    // D033：账本行也携带来源，供用量页/导出如实标注。
+    prov:
+      (snapshot.provenance && snapshot.provenance.today) || {
+        kind: 'estimated',
+        origin: 'unknown',
+        source: String(snapshot.source || ''),
+        asOf: Number(now) || Date.now(),
+        note: '旧记录未声明来源',
+      },
     at: Number(now) || Date.now(),
   }
   prune(ledger, now)
@@ -96,7 +105,7 @@ function groupsOf(dayEntry) {
       }
       g.amount += Number(amt) || 0
       g.tokens += Number(row.tokens) || 0
-      g.adapters.push({ id, name: row.name, amount: Number(amt) || 0, tokens: Number(row.tokens) || 0 })
+      g.adapters.push({ id, name: row.name, amount: Number(amt) || 0, tokens: Number(row.tokens) || 0, prov: row.prov || null })
     }
   }
   return [...groups.values()]

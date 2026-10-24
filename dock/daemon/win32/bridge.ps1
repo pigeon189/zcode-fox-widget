@@ -8,7 +8,8 @@ $ErrorActionPreference = 'Stop'
 # Protocol (one line in, one line JSON out):
 #   snapshot                 -> {"ok":true,"windows":[...]}
 #   hit <x> <y> [excludePid] -> {"ok":true,"hits":[...]}   (top 5, z-order)
-#   rect <hwndHex>           -> {"ok":true,"rect":{...}}
+#   rect <hwndHex>           -> {"ok":true,"rect":{...},"bg":bool}
+#   focus <hwndHex>          -> {"ok":true,"method":"foreground|flash"}
 #   cursor                   -> {"ok":true,"x":..,"y":..}
 #   ping                     -> {"ok":true}
 #   quit                     -> exits
@@ -43,6 +44,28 @@ public static class FoxWin32
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint attach, uint attachTo, bool on);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] static extern bool FlashWindowEx(ref FLASHWINFO info);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FLASHWINFO
+    {
+        public uint cbSize;
+        public IntPtr hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
+    }
+
+    const int SW_RESTORE = 9;
+    const uint FLASHW_ALL = 3;
+    const uint FLASHW_TIMERNOFG = 12;
 
     [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool QueryFullProcessImageNameW(IntPtr h, int flags, StringBuilder sb, ref int size);
@@ -222,7 +245,56 @@ public static class FoxWin32
         int hh = r.Bottom - r.Top;
         if (w <= 0 || hh <= 0 || r.Left <= -30000 || r.Top <= -30000)
             return "{\"ok\":false,\"reason\":\"offscreen\"}";
-        return "{\"ok\":true,\"rect\":{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + w + ",\"h\":" + hh + "}}";
+        // "bg": the window is alive but not in foreground (user switched away,
+        // or it is fully covered by another window). A foreground window of the
+        // SAME process (host settings dialog etc.) still counts as "in use".
+        // Keep this comment ASCII (PS 5.1 reads BOM-less scripts in ANSI).
+        IntPtr fg = GetForegroundWindow();
+        uint hostPid;
+        GetWindowThreadProcessId(h, out hostPid);
+        uint fgPid;
+        GetWindowThreadProcessId(fg, out fgPid);
+        bool bg = fg != h && fgPid != hostPid;
+        return "{\"ok\":true,\"bg\":" + (bg ? "true" : "false")
+          + ",\"rect\":{\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"w\":" + w + ",\"h\":" + hh + "}}";
+    }
+
+    public static string Focus(string hwndHex)
+    {
+        long raw;
+        if (!long.TryParse(hwndHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out raw))
+            return "{\"ok\":false,\"error\":\"bad-hwnd\"}";
+        IntPtr h = new IntPtr(raw);
+        if (!IsWindow(h)) return "{\"ok\":false,\"error\":\"window-not-found\"}";
+        if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+
+        IntPtr fg = GetForegroundWindow();
+        uint fgPid;
+        uint fgTid = GetWindowThreadProcessId(fg, out fgPid);
+        uint curTid = GetCurrentThreadId();
+        bool attached = false;
+        if (fgTid != 0 && fgTid != curTid)
+        {
+            attached = AttachThreadInput(curTid, fgTid, true);
+        }
+        bool ok = SetForegroundWindow(h);
+        BringWindowToTop(h);
+        if (attached) AttachThreadInput(curTid, fgTid, false);
+
+        if (ok && GetForegroundWindow() == h)
+            return "{\"ok\":true,\"method\":\"foreground\"}";
+
+        // Foreground lock: fall back to flashing the taskbar button. Never
+        // pretend the switch succeeded.
+        var fi = new FLASHWINFO();
+        fi.cbSize = (uint)Marshal.SizeOf(typeof(FLASHWINFO));
+        fi.hwnd = h;
+        fi.dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG;
+        fi.uCount = 4;
+        fi.dwTimeout = 0;
+        bool flashed = FlashWindowEx(ref fi);
+        if (flashed) return "{\"ok\":true,\"method\":\"flash\"}";
+        return "{\"ok\":false,\"error\":\"focus-failed\"}";
     }
 }
 '@
@@ -264,6 +336,9 @@ while ($true) {
         }
         elseif ($line -match '^rect\s+([0-9a-fA-F]+)$') {
             $out.WriteLine([FoxWin32]::Rect($Matches[1]))
+        }
+        elseif ($line -match '^focus\s+([0-9a-fA-F]+)$') {
+            $out.WriteLine([FoxWin32]::Focus($Matches[1]))
         }
         else {
             $out.WriteLine('{"ok":false,"error":"unknown-command"}')

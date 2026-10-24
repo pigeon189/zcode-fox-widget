@@ -115,10 +115,19 @@ export function readWorkbuddyStats(opts = {}) {
   const uses = []
   const calls = []
   const results = []
+  const heatUses = []
+  const heatCalls = []
+  const heatSince = since > 0 ? Math.max(0, now - 371 * 86400000) : since
   for (const f of listed.files) {
     const parsed = parseFile(f.path)
-    for (const u of parsed.uses) if (inRange(u.ts, since, until)) uses.push(u)
-    for (const c of parsed.calls) if (inRange(c.ts, since, until)) calls.push(c)
+    for (const u of parsed.uses) {
+      if (inRange(u.ts, since, until)) uses.push(u)
+      if (heatSince !== since && inRange(u.ts, heatSince, until)) heatUses.push(u)
+    }
+    for (const c of parsed.calls) {
+      if (inRange(c.ts, since, until)) calls.push(c)
+      if (heatSince !== since && inRange(c.ts, heatSince, until)) heatCalls.push(c)
+    }
     for (const r of parsed.results) if (inRange(r.ts, since, until)) results.push(r)
   }
 
@@ -229,6 +238,30 @@ export function readWorkbuddyStats(opts = {}) {
     avgDurationMs: t.timed ? t.totalMs / t.timed : null,
   }))
 
+  let heatmapDays
+  if (heatSince !== since) {
+    const heatMap = new Map()
+    const heatTurns = new Map()
+    const rowOf = (day) => {
+      let d = heatMap.get(day)
+      if (!d) {
+        d = { dayIndex: day, totalTokens: 0, turnCount: 0, toolCallCount: 0 }
+        heatMap.set(day, d)
+      }
+      return d
+    }
+    for (const u of heatUses) {
+      const day = dayIndexOf(u.ts, offset)
+      rowOf(day).totalTokens += u.total
+      let set = heatTurns.get(day)
+      if (!set) heatTurns.set(day, (set = new Set()))
+      set.add(u.rid || 'ts' + u.ts)
+    }
+    for (const c of heatCalls) rowOf(dayIndexOf(c.ts, offset)).toolCallCount += 1
+    for (const [day, set] of heatTurns) rowOf(day).turnCount = set.size
+    heatmapDays = [...heatMap.values()]
+  }
+
   return buildStats({
     range,
     now,
@@ -249,6 +282,7 @@ export function readWorkbuddyStats(opts = {}) {
     models: [...modelMap.values()].map((m) => ({ ...m, credits: Math.round(m.credits * 10000) / 10000 })),
     toolList,
     days: [...dayMap.values()],
+    heatmapDays,
     dayModels: [...dayModelMap.entries()].flatMap(([dayIndex, byModel]) =>
       [...byModel.entries()].map(([modelId, totalTokens]) => ({ dayIndex, modelId, totalTokens }))
     ),

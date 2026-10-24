@@ -11,6 +11,14 @@
 import { readKimiStatus } from './usage.mjs'
 import { listKimiSessions, readKimiContext } from './context.mjs'
 import { readKimiStats } from './stats.mjs'
+import {
+  getLiveStatus as readKimiLive,
+  getSessionDetail as readKimiSessionDetail,
+  getSessions as readKimiSessions,
+  readToolUsageRows as readKimiToolRows,
+  readUsageRows as readKimiUsageRows,
+} from './sessions.mjs'
+import { prov, unavailable } from '../../shared/provenance.mjs'
 
 function worstWindow(windows) {
   let used = 0
@@ -43,7 +51,13 @@ export const kimiAdapter = {
     exeBasenames: ['kimi code.exe'],
     exeIncludes: ['/kimicode/'],
   },
-  capabilities: { billing: true, follow: true, context: true, stats: false },
+  capabilities: {
+    billing: true,
+    follow: true,
+    context: true,
+    stats: false,
+    sessions: { list: true, detail: true, live: true, actions: [] },
+  },
 
   getStats(opts = {}) {
     return readKimiStats(opts)
@@ -55,6 +69,26 @@ export const kimiAdapter = {
 
   listSessions(opts = {}) {
     return listKimiSessions(opts)
+  },
+
+  getSessions(opts = {}) {
+    return readKimiSessions(opts)
+  },
+
+  getSessionDetail(sessionId, opts = {}) {
+    return readKimiSessionDetail(sessionId, opts)
+  },
+
+  getLiveStatus(opts = {}) {
+    return readKimiLive(opts)
+  },
+
+  readUsageRows(opts = {}) {
+    return readKimiUsageRows(opts)
+  },
+
+  readToolUsageRows(opts = {}) {
+    return readKimiToolRows(opts)
   },
 
   createBilling(ctx = {}) {
@@ -99,13 +133,21 @@ export const kimiAdapter = {
                 usedPct: w.usedPct,
                 remainingPct: w.remainingPct,
                 resetAt: w.resetAt,
+                prov: prov('exact', 'api', 'kimi:/coding/v1/usages'),
               })),
               note: '额度来自 Kimi Code /coding/v1/usages；窗口与客户端显示同源。',
             },
             details,
             plan,
             account,
-            usage: { todayTokens: 0, turnTokens: 0 },
+            usage: { todayTokens: null, turnTokens: null },
+            provenance: {
+              today: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+              turn: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+              balance: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+              quota: prov('exact', 'api', 'kimi:/coding/v1/usages'),
+              usage: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+            },
             source: 'kimi:/coding/v1/usages',
           }
         }
@@ -127,7 +169,14 @@ export const kimiAdapter = {
             details,
             plan,
             account,
-            usage: { todayTokens: 0, turnTokens: 0 },
+            usage: { todayTokens: null, turnTokens: null },
+            provenance: {
+              today: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+              turn: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+              balance: prov('exact', 'api', 'kimi:/coding/v1/usages'),
+              quota: unavailable('no-data', 'kimi:/coding/v1/usages', 'api'),
+              usage: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+            },
             source: 'kimi:/coding/v1/usages',
           }
         }
@@ -148,7 +197,14 @@ export const kimiAdapter = {
           details,
           plan,
           account,
-          usage: { todayTokens: 0, turnTokens: 0 },
+          usage: { todayTokens: null, turnTokens: null },
+          provenance: {
+            today: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+            turn: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+            balance: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+            quota: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+            usage: unavailable('host-unsupported', 'kimi:/coding/v1/usages', 'api'),
+          },
           source: 'kimi:/coding/v1/usages',
         }
       },

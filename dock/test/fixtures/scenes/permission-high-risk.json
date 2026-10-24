@@ -1,0 +1,536 @@
+{
+  "state": {
+    "pet": {
+      "mode": "attached",
+      "agentId": "zcode",
+      "lastAgentId": "zcode",
+      "profileOf": "zcode",
+      "hwnd": "0x1",
+      "rect": null,
+      "display": null
+    },
+    "agents": [
+      {
+        "id": "zcode",
+        "name": "ZCode",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x1",
+            "pid": 100,
+            "title": "TianShu v0.2"
+          }
+        ],
+        "accent": "#f0a04b",
+        "roleDefault": "fox",
+        "context": true
+      },
+      {
+        "id": "workbuddy",
+        "name": "WorkBuddy",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x2",
+            "pid": 200,
+            "title": "WorkBuddy"
+          }
+        ],
+        "accent": "#22b8a0",
+        "roleDefault": "xiaoke",
+        "context": true
+      },
+      {
+        "id": "kimi",
+        "name": "Kimi Code",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x3",
+            "pid": 300,
+            "title": "Kimi Code"
+          }
+        ],
+        "accent": "#b07cff",
+        "roleDefault": "kimi",
+        "context": true
+      },
+      {
+        "id": "dsh",
+        "name": "DeepSeek Harness",
+        "running": true,
+        "windows": [
+          {
+            "hwnd": "0x4",
+            "pid": 400,
+            "title": "DeepSeek Harness"
+          }
+        ],
+        "accent": "#4d6bfe",
+        "roleDefault": "whale",
+        "context": true
+      }
+    ],
+    "live": {
+      "aggregate": "waiting_permission",
+      "counts": {
+        "working": 0,
+        "waiting": 1,
+        "waiting_permission": 1,
+        "waiting_input": 0,
+        "error": 0,
+        "done": 0,
+        "idle": 0,
+        "unknown": 0
+      },
+      "byAgent": {
+        "zcode": {
+          "working": 0,
+          "waiting": 1,
+          "error": 0,
+          "done": 0,
+          "total": 1,
+          "lastAt": 1792555140000
+        }
+      }
+    }
+  },
+  "agents": [
+    {
+      "id": "zcode",
+      "name": "ZCode",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x1",
+          "pid": 100,
+          "title": "TianShu v0.2"
+        }
+      ],
+      "accent": "#f0a04b",
+      "roleDefault": "fox",
+      "context": true
+    },
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x2",
+          "pid": 200,
+          "title": "WorkBuddy"
+        }
+      ],
+      "accent": "#22b8a0",
+      "roleDefault": "xiaoke",
+      "context": true
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x3",
+          "pid": 300,
+          "title": "Kimi Code"
+        }
+      ],
+      "accent": "#b07cff",
+      "roleDefault": "kimi",
+      "context": true
+    },
+    {
+      "id": "dsh",
+      "name": "DeepSeek Harness",
+      "running": true,
+      "windows": [
+        {
+          "hwnd": "0x4",
+          "pid": 400,
+          "title": "DeepSeek Harness"
+        }
+      ],
+      "accent": "#4d6bfe",
+      "roleDefault": "whale",
+      "context": true
+    }
+  ],
+  "snapshots": {
+    "zcode": {
+      "ok": true,
+      "supported": true,
+      "unit": "money",
+      "capturedAt": 1792555200000,
+      "today": {
+        "amount": 12.34,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 12.34
+        }
+      },
+      "turn": {
+        "amount": 0.28,
+        "currency": "CNY",
+        "byCurrency": {
+          "CNY": 0.28
+        },
+        "at": 1792555140000
+      },
+      "balance": {
+        "amount": 63.2,
+        "currency": "CNY"
+      },
+      "quota": {
+        "usedPct": 28,
+        "remainingPct": 72
+      },
+      "quotaCard": {
+        "kind": "windows",
+        "title": "GLM Plan",
+        "plan": "GLM Plan",
+        "source": "zplan",
+        "windows": [
+          {
+            "key": "5h",
+            "label": "5 小时",
+            "usedPct": 28,
+            "remainingPct": 72,
+            "resetAt": 1792566000000,
+            "prov": {
+              "kind": "exact",
+              "origin": "api",
+              "source": "vendor:zplan",
+              "asOf": 1792555200000
+            }
+          },
+          {
+            "key": "week",
+            "label": "本周",
+            "usedPct": 42,
+            "remainingPct": 58,
+            "resetAt": 1792728000000,
+            "prov": {
+              "kind": "exact",
+              "origin": "api",
+              "source": "vendor:zplan",
+              "asOf": 1792555200000
+            }
+          }
+        ]
+      },
+      "details": [
+        {
+          "label": "今日 tokens",
+          "value": "2.40M"
+        },
+        {
+          "label": "当前厂商",
+          "value": "GLM Plan"
+        }
+      ],
+      "period": null,
+      "source": "zcode:db.sqlite",
+      "usage": {
+        "todayTokens": 2400000,
+        "turnTokens": 180000
+      },
+      "provenance": {
+        "today": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 GLM 谷",
+          "asOf": 1792555200000
+        },
+        "turn": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 GLM 谷",
+          "asOf": 1792555200000
+        },
+        "balance": {
+          "kind": "exact",
+          "origin": "api",
+          "source": "vendor:zplan",
+          "asOf": 1792555200000
+        },
+        "quota": {
+          "kind": "exact",
+          "origin": "api",
+          "source": "vendor:zplan",
+          "asOf": 1792555200000
+        },
+        "usage": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite#model_usage",
+          "asOf": 1792555200000
+        }
+      }
+    }
+  },
+  "contexts": {
+    "zcode": {
+      "supported": true,
+      "confidence": "exact",
+      "sessionId": "ses_parent",
+      "title": "重构 billing 适配器",
+      "model": "deepseek-v4.1-flash",
+      "used": 475318,
+      "limit": 1000000,
+      "limitSource": "host",
+      "pct": 47.5,
+      "breakdown": {
+        "input": 20000,
+        "cacheRead": 400000,
+        "output": 30000
+      },
+      "points": [
+        {
+          "t": 1792551600000,
+          "used": 300000
+        },
+        {
+          "t": 1792552800000,
+          "used": 380000
+        },
+        {
+          "t": 1792554000000,
+          "used": 430000
+        },
+        {
+          "t": 1792554600000,
+          "used": 475318
+        }
+      ],
+      "updatedAt": 1792555200000,
+      "provenance": {
+        "used": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite#model_usage",
+          "asOf": 1792555200000
+        },
+        "limit": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "zcode:db.sqlite",
+          "asOf": 1792555200000
+        }
+      }
+    }
+  },
+  "liveSessions": [
+    {
+      "key": "zcode:ses_high",
+      "agentId": "zcode",
+      "sessionId": "ses_high",
+      "parentKey": null,
+      "title": "危险命令确认",
+      "cwd": "",
+      "model": "glm-5.3",
+      "provider": "",
+      "status": "waiting_permission",
+      "statusSince": 1792555080000,
+      "statusSource": "db",
+      "startedAt": 1792551600000,
+      "updatedAt": 1792555140000,
+      "endedAt": null,
+      "turns": {
+        "count": 2,
+        "current": null,
+        "avgDurationMs": 42000
+      },
+      "tokens": {
+        "total": 2200,
+        "input": 1540,
+        "output": 660,
+        "cacheRead": 880,
+        "cacheWrite": null,
+        "reasoning": null
+      },
+      "cost": {
+        "amount": 0.02,
+        "currency": "CNY",
+        "unit": "money"
+      },
+      "tools": {
+        "calls": 4,
+        "errors": 0,
+        "running": []
+      },
+      "errors": {
+        "model": 0,
+        "tool": 0,
+        "last": null
+      },
+      "pending": [
+        {
+          "id": "req_high_0000000000001",
+          "kind": "permission",
+          "agentId": "zcode",
+          "sessionKey": "zcode:ses_high",
+          "tool": "Bash",
+          "preview": "rm -rf build/\nrm -rf dist/\nsudo rm -rf /tmp/cache",
+          "risk": "high",
+          "createdAt": 1792555199000,
+          "expiresAt": 1792555214000,
+          "state": "pending"
+        }
+      ],
+      "provenance": {
+        "tokens": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "fixture#zcode",
+          "asOf": 1792555200000
+        },
+        "cost": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 fixture",
+          "asOf": 1792555200000
+        },
+        "status": {
+          "kind": "exact",
+          "origin": "db",
+          "source": "fixture#status",
+          "asOf": 1792555200000
+        },
+        "tools": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#tools",
+          "asOf": 1792555200000
+        }
+      }
+    }
+  ],
+  "live": {
+    "aggregate": "waiting_permission",
+    "counts": {
+      "working": 0,
+      "waiting": 1,
+      "waiting_permission": 1,
+      "waiting_input": 0,
+      "error": 0,
+      "done": 0,
+      "idle": 0,
+      "unknown": 0
+    },
+    "byAgent": {
+      "zcode": {
+        "working": 0,
+        "waiting": 1,
+        "error": 0,
+        "done": 0,
+        "total": 1,
+        "lastAt": 1792555140000
+      }
+    }
+  },
+  "details": {},
+  "settings": {
+    "schema": 3,
+    "roleId": "fox",
+    "theme": "light",
+    "scale": 1,
+    "showChip": true,
+    "menuButton": "hover",
+    "displayMode": "auto",
+    "contextWarnPct": 80,
+    "quotaWarnPct": 0,
+    "budgetMoney": 0,
+    "weeklyBudget": 0,
+    "monthlyBudget": 0,
+    "costAnomalyX": 0,
+    "autoStart": true,
+    "confirmAlert": true,
+    "live": {
+      "enabled": true
+    },
+    "permission": {
+      "takeover": false,
+      "waitMs": 15000,
+      "notify": "whenHidden",
+      "hotkeys": {
+        "allow": "Ctrl+Alt+Y",
+        "deny": "Ctrl+Alt+N"
+      }
+    },
+    "ingest": {
+      "enabled": true
+    },
+    "retentionDays": 30,
+    "profiles": {},
+    "hotkeys": {
+      "toggle": "Ctrl+Alt+F",
+      "console": "Ctrl+Alt+D",
+      "hideMoney": "Ctrl+Alt+H"
+    },
+    "pet": {
+      "mode": "attached",
+      "agentId": "zcode",
+      "lastAgentId": "zcode",
+      "profileOf": "zcode",
+      "hwnd": "0x1",
+      "rect": null,
+      "display": null
+    }
+  },
+  "roles": [],
+  "profiles": {
+    "zcode": {
+      "roleId": "fox"
+    }
+  },
+  "vendors": [],
+  "usage": {
+    "today": {
+      "date": "2026-10-21",
+      "groups": []
+    },
+    "days": []
+  },
+  "breakdown": null,
+  "stats": {},
+  "adapters": [
+    {
+      "id": "zcode",
+      "name": "ZCode",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code",
+      "billing": true,
+      "context": true,
+      "follow": true
+    },
+    {
+      "id": "dsh",
+      "name": "DeepSeek Harness",
+      "billing": true,
+      "context": true,
+      "follow": true
+    }
+  ],
+  "bindings": [],
+  "update": {
+    "history": []
+  },
+  "ingest": {
+    "enabled": true,
+    "integrationDir": "E:\\fox-dock\\integrations\\zcode-plugin"
+  }
+}

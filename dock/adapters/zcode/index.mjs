@@ -7,8 +7,19 @@
 
 import { readAppStats, readUsage, dominantCurrency } from './store.mjs'
 import { listZcodeSessions, readZcodeContext } from './context.mjs'
+import {
+  aggregateUsage as aggregateZcodeUsage,
+  getLiveStatus as readZcodeLive,
+  getArchivedKeys as readZcodeArchivedKeys,
+  getSessionDetail as readZcodeSessionDetail,
+  getSessions as readZcodeSessions,
+  readToolUsageRows as readZcodeToolRows,
+  readUsageRows as readZcodeUsageRows,
+} from './sessions.mjs'
 import { listVendorStatus } from '../../engines/vendors.mjs'
 import { periodFor } from '../../engines/pricing.mjs'
+import { prov, unavailable } from '../../shared/provenance.mjs'
+import { PRICING_SNAPSHOT_DATE } from '../../shared/pricing-meta.mjs'
 
 const REASON_TEXT = {
   'sqlite-unavailable': '当前 Node 没有 node:sqlite（需 ≥ 22.5）',
@@ -47,6 +58,10 @@ function vendorForProvider(vendors, provider) {
   if (p.includes('moonshot') || p.includes('kimi')) return byId('moonshot-cn')
   if (p.includes('openrouter')) return byId('openrouter')
   if (p.includes('minimax')) return byId('minimax-coding')
+  // 火山方舟：订阅窗口卡（volc-plan）优先，拿不到窗口（未配置 AK/SK / 未订阅）时
+  // 落按量卡（volcengine-ark，本机 token 计价）。'ark' 子串太短（dark 误命中），
+  // 只认 volc / volcengine；UUID 接入点靠额度页的卡片看，不硬套。
+  if (p.includes('volc')) return byId('volc-plan') || byId('volcengine-ark')
   return null
 }
 
@@ -64,6 +79,7 @@ function windowOf(label, w) {
     resetAt: w.resetAt || null,
     remaining: w.remaining,
     total: w.total != null ? w.total : w.cap,
+    prov: prov('exact', 'api', 'vendor:quota-window'),
   }
 }
 
@@ -147,6 +163,25 @@ function quotaCardOf(vendors, active) {
   }
 }
 
+// 余额构成（D2）：把 vendor 状态里的 grantedBalance / toppedBalance 映射成
+// UI 稳定字段 { granted, topped, currency }。只有余额非空、且两侧至少一个为
+// 有限非负数时才输出；任何缺失保持 null（不补 0）。非 DeepSeek 厂商没有这两个
+// 字段，因此返回 null，不会伪造构成。
+export function balanceSplitOfVendor(v) {
+  if (!v || typeof v !== 'object') return null
+  const amount = Number(v.balance)
+  if (v.balance == null || !Number.isFinite(amount)) return null
+  const part = (x) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : null)
+  const granted = part(v.grantedBalance)
+  const topped = part(v.toppedBalance)
+  if (granted === null && topped === null) return null
+  return {
+    granted,
+    topped,
+    currency: /^[A-Z]{3,8}$/.test(String(v.currency || '')) ? String(v.currency) : null,
+  }
+}
+
 function compactVendor(v) {
   const windows = windowsOfVendor(v)
   return {
@@ -171,7 +206,13 @@ export const zcodeAdapter = {
   roleDefault: 'fox',
   accent: '#f0a04b',
   match: { exeBasenames: ['zcode.exe'] },
-  capabilities: { billing: true, follow: true, context: true, stats: true },
+  capabilities: {
+    billing: true,
+    follow: true,
+    context: true,
+    stats: true,
+    sessions: { list: true, detail: true, live: true, archived: true, actions: [] },
+  },
 
   getStats(opts = {}) {
     return readAppStats(opts)
@@ -183,6 +224,34 @@ export const zcodeAdapter = {
 
   listSessions(opts = {}) {
     return listZcodeSessions(opts)
+  },
+
+  getSessions(opts = {}) {
+    return readZcodeSessions(opts)
+  },
+
+  getSessionDetail(sessionId, opts = {}) {
+    return readZcodeSessionDetail(sessionId, opts)
+  },
+
+  getLiveStatus(opts = {}) {
+    return readZcodeLive(opts)
+  },
+
+  getArchivedKeys(opts = {}) {
+    return readZcodeArchivedKeys(opts)
+  },
+
+  readUsageRows(opts = {}) {
+    return readZcodeUsageRows(opts)
+  },
+
+  readToolUsageRows(opts = {}) {
+    return readZcodeToolRows(opts)
+  },
+
+  aggregateUsage(opts = {}) {
+    return aggregateZcodeUsage(opts)
   },
 
   createBilling(ctx = {}) {
@@ -268,6 +337,9 @@ export const zcodeAdapter = {
         }
         details.push({ label: '数据源', value: 'db.sqlite', hint: 'ZCode 本机用量库（只读）' })
 
+        // 余额构成：DeepSeek 的赠金/充值拆分（其它厂商为 null）
+        const balanceSplit = balanceSplitOfVendor(active)
+
         const vendorList = vendorStatus
           .filter(
             (v) =>
@@ -300,6 +372,7 @@ export const zcodeAdapter = {
           turn,
           quota,
           balance,
+          balanceSplit,
           quotaCard: card,
           vendors: vendorList,
           details,
@@ -311,6 +384,25 @@ export const zcodeAdapter = {
           usage: {
             todayTokens: r.today.tokens,
             turnTokens: r.lastTurn ? r.lastTurn.tokens : 0,
+          },
+          provenance: {
+            today: prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' zcode', {
+              asOf: now(),
+              note: 'token × 价目表；预付/套餐行金额记 0',
+            }),
+            turn: r.lastTurn
+              ? prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' zcode', {
+                  asOf: now(),
+                  note: 'token × 价目表',
+                })
+              : unavailable('no-data', 'zcode:db.sqlite#model_usage', 'local-db'),
+            balance: balance
+              ? prov('exact', 'api', 'vendor:' + (active ? active.id : 'unknown'))
+              : unavailable(active ? 'no-data' : 'not-running', 'zcode:vendors', 'unknown'),
+            quota: quota
+              ? prov('exact', 'api', 'vendor:' + (active ? active.id : 'unknown'))
+              : unavailable(active ? 'no-data' : 'not-running', 'zcode:vendors', 'unknown'),
+            usage: prov('exact', 'local-db', 'zcode:db.sqlite#model_usage'),
           },
           source: 'zcode:db.sqlite',
         }

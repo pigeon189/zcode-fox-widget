@@ -33,6 +33,8 @@ import { createAgentWatcher } from './watcher.mjs'
 import { createContextHistory } from './context-history.mjs'
 import { createContextService } from './context-service.mjs'
 import { createContextScheduler } from './scheduler.mjs'
+import { createLiveTracker } from './live-tracker.mjs'
+import { createUsageBreakdown } from './usage-breakdown.mjs'
 import { createVault } from './vault.mjs'
 import { installLauncher, uninstallLauncher, launcherPaths, startupDir } from './install.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
@@ -228,6 +230,25 @@ export async function runDaemon(argv = process.argv.slice(2)) {
       log('bridge failed: ' + (err && err.message ? err.message : err))
     }
   }
+  // 桥是长驻 PowerShell；系统休眠/驱动更新后可能悄悄退出。按需重启，
+  // 否则窗口枚举与吸附会永久报 bridge not running。
+  async function ensureBridge() {
+    if (!bridge) return false
+    if (bridge.running) {
+      bridgeReady = true
+      return true
+    }
+    try {
+      await bridge.start()
+      bridgeReady = true
+      log('bridge restarted')
+      return true
+    } catch (err) {
+      bridgeReady = false
+      log('bridge restart failed: ' + (err && err.message ? err.message : err))
+      return false
+    }
+  }
 
   // 适配器：内置 + 声明式匹配；计费快照带 3 秒缓存
   const adapters = builtinAdapters
@@ -242,6 +263,18 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     sse,
     getSettings: () => readSettings(paths.settings),
   })
+  const liveTracker = createLiveTracker({
+    adapters,
+    sse,
+    file: path.join(paths.dir, 'live-sessions.json'),
+    getSettings: () => readSettings(paths.settings),
+    getPetVisible: () => {
+      const pet = readSettings(paths.settings).pet
+      return !!pet && pet.mode !== 'idle'
+    },
+    log,
+  })
+  const usageBreakdown = createUsageBreakdown({ adapters })
   let actualPort = 0
   const v1 = createV1Router({
     paths,
@@ -259,6 +292,8 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     contextHistory,
     engines,
     vault,
+    liveTracker,
+    usageBreakdown,
     setAutoStart: (enabled) => {
       if (enabled) {
         installLauncher({ dataDir: paths.dir, nodePath: process.execPath, scriptPath: CLI_PATH, command: 'start', format: 'vbs' })
@@ -305,6 +340,8 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     }
 
     if (p === '/health') {
+      const bridgeAlive = !!(bridge && bridge.running)
+      bridgeReady = bridgeAlive
       sendJson(res, 200, {
         ok: true,
         app: 'fox-dock',
@@ -312,13 +349,13 @@ export async function runDaemon(argv = process.argv.slice(2)) {
         pid: process.pid,
         port: server.address() ? server.address().port : null,
         uptimeSec: Math.round((Date.now() - startedAt) / 1000),
-        bridgeReady,
+        bridgeReady: bridgeAlive,
       })
       return
     }
 
     if (p === '/windows' || p === '/hit' || p === '/cursor') {
-      if (!bridge || !bridgeReady) {
+      if (!(await ensureBridge())) {
         sendJson(res, 503, { ok: false, error: 'bridge-unavailable' })
         return
       }
@@ -411,7 +448,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     // 2.0：列出当前桌面上「认得出」的 agent 窗口，供浮层做首次提示/一键吸附。
     // 只返回命中内置适配器的窗口；未知窗口仍可拖拽绑定（generic）。
     if (p === '/agents' && req.method === 'GET') {
-      if (!bridge || !bridgeReady) {
+      if (!(await ensureBridge())) {
         sendJson(res, 503, { ok: false, error: 'bridge-unavailable' })
         return
       }
@@ -507,7 +544,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
           uptimeSec: Math.round((Date.now() - startedAt) / 1000),
         },
         paths: { dataDir: redactHome(paths.dir), ledger: redactHome(paths.ledger) },
-        bridgeReady,
+        bridgeReady: !!(bridge && bridge.running),
         adapters: describeAdapters(adapters),
         bindings: binds.slice(0, 20).map((b) => ({
           adapterId: b.adapterId,
@@ -629,15 +666,16 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     }
 
     if (p === '/rect' && req.method === 'GET') {
-      if (!bridge || !bridgeReady) {
+      if (!(await ensureBridge())) {
         sendJson(res, 503, { ok: false, error: 'bridge-unavailable' })
         return
       }
       try {
         const hwnd = url.searchParams.get('hwnd') || ''
         const r = await bridge.rect(hwnd)
-        // 桥会区分「窗口最小化 / 已离屏」与「读失败」：前者前端要原地等，后者才解绑
-        if (r && r.ok && r.rect) sendJson(res, 200, { ok: true, rect: r.rect })
+        // 桥会区分「窗口最小化 / 已离屏」与「读失败」：前者前端要原地等，后者才解绑。
+        // background=true：窗口活着但不在前台（含被完全覆盖），浮层据此落兜底位。
+        if (r && r.ok && r.rect) sendJson(res, 200, { ok: true, rect: r.rect, background: r.background === true })
         else sendJson(res, 200, { ok: false, reason: (r && (r.reason || r.error)) || 'rect-unavailable' })
       } catch (err) {
         sendJson(res, 500, { ok: false, error: String((err && err.message) || err) })
@@ -678,7 +716,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   log('listening on 127.0.0.1:' + actualPort + ' pid=' + process.pid + ' version=' + VERSION)
 
   // 启动恢复：附着态但窗口已不在 → floating（保留档案），不要停在「假装绑着」。
-  if (bridgeReady) {
+  if (bridge && (await ensureBridge())) {
     try {
       const settings = readSettings(paths.settings)
       if (settings.pet.mode === 'attached') {
@@ -707,7 +745,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
           port: actualPort,
           at: Date.now(),
           uptimeSec: Math.round((Date.now() - startedAt) / 1000),
-          bridgeReady,
+          bridgeReady: !!(bridge && bridge.running),
         })
       )
     } catch (err) {}
@@ -716,7 +754,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
 
   // 进程观察器：3s 一次，发现新 agent / 窗口消失时驱动三态。
   let watcher = null
-  if (bridgeReady) {
+  if (bridge) {
     watcher = createAgentWatcher({ bridge, adapters })
     watcher.on('appear', (e) => {
       try {
@@ -751,6 +789,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     watcher.start()
   }
   scheduler.start()
+  liveTracker.start()
 
   let shuttingDown = false
   function shutdown(code) {
@@ -759,6 +798,9 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     clearInterval(beat)
     try {
       scheduler.stop()
+    } catch (err) {}
+    try {
+      liveTracker.stop()
     } catch (err) {}
     try {
       contextHistory.flush()

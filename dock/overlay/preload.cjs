@@ -22,8 +22,11 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   write(path, method, body) {
     return ipcRenderer.invoke('daemon-write', { path: String(path), method: String(method || 'POST'), body })
   },
-  openConsole() {
-    ipcRenderer.send('open-console')
+  read(path) {
+    return ipcRenderer.invoke('daemon-read', { path: String(path) })
+  },
+  openConsole(page) {
+    ipcRenderer.send('open-console', String(page || ''))
   },
   hideOverlay() {
     ipcRenderer.send('hide-overlay')

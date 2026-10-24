@@ -16,15 +16,15 @@ export function createStatsService({ adapters, ttlMs = STATS_TTL_MS, now = () =>
     return (adapters || []).find((a) => a && a.id === id) || null
   }
 
-  async function compute(adapter, range, at) {
+  async function compute(adapter, range, at, custom = null) {
     if (!adapter || typeof adapter.getStats !== 'function') {
       return { supported: false, range, reason: 'stats-unavailable', note: '该宿主暂不提供用量统计' }
     }
     const opts = {
-      range,
+      range: range === 'custom' ? 'all' : range,
       now: at,
-      since: rangeSince(range, at),
-      until: at,
+      since: custom ? custom.since : rangeSince(range, at),
+      until: custom ? custom.until : at,
       tzOffsetMs: tzOffsetMs(at),
       timeZone: timeZoneName(),
     }
@@ -39,15 +39,24 @@ export function createStatsService({ adapters, ttlMs = STATS_TTL_MS, now = () =>
   }
 
   async function get(id, opts = {}) {
-    const range = ['all', '7d', '30d'].includes(opts.range) ? opts.range : 'all'
+    const range = ['all', '7d', '30d', 'custom'].includes(opts.range) ? opts.range : 'all'
     const force = opts.force === true
-    const key = id + '|' + range
+    let custom = null
+    if (range === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(String(opts.from || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(opts.to || ''))) {
+      const f = String(opts.from)
+      const t = String(opts.to)
+      custom = {
+        since: new Date(Number(f.slice(0, 4)), Number(f.slice(5, 7)) - 1, Number(f.slice(8, 10))).getTime(),
+        until: new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1, Number(t.slice(8, 10)) + 1).getTime() - 1,
+      }
+    }
+    const key = id + '|' + range + (custom ? '|' + custom.since + '|' + custom.until : '')
     const at = now()
     const hit = cache.get(key)
     if (!force && hit && at - hit.at <= ttlMs) return { ...hit.value, cached: true }
     let p = inflight.get(key)
     if (!p) {
-      p = compute(find(id), range, at)
+      p = compute(find(id), range, at, custom)
         .then((value) => {
           cache.set(key, { at, value })
           return value

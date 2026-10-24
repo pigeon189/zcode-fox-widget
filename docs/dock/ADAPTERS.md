@@ -191,3 +191,103 @@ getStats({ range, now, since, until, tzOffsetMs, timeZone })
 - 读不到的维度不补 0；`supported:false` 时带可读 `reason`/`note`。
 - 空数据不要伪造热力图或模型占比；卡片显示空态。
 - 统计查询不能拖垮今日/上一轮快照：ZCode 的统计连接与快照连接分开，老库缺 `tool_usage` 时只降级统计。
+
+## 会话契约（2.0-pre.2，D034）
+
+适配器在 `capabilities.sessions` 里声明能力，并实现对应方法：
+
+```js
+capabilities.sessions = { list: true, detail: true, live: true, archived: true, actions: [] }
+
+getSessions({ range, limit, cursor, sort, status, q, archived, now })
+  // → { ok, supported, reason?, items: Session[], nextCursor: string|null,
+  //     keys?: string[], total?, shownRoots?, rootTotal?, truncated? }
+  // archived: 'exclude' | 'only' | 'all'（默认 exclude）；归档是父会话属性，
+  // 子会话没有自己归档时必须随父；cursor 用 (排序值, key) keyset，不要求
+  // 锚点会话的 updatedAt 与游标逐字段相等；total/rootTotal 只计根会话。
+  // keys = 过滤后的全部会话 key（含子会话，不受游标/分页影响），供实时层
+  // 计算「适配器不认识的 hook-only 会话」，避免 total 重复或漏计。
+getArchivedKeys({ now })                    // 可选，需 capabilities.sessions.archived
+  // → { ok, supported, keys: string[] }   自身或任一祖先已归档的 key（子会话随父）
+  // LiveTracker 用它把内存里归档前的副本按归档处理，避免已归档会话回到「当前」。
+getSessionDetail(sessionId, { now })
+  // → { ok, session, turns: Turn[], tools: ToolRow[], models: ModelRow[] }
+getLiveStatus({ now, sinceMs })
+  // → { ok, supported, items: Session[] }   仅近 10 分钟有活动者
+readUsageRows({ since, until, timeMinutes, now })
+  // → { ok, rows: UsageRow[], truncated }   供 M4 下钻（Kimi 返回 host-unsupported）
+  // timeMinutes = 本地 0..1439 分钟；给了就只返回该分钟的行（用于 P0-3 时间过滤）
+readToolUsageRows({ since, until, now })
+  // → { ok, rows: UsageRow[] }              工具行只贡献 calls/errors
+aggregateUsage({ by, since, until, now })   // 可选：ZCode 用 SQL 聚合，不拉明细行
+```
+
+软校验：声明了 `sessions` 就必须有 `getSessions()`；`detail:true` 必须有
+`getSessionDetail()`；`live:true` 必须有 `getLiveStatus()`，否则拒绝注册。
+旧的 `listSessions({limit})` 保留，只服务「上下文」面板。
+
+`Session` / `Turn` / `ToolRow` 的完整字段与 JSON Schema 见
+[`schemas/session.v1.json`](./schemas/session.v1.json)。硬规则：
+
+- 所有数值 `number|null`，禁止 NaN / 字符串数字 / 负数；
+- `key = ${agentId}:${sessionId}`，全局唯一；`parentKey` 只用于子任务；
+- 缺失不补 0：Kimi 没有历史时 token/cost 全 `null`，provenance 为
+  `unavailable/host-unsupported`，**不得伪造 working**；
+- `statusSource ∈ hook|db|log|http|inferred|ingest`；推断出来的状态在 UI 上
+  标「推断」。
+
+## 可信度标签（2.0-pre.2，D033）
+
+每个金额 / token / 百分比携带 `provenance`：
+
+```js
+{ kind: 'exact'|'estimated'|'unavailable',
+  origin: 'api'|'local-db'|'local-log'|'pricing-table'|'user'|'unknown',
+  source, asOf, note?, reason? }
+```
+
+- 快照：`normalizeSnapshot` 输出 `provenance:{today,turn,balance,quota,usage}`；
+- 上下文：`normalizeContext` 输出 `provenance:{used,limit}`（`builtin-table`
+  → estimated/unknown，note「内置窗口表」）；
+- 统计：`buildStats` 输出 `provenance:{tokens,cost,credits,models,tools,turns}`；
+- 账本行：`summarize` 的 `adapters[]` 带 `prov`；
+- 价目折算：新建 `daemon/src/cost-prov.mjs#withCostProv()` 包装
+  `costOfUsage()`，**不改 `engines/{pricing,cmdgo,relays}.mjs`**。
+
+UI 四标签：official / local / estimate / unavailable，映射规则在
+`shared/provenance.mjs#uiLabelOf()`。
+
+## 实时信号矩阵（2.0-pre.2）
+
+> 探针脚本：`tools/probe-zcode-db.mjs`、`probe-zcode-hook.mjs`、
+> `probe-kimi-status.mjs`、`probe-win32-focus.mjs`（只读、不入 CI）。
+> 2026-10-22 在本机 ZCode 库实测结论列在表后。
+
+| 宿主 | working | waiting_permission | waiting_input | error | done | 信号来源 | 延迟 | 可信度 |
+|---|---|---|---|---|---|---|---|---|
+| ZCode | `tool_usage.status='running'`；或最近 20s 有新行且回合未完成 | 钩子 `PermissionRequest` / `/v1/ingest` | 钩子 / ingest | 最新 `model_usage.status='error'` 且之后无新行 | `turn_usage.status='completed'`；4s 内 done，之后 idle | 库轮询 + 低频钩子 | 2s（有订阅）/15s（空闲） | 库：exact；无钩子时的 working：inferred |
+| WorkBuddy | `function_call` 无对应 `function_call_result`；或 90s 内有新事件 | 钩子 / ingest | 钩子 / ingest | 最后一个 result.status ≠ completed | 4s 内的最后事件 | transcript 尾随 | 2s/15s | log（状态为 estimated/inferred） |
+| dsh | `turn/start` 后无 `turn/end` | 钩子 / ingest | 钩子 / ingest | `tool/result.error != null` | `turn/end.reason.kind='completed'` | zstd 帧尾随 | 2s/15s | log（状态为 estimated） |
+| Kimi Code | **不提供**（固定 unknown） | 不提供 | 不提供 | 不提供 | 不提供 | 本机 HTTP `/sessions` | 轮询 | unavailable/host-unsupported |
+
+### P-1 实测（2026-10-22，本机 `~/.zcode/cli/db/db.sqlite`）
+
+- `session` 有 `parent_id` / `directory` / `time_created` / `time_updated`；
+- `model_usage.status`：`error | completed | cancelled`；
+- `turn_usage.status`：`error | completed | cancelled`；
+- `tool_usage.status`：`completed | error | running` → **working 可直接由库判定**；
+- 结论：ZCode 的 `working` 优先用 `tool_usage.status='running'`，没有时再退回
+  「最近 20s 有活动 + 回合未完成」的 inferred，与本方案假设一致。
+
+### P-2 / P-3 / P-4 状态
+
+- **P-2（ZCode 钩子能否回 allow）**：脚本与最小集成插件示例已就绪；
+  `--payload` 本地链路已实测（stdin JSON 完整到达、`exit 0`、stdout 可写）。
+  ZCode 安装包内可检索到权限决策 schema（`decision: allow|deny|escalate|modify`），
+  但 `PermissionRequest` 钩子的 stdout 是否采用它仍需真机安装 `fox-dock-hook-probe`
+  验证；M5 按 allow / 仅 deny 两条分支实现，默认 fail-open to host。
+- **P-3（Kimi 忙闲字段）**：本机 Kimi 本地服务未运行，探针返回 `fetch failed`；
+  当前实现固定 `status:'unknown'`（host-unsupported），不伪造 working。
+- **P-4（Win32 聚焦成功率）**：`bridge.ps1` 已新增 `focus <hwnd>`（前台失败回落
+  `FlashWindowEx`）。2026-10-22 真机执行 `probe-win32-focus.mjs --repeat 3`：
+  **foreground 3/3（100%）**，无需默认降级；仍保留 flash 回落。

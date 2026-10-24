@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fox-dock.local/schemas/provenance.v1.json",
+  "title": "fox-dock provenance v1",
+  "description": "一个数值的可信度标签。每个金额 / token / 百分比都应携带；缺失不补 0。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "origin"],
+  "properties": {
+    "kind": { "enum": ["exact", "estimated", "unavailable"] },
+    "origin": { "enum": ["api", "local-db", "local-log", "pricing-table", "user", "unknown"] },
+    "source": { "type": "string", "maxLength": 200, "description": "例 zcode:db.sqlite#model_usage / kimi:/coding/v1/usages / pricing:2026-10 deepseek peak" },
+    "asOf": { "type": ["integer", "null"], "minimum": 0, "description": "读取时刻（ms），0 或 null 表示未知" },
+    "note": { "type": "string", "maxLength": 200 },
+    "reason": { "enum": ["not-running", "no-session", "no-data", "auth", "schema", "host-unsupported"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "unavailable" } } },
+      "then": { "required": ["reason"] }
+    }
+  ]
+}

@@ -43,6 +43,9 @@ export class Win32Bridge {
 
   start() {
     if (this.#started) return this.#started
+    // 上一次子进程退出后要能重新拉起：清掉 closed 标记与旧 stderr。
+    this.#closed = false
+    this.#stderr = ''
     this.#started = new Promise((resolve, reject) => {
       let settled = false
       const child = spawn(
@@ -94,7 +97,9 @@ export class Win32Bridge {
       })
 
       child.on('exit', (code) => {
+        if (this.#child !== child) return
         this.#closed = true
+        this.#started = null
         clearTimeout(timer)
         const err = new BridgeError('bridge exited with code ' + code + (this.#stderr ? ': ' + this.#stderr.slice(-300) : ''))
         if (!settled) {
@@ -108,6 +113,10 @@ export class Win32Bridge {
         }
       })
       child.on('error', (err) => {
+        if (this.#child === child) {
+          this.#closed = true
+          this.#started = null
+        }
         if (!settled) {
           settled = true
           clearTimeout(timer)
@@ -118,8 +127,17 @@ export class Win32Bridge {
     return this.#started
   }
 
-  #request(command) {
-    if (!this.running) return Promise.reject(new BridgeError('bridge not running'))
+  async #request(command) {
+    if (!this.running) {
+      // PowerShell 桥会因系统/驱动等原因退出；按需重启，而不是让 daemon
+      // 从此永远报 bridge not running（表现为无法吸附、看不到 ZCode 窗口）。
+      try {
+        await this.start()
+      } catch (err) {
+        throw new BridgeError('bridge start failed: ' + ((err && err.message) || err))
+      }
+    }
+    if (!this.running) throw new BridgeError('bridge not running')
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         const idx = this.#pending.findIndex((p) => p.timer === timer)
@@ -147,12 +165,13 @@ export class Win32Bridge {
     return res.hits || []
   }
 
-  // 返回 { ok, rect } 或 { ok:false, reason }：调用方要能区分
-  // minimized / offscreen（原地等）与 rect-failed（解绑）
+  // 返回 { ok, rect, background } 或 { ok:false, reason }：调用方要能区分
+  // minimized / offscreen（原地等）与 rect-failed（解绑）。background=true 表示
+  // 窗口活着但不在前台（含被完全覆盖）；浮层据此在持续失前台约 3 秒后落兜底位。
   async rect(hwnd) {
     try {
       const res = await this.#request('rect ' + String(hwnd).replace(/^0x/, ''))
-      return res.rect ? { ok: true, rect: res.rect } : { ok: false, reason: 'rect-unavailable' }
+      return res.rect ? { ok: true, rect: res.rect, background: res.bg === true } : { ok: false, reason: 'rect-unavailable' }
     } catch (err) {
       if (err && err.payload && err.payload.ok === false) {
         return { ok: false, reason: err.payload.reason || err.payload.error || 'rect-failed' }
@@ -166,6 +185,20 @@ export class Win32Bridge {
     return { x: res.x, y: res.y }
   }
 
+  // 聚焦已发现的宿主窗口。返回 { ok, method:'foreground'|'flash' }；
+  // 系统前台锁可能只允许闪烁，调用方必须如实展示这个区别。
+  async focus(hwnd) {
+    const hex = String(hwnd || '').replace(/^0x/, '')
+    if (!/^[0-9a-fA-F]+$/.test(hex)) return { ok: false, error: 'bad-hwnd' }
+    try {
+      const res = await this.#request('focus ' + hex)
+      return { ok: res.ok !== false, method: res.method || 'foreground' }
+    } catch (err) {
+      if (err && err.payload && err.payload.ok === false) return { ok: false, error: err.payload.error || 'focus-failed' }
+      return { ok: false, error: String((err && err.message) || err) }
+    }
+  }
+
   async ping() {
     await this.#request('ping')
     return true
@@ -174,6 +207,7 @@ export class Win32Bridge {
   stop() {
     if (this.#closed) return
     this.#closed = true
+    this.#started = null
     try {
       this.#child.stdin.end()
     } catch (err) {}
@@ -183,5 +217,7 @@ export class Win32Bridge {
     try {
       this.#rl && this.#rl.close()
     } catch (err) {}
+    this.#rl = null
+    this.#child = null
   }
 }

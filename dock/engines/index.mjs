@@ -4,6 +4,8 @@
 import { maskKey, readPluginConfig, setCredentialProvider } from './credentials.mjs'
 import { listZcodeProviders } from './discover.mjs'
 import { TEMPLATES, fetchFromTemplate, listVendorStatus, resolveTemplateKey } from './vendors.mjs'
+import { getBalance } from './balance.mjs'
+import { readVolcCredentials } from './volc-plan.mjs'
 
 export { maskKey, readPluginConfig, setCredentialProvider }
 export { listZcodeProviders }
@@ -76,11 +78,32 @@ export async function testTemplate(templateId) {
   const id = String(templateId || '')
   const tpl = TEMPLATES[id]
   if (!tpl) return { ok: false, reason: 'unknown-template' }
+  if (tpl.kind === 'cmdgo') {
+    // CommandCode 的额度来自宿主 provider / 本地 cmdgo 池，不需要 API Key。
+    return { ok: true, reason: 'local-quota', source: 'host-local', skipped: true, note: '使用宿主 CommandCode 本地池额度，无需 API Key' }
+  }
+  if (tpl.kind === 'local-log') {
+    return { ok: true, reason: 'local-log', source: 'host-log', skipped: true, note: '来自宿主本地日志，无需 API Key' }
+  }
+  if (tpl.kind === 'volc') {
+    // 火山方舟订阅配额的凭据是 IAM AK/SK 对（不是单 key），测试只探凭据在不在，
+    // 不出网；真实取数走 volc-plan.mjs 的双套餐查询（厂商页刷新可见）。
+    const cred = readVolcCredentials()
+    return cred
+      ? { ok: true, reason: 'credential-present', source: cred.source, skipped: true, note: '已检测到火山 IAM AK/SK；配额由厂商页刷新时查询，未单独发起测试' }
+      : { ok: false, reason: 'no-credential', source: 'none' }
+  }
+  if (id === 'deepseek') {
+    // DeepSeek 走 balance.mjs（重试/缓存/回退），不能按普通模板的 balance 段取数。
+    const p = await getBalance()
+    return p.ok
+      ? { ok: true, source: p.keySource || 'host', result: { balance: p.totalBalance, currency: p.currency } }
+      : { ok: false, reason: p.error || p.reason || 'request-failed', source: p.keySource || 'none' }
+  }
   const { key, source } = resolveTemplateKey(id)
   if (!key) return { ok: false, reason: 'no-credential', source }
-  if (tpl.kind === 'relay' || tpl.kind === 'cmdgo' || tpl.kind === 'local-log') {
-    // 这三类由各自的取数器负责（relays/cmdgo/plan-balance 自带缓存与错误归一）
-    return { ok: true, reason: 'credential-present', source, skipped: true, note: '已检测到凭据；未发起网络测试，刷新厂商页查看取数结果' }
+  if (tpl.kind === 'relay') {
+    return { ok: true, reason: 'credential-present', source, skipped: true, note: '已检测到凭据；中转站额度由厂商取数器刷新，未单独发起测试' }
   }
   if (tpl.kind === 'tokens') return { ok: true, reason: 'credential-present', source }
   const r = await fetchFromTemplate(tpl, key)

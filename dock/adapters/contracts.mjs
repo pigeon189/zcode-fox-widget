@@ -20,6 +20,15 @@
 //
 // **没有任何匹配约束的适配器永不命中**——否则一个写错的适配器会成为吞噬所有窗口的兜底。
 
+import {
+  PROV_REASONS,
+  defaultSourceOfAdapter,
+  normalizeProv,
+  originOfAdapter,
+  prov,
+  unavailable,
+} from '../shared/provenance.mjs'
+
 export const UNITS = ['money', 'credit', 'percent']
 
 const MATCH_DIMENSIONS = ['exeBasenames', 'exeIncludes', 'titleIncludes', 'titlePatterns', 'classes']
@@ -115,6 +124,17 @@ export function validateAdapter(a) {
   const caps = a.capabilities || {}
   if (typeof caps.billing !== 'boolean') errors.push('capabilities.billing must be boolean')
   if (caps.billing && typeof a.createBilling !== 'function') errors.push('capabilities.billing requires createBilling()')
+  // D034 软校验：声明了能力就必须实现对应方法（否则拒绝注册，避免 UI 拿到空页）。
+  if (caps.sessions != null && caps.sessions !== false) {
+    const s = caps.sessions === true ? {} : caps.sessions
+    if (typeof s !== 'object' || Array.isArray(s)) errors.push('capabilities.sessions must be true or an object')
+    else {
+      if (typeof a.getSessions !== 'function') errors.push('capabilities.sessions requires getSessions()')
+      if (s.detail === true && typeof a.getSessionDetail !== 'function') errors.push('capabilities.sessions.detail requires getSessionDetail()')
+      if (s.live === true && typeof a.getLiveStatus !== 'function') errors.push('capabilities.sessions.live requires getLiveStatus()')
+      if (s.actions != null && !Array.isArray(s.actions)) errors.push('capabilities.sessions.actions must be an array')
+    }
+  }
   return errors
 }
 
@@ -156,6 +176,27 @@ function normalizeMoney(v, unit) {
   return out
 }
 
+// 余额构成（2.0，D2）：{ granted, topped, currency }。
+// 只有余额存在、且 granted/topped 至少一个是有限非负数时才输出；缺失一侧保持
+// null（真的 0 才是 0，不补 0）。currency 缺省跟随主余额，且只接受 3–8 位大写码。
+// 构成不单独带 provenance——它只是主余额的拆分，复用 provenance.balance。
+function splitAmount(v) {
+  const n = finiteOrNull(v)
+  if (n === null || n < 0) return null
+  return Math.round(n * 10000) / 10000
+}
+
+export function normalizeBalanceSplit(raw, ctx = {}) {
+  const balance = ctx.balance
+  if (!balance || typeof balance !== 'object' || typeof balance.amount !== 'number') return null
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const granted = splitAmount(raw.granted)
+  const topped = splitAmount(raw.topped)
+  if (granted === null && topped === null) return null
+  const currency = /^[A-Z]{3,8}$/.test(String(raw.currency || '')) ? String(raw.currency) : balance.currency
+  return { granted, topped, currency }
+}
+
 // 额度卡：前端只消费这个结构，不再猜各家字段。
 //   kind=windows  一个或多个配额窗口（Kimi Plan、CommandCode 等）
 //   kind=balance  现金余额（DeepSeek、Moonshot 等）
@@ -188,6 +229,10 @@ function normalizeQuotaWindow(raw) {
     remainingPct: remaining,
     resetAt,
     detail: text(raw.detail, 80),
+    // M4 额度矩阵：每个窗口单独标注来源（通常 exact/api）。
+    prov: raw.prov
+      ? normalizeProv(raw.prov, { origin: 'api', source: 'quota-window' })
+      : prov('estimated', 'unknown', 'quota-window', { note: '适配器未声明来源' }),
   }
 }
 
@@ -327,7 +372,54 @@ export function normalizeContext(raw, ctx = {}) {
     points,
     updatedAt: finiteOrNull(r.updatedAt) || (typeof r.updatedAt === 'string' ? r.updatedAt.slice(0, 40) : ''),
     error: r.error ? String(r.error).slice(0, 300) : '',
+    // D033：used 与 limit 分别标注。used 由 confidence 派生；limit 由 limitSource
+    // 派生——内置窗口表是估算，不是宿主事实。
+    provenance: contextProvenance(r, {
+      adapterId,
+      supported,
+      confidence,
+      reason,
+      used,
+      limit,
+      limitSource: String(r.limitSource || 'unknown'),
+      origin: ctx.origin,
+      source: ctx.source,
+      asOf: ctx.now,
+    }),
   }
+}
+
+function contextProvenance(r, ctx) {
+  const origin = ctx.origin || originOfAdapter(ctx.adapterId)
+  const source = ctx.source || defaultSourceOfAdapter(ctx.adapterId)
+  const asOf = Number(ctx.asOf) || undefined
+  if (r.provenance && typeof r.provenance === 'object') {
+    return {
+      used: normalizeProv(r.provenance.used, { origin, source, reason: ctx.reason || 'no-data', asOf }),
+      limit: normalizeProv(r.provenance.limit, { origin, source, reason: ctx.reason || 'no-data', asOf }),
+    }
+  }
+  const reason = PROV_REASONS.includes(String(ctx.reason || '')) ? String(ctx.reason) : 'no-data'
+  const used =
+    ctx.supported && ctx.used !== null
+      ? prov(ctx.confidence === 'exact' ? 'exact' : 'estimated', origin, source, {
+          asOf,
+          note: ctx.confidence === 'exact' ? '' : '由宿主数据推算',
+        })
+      : unavailable(ctx.supported ? reason : 'host-unsupported', source, origin, { asOf })
+  let limitProv
+  if (!ctx.supported || ctx.limit === null) {
+    limitProv = unavailable(ctx.supported ? reason : 'host-unsupported', source, origin, { asOf })
+  } else if (ctx.limitSource === 'host') {
+    limitProv = prov('exact', origin, source, { asOf })
+  } else if (ctx.limitSource === 'config') {
+    limitProv = prov('exact', 'user', 'config:context-limit', { asOf, note: '用户配置的上下文上限' })
+  } else if (ctx.limitSource === 'builtin-table') {
+    limitProv = prov('estimated', 'unknown', 'builtin:context-window-table', { asOf, note: '内置窗口表' })
+  } else {
+    limitProv = unavailable('no-data', source, 'unknown', { asOf })
+  }
+  return { used, limit: limitProv }
 }
 
 export function normalizeSnapshot(raw, ctx = {}) {
@@ -336,6 +428,7 @@ export function normalizeSnapshot(raw, ctx = {}) {
   const adapterName = String(ctx.adapterName || r.adapterName || adapterId)
   const supported = r.supported === true
   const unit = UNITS.includes(r.unit) ? r.unit : null
+  const balance = supported ? normalizeMoney(r.balance, unit) : null
 
   const out = {
     ok: r.ok !== false,
@@ -346,7 +439,9 @@ export function normalizeSnapshot(raw, ctx = {}) {
     unit: supported ? unit : null,
     today: supported ? normalizeMoney(r.today, unit) : null,
     turn: supported ? normalizeMoney(r.turn, unit) : null,
-    balance: supported ? normalizeMoney(r.balance, unit) : null,
+    balance,
+    // 余额构成只作为主余额的拆分存在：没有余额或两侧都拿不到 → null
+    balanceSplit: supported ? normalizeBalanceSplit(r.balanceSplit, { balance }) : null,
     quota: supported
       ? r.quota && typeof r.quota === 'object'
         ? { usedPct: pct(r.quota.usedPct), remainingPct: pct(r.quota.remainingPct) }
@@ -359,8 +454,15 @@ export function normalizeSnapshot(raw, ctx = {}) {
     details: supported ? normalizeDetails(r.details) : [],
     usage: supported
       ? {
-          todayTokens: Math.max(0, Math.round(finiteOrNull(r.usage && r.usage.todayTokens) || 0)),
-          turnTokens: Math.max(0, Math.round(finiteOrNull(r.usage && r.usage.turnTokens) || 0)),
+          // 缺失不补 0：适配器没给 token 时是 null + unavailable，不是「今天 0 个」。
+          todayTokens:
+            r.usage && finiteOrNull(r.usage.todayTokens) !== null
+              ? Math.max(0, Math.round(finiteOrNull(r.usage.todayTokens)))
+              : null,
+          turnTokens:
+            r.usage && finiteOrNull(r.usage.turnTokens) !== null
+              ? Math.max(0, Math.round(finiteOrNull(r.usage.turnTokens)))
+              : null,
         }
       : null,
     // 分时计价（当前是 DeepSeek 系）：isPeak + 下一次切换时刻（毫秒）。
@@ -373,6 +475,22 @@ export function normalizeSnapshot(raw, ctx = {}) {
     error: null,
   }
 
+  // D033：每个数值字段都带 provenance。适配器显式声明优先；缺省时
+  // 「有值但没声明」按 estimated/unknown 处理（不冒充官方数据），
+  // 「没有值」按 unavailable + reason 处理（不是 0）。
+  out.provenance = snapshotProvenance(r, {
+    adapterId,
+    supported,
+    ok: out.ok,
+    error: out.error,
+    today: out.today,
+    turn: out.turn,
+    balance: out.balance,
+    quota: out.quota,
+    usage: out.usage,
+    asOf: out.capturedAt,
+  })
+
   if (r.error) {
     out.ok = false
     out.error = String(r.error).slice(0, 300)
@@ -382,4 +500,32 @@ export function normalizeSnapshot(raw, ctx = {}) {
   }
 
   return out
+}
+
+function snapshotProvenance(r, ctx) {
+  const origin = originOfAdapter(ctx.adapterId)
+  const source = defaultSourceOfAdapter(ctx.adapterId)
+  const declared = r.provenance && typeof r.provenance === 'object' ? r.provenance : {}
+  const reason = ctx.error
+    ? 'no-data'
+    : !ctx.supported
+      ? 'host-unsupported'
+      : 'no-data'
+  const asOf = ctx.asOf
+  const field = (name, present, fallbackOrigin = origin) => {
+    if (declared[name]) return normalizeProv(declared[name], { origin: fallbackOrigin, source, reason, asOf })
+    if (!present) return unavailable(reason, source, fallbackOrigin, { asOf })
+    return prov('estimated', 'unknown', source, { asOf, note: '适配器未声明来源' })
+  }
+  return {
+    today: field('today', ctx.today != null),
+    turn: field('turn', ctx.turn != null),
+    balance: field('balance', ctx.balance != null),
+    quota: field('quota', ctx.quota != null),
+    usage: field(
+      'usage',
+      ctx.usage != null && (ctx.usage.todayTokens != null || ctx.usage.turnTokens != null),
+      origin
+    ),
+  }
 }

@@ -42,6 +42,16 @@ function num(v) {
   return Number.isFinite(n) ? n : undefined
 }
 
+// 1.x 挂件线引擎的 percentRemaining 是 0–1 的比例（lib/glm-plan-api.mjs 文档口径），
+// dock 前端按 0–100 百分数消费（与 engines/vendors.mjs 的 planVendorStatus 同一换算）。
+// 缺失保持 undefined（不编 0）：JSON null 若走 num() 会变成 0，把「读不到」伪装成「用光」。
+function ratioPct(v) {
+  if (v == null) return undefined
+  const n = Number(v)
+  if (!Number.isFinite(n)) return undefined
+  return Math.round(n * 1000) / 10
+}
+
 function sanitizeWindow(w) {
   if (!w || typeof w !== 'object') return undefined
   const out = {
@@ -67,7 +77,7 @@ function sanitizeVendor(v) {
     reason: String(v.reason || '').slice(0, 300),
     balance: num(v.balance),
     todayUsage: num(v.todayUsage),
-    percentRemaining: num(v.percentRemaining),
+    percentRemaining: ratioPct(v.percentRemaining),
     remaining: num(v.remaining),
     total: num(v.total),
     nextResetAt: num(v.nextResetAt),

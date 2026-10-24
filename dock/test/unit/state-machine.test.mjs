@@ -36,11 +36,12 @@ test('state: 从 idle 直接拖到桌面 → floating(generic)，不留空 profi
   assert.equal(f.profileOf, 'generic')
 })
 
-test('state: 窗口关闭 → floating（不是 idle）', () => {
+test('state: 窗口关闭 → floating（不是 idle），不沿用宿主窗口矩形', () => {
   const s = transition(attached, { type: 'agent-window-gone' })
   assert.equal(s.mode, 'floating')
   assert.equal(s.profileOf, 'zcode')
   assert.equal(s.agentId, '')
+  assert.equal(s.rect, null, 'attached 的 rect 是宿主窗口坐标，不能当成角色位置')
 })
 
 test('state: 窗口重现且允许自动重吸附 → attached；不允许则保持 floating', () => {

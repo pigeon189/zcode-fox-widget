@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fox-dock.local/schemas/session.v1.json",
+  "title": "fox-dock session v1",
+  "description": "统一会话模型。所有数值 number|null；禁止 NaN / 字符串数字。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "key", "agentId", "sessionId", "parentKey", "title", "cwd", "model", "provider",
+    "status", "statusSince", "statusSource", "startedAt", "updatedAt", "endedAt",
+    "archived", "lastHostAt",
+    "turns", "tokens", "cost", "tools", "errors", "pending", "provenance"
+  ],
+  "properties": {
+    "key": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,23}:[A-Za-z0-9._:-]{1,80}$" },
+    "agentId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,23}$" },
+    "sessionId": { "type": "string", "maxLength": 80 },
+    "parentKey": { "type": ["string", "null"] },
+    "title": { "type": "string", "maxLength": 200 },
+    "cwd": { "type": "string", "maxLength": 400 },
+    "model": { "type": "string", "maxLength": 80 },
+    "provider": { "type": "string", "maxLength": 80 },
+    "status": { "enum": ["working", "waiting_input", "waiting_permission", "error", "done", "idle", "unknown"] },
+    "statusSince": { "type": ["integer", "null"] },
+    "statusSource": { "enum": ["hook", "db", "log", "http", "inferred", "ingest"] },
+    "startedAt": { "type": ["integer", "null"] },
+    "updatedAt": { "type": "integer" },
+    "endedAt": { "type": ["integer", "null"] },
+    "archived": { "type": "boolean" },
+    "lastHostAt": {
+      "description": "真实宿主时间；适配器用 now 兜底 updatedAt 时必须为 null，不能拿 now 当清理 pending 的证据",
+      "type": ["integer", "null"]
+    },
+    "turns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "current", "avgDurationMs"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "current": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["id", "index", "startedAt"],
+          "properties": {
+            "id": { "type": "string", "maxLength": 80 },
+            "index": { "type": ["integer", "null"] },
+            "startedAt": { "type": ["integer", "null"] }
+          }
+        },
+        "avgDurationMs": { "type": ["integer", "null"] }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "input", "output", "cacheRead", "cacheWrite", "reasoning"],
+      "properties": {
+        "total": { "type": ["integer", "null"] },
+        "input": { "type": ["integer", "null"] },
+        "output": { "type": ["integer", "null"] },
+        "cacheRead": { "type": ["integer", "null"] },
+        "cacheWrite": { "type": ["integer", "null"] },
+        "reasoning": { "type": ["integer", "null"] }
+      }
+    },
+    "cost": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["amount", "currency", "unit"],
+      "properties": {
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 8 },
+        "unit": { "enum": ["money", "credit", "percent"] }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calls", "errors", "running"],
+      "properties": {
+        "calls": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "running": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "since"],
+            "properties": {
+              "name": { "type": "string", "maxLength": 80 },
+              "since": { "type": ["integer", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "tool", "last"],
+      "properties": {
+        "model": { "type": "integer", "minimum": 0 },
+        "tool": { "type": "integer", "minimum": 0 },
+        "last": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["at", "kind", "message"],
+          "properties": {
+            "at": { "type": "integer" },
+            "kind": { "enum": ["model", "tool"] },
+            "message": { "type": "string", "maxLength": 200 }
+          }
+        }
+      }
+    },
+    "pending": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "object" }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens", "cost", "status", "tools"],
+      "properties": {
+        "tokens": { "$ref": "provenance.v1.json" },
+        "cost": { "$ref": "provenance.v1.json" },
+        "status": { "$ref": "provenance.v1.json" },
+        "tools": { "$ref": "provenance.v1.json" }
+      }
+    }
+  }
+}

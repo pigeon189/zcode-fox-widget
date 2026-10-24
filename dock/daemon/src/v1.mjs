@@ -10,6 +10,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { normalizeContext } from '../../adapters/contracts.mjs'
 import { resolveAdapter } from '../../adapters/registry.mjs'
 import { readBindings, upsertBinding } from './bindings.mjs'
@@ -20,6 +21,10 @@ import { transition } from './state-machine.mjs'
 import { deleteRole, importRole, listRoleLibrary, renameRole, suggestRoleId } from './roles.mjs'
 import { addAdjustment, adjustmentSummary, applyAdjustments, listAdjustments, removeAdjustment } from './balance-adjustments.mjs'
 import { CATEGORIES, importCategories, inspectSources } from './import-old.mjs'
+import { MAX_BODY_BYTES, mapLegacyEvent, rateAllowed, validateIngest } from './ingest.mjs'
+import { prov } from '../../shared/provenance.mjs'
+
+const DOCK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 function sendJson(res, code, obj) {
   res.writeHead(code, {
@@ -32,17 +37,25 @@ function sendJson(res, code, obj) {
 function readBody(req, limit = 65536) {
   return new Promise((resolve, reject) => {
     let size = 0
+    let settled = false
     const chunks = []
     req.on('data', (c) => {
+      if (settled) return
       size += c.length
       if (size > limit) {
-        reject(new Error('body too large'))
-        req.destroy()
+        settled = true
+        const err = new Error('body too large')
+        err.code = 'too-large'
+        reject(err)
+        // 不 destroy：把剩余数据读掉，才能把 413 正常写回客户端。
+        req.resume()
         return
       }
       chunks.push(c)
     })
     req.on('end', () => {
+      if (settled) return
+      settled = true
       const text = Buffer.concat(chunks).toString('utf8')
       if (!text) return resolve({})
       try {
@@ -51,7 +64,11 @@ function readBody(req, limit = 65536) {
         reject(new Error('bad json'))
       }
     })
-    req.on('error', reject)
+    req.on('error', (err) => {
+      if (settled) return
+      settled = true
+      reject(err)
+    })
   })
 }
 
@@ -105,6 +122,23 @@ function rolesIndexFile(paths) {
   return path.join(paths.dir, 'roles.json')
 }
 
+// 会话响应统一脱敏：cwd 只保留 ~ 起头的写法；标题/错误消息不含主目录。
+function sanitizeSession(s) {
+  if (!s || typeof s !== 'object') return s
+  return {
+    ...s,
+    title: redactHome(s.title || ''),
+    cwd: redactHome(s.cwd || ''),
+    errors:
+      s.errors && s.errors.last && s.errors.last.message
+        ? { ...s.errors, last: { ...s.errors.last, message: redactHome(s.errors.last.message) } }
+        : s.errors,
+    pending: Array.isArray(s.pending)
+      ? s.pending.map((p) => ({ ...p, preview: redactHome(p && p.preview ? p.preview : '') }))
+      : s.pending,
+  }
+}
+
 function listRoles(paths) {
   return listRoleLibrary({ rolesDir: paths.rolesDir, indexFile: rolesIndexFile(paths) })
 }
@@ -133,6 +167,8 @@ export function createV1Router(deps) {
     vault,
     setAutoStart,
     getAutoStart,
+    liveTracker = null,
+    usageBreakdown = null,
     log = () => {},
   } = deps
 
@@ -140,16 +176,31 @@ export function createV1Router(deps) {
   let vendorCache = { at: 0, value: null }
   const VENDOR_TTL_MS = 30_000
 
+  // 厂商状态的 provenance：origin 按 kind 真实映射（local-log 的 plan-log 源 →
+  // 本地日志，直连接口源 → api；远程模板一律 api），不由前端按 available 布尔
+  // 断言；asOf 是这份状态在 daemon 侧的组装时刻（30s TTL 内命中缓存时即上次
+  // 组装时刻），不是浏览器渲染时刻。余额被人工校正过的卡降为 estimated/user。
+  function vendorProvOf(v, at) {
+    const source = 'vendor:' + v.id
+    if (!v.available) return prov('unavailable', 'unknown', source, { asOf: at, reason: 'no-data' })
+    if (v.kind === 'tokens') return prov('unavailable', 'unknown', source, { asOf: at, reason: 'no-data' })
+    const origin = v.kind === 'local-log' ? (/api/i.test(String(v.source || '')) ? 'api' : 'local-log') : 'api'
+    const corrected = v.balance != null && v.corrections && Number(v.corrections.count) > 0
+    if (corrected) return prov('estimated', 'user', source, { asOf: at, note: '官方读数 + 人工校正' })
+    return prov('exact', origin, source, { asOf: at })
+  }
+
   async function vendorsPayload(force) {
     if (engines) {
       if (!force && vendorCache.value && Date.now() - vendorCache.at < VENDOR_TTL_MS) return { ...vendorCache.value, cached: true }
       const r = await engines.listVendorStatus(force)
       const adjFile = path.join(paths.dir, 'balance-adjustments.json')
+      const at = Date.now()
       const vendors = (r.vendors || []).map((v) => {
         const items = listAdjustments(adjFile, v.id)
         const summary = adjustmentSummary(items, v.currency || 'CNY')
         const balance = v.balance == null ? v.balance : applyAdjustments(v.balance, items, v.currency || 'CNY')
-        return {
+        const out = {
           ...v,
           balance,
           // 前端只消费稳定字段；keySource/keyMasked 也保留（掩码，不是密钥）。
@@ -164,6 +215,8 @@ export function createV1Router(deps) {
           status: v.available ? 'ok' : 'unavailable',
           corrections: summary,
         }
+        out.prov = vendorProvOf(out, at)
+        return out
       })
       const value = { ok: r.ok !== false, vendors, source: 'engines' }
       vendorCache = { at: Date.now(), value }
@@ -243,6 +296,8 @@ export function createV1Router(deps) {
         uptime: Math.round((Date.now() - startedAt) / 1000),
         port: getPort(),
       },
+      // 宠物层只消费聚合状态，不自己拉会话表（D034）。
+      live: liveTracker ? liveTracker.aggregate() : { aggregate: 'idle', counts: { working: 0, waiting: 0, error: 0, done: 0 }, byAgent: {} },
     }
   }
 
@@ -284,8 +339,11 @@ export function createV1Router(deps) {
       }
 
       if (p === '/v1/stream' && method === 'GET') {
-        if (sse) sse.subscribe(req, res)
-        else sendJson(res, 503, { ok: false, error: 'sse-unavailable' })
+        if (sse) {
+          sse.subscribe(req, res)
+          // 新订阅者先收一份全量会话摘要，之后只收增量。
+          if (liveTracker) liveTracker.sendFull(res)
+        } else sendJson(res, 503, { ok: false, error: 'sse-unavailable' })
         return true
       }
 
@@ -311,11 +369,17 @@ export function createV1Router(deps) {
       const statsMatch = p.match(/^\/v1\/agents\/([^/]+)\/stats$/)
       if (statsMatch && method === 'GET') {
         const id = decodeURIComponent(statsMatch[1])
-        const range = ['all', '7d', '30d'].includes(String(url.searchParams.get('range') || ''))
+        const range = ['all', '7d', '30d', 'custom'].includes(String(url.searchParams.get('range') || ''))
           ? String(url.searchParams.get('range'))
           : 'all'
+        const from = text(url.searchParams.get('from'), 10)
+        const to = text(url.searchParams.get('to'), 10)
+        if (range === 'custom' && (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to)) {
+          sendJson(res, 400, { ok: false, error: 'bad-range' })
+          return true
+        }
         const value = stats
-          ? await stats.get(id, { range, force: url.searchParams.get('force') === '1' })
+          ? await stats.get(id, { range, from, to, force: url.searchParams.get('force') === '1' })
           : { supported: false, range, reason: 'stats-unavailable', note: '统计服务未启用' }
         sendJson(res, 200, { ok: true, adapterId: id, stats: value })
         return true
@@ -341,6 +405,121 @@ export function createV1Router(deps) {
         return true
       }
 
+      // ---------- 跨 agent 会话（M2/D034） ----------
+      if (p === '/v1/sessions' && method === 'GET') {
+        if (!liveTracker) {
+          sendJson(res, 200, { ok: true, items: [], nextCursor: null, total: 0, counts: {}, aggregate: 'idle' })
+          return true
+        }
+        const agent = text(url.searchParams.get('agent'), 24)
+        const archivedRaw = String(url.searchParams.get('archived') || 'exclude')
+        const archived = ['exclude', 'only', 'all'].includes(archivedRaw) ? archivedRaw : 'exclude'
+        const rangeRaw = String(url.searchParams.get('range') || '')
+        const q = {
+          agent,
+          status: text(url.searchParams.get('status'), 24),
+          q: text(url.searchParams.get('q'), 100),
+          sort: ['updated', 'tokens', 'cost', 'duration'].includes(String(url.searchParams.get('sort') || ''))
+            ? String(url.searchParams.get('sort'))
+            : 'updated',
+          limit: Math.max(1, Math.min(200, Number(url.searchParams.get('limit') || 50) || 50)),
+          cursor: text(url.searchParams.get('cursor'), 200),
+          // 归档视图没有显式 range 时默认全量，否则归档旧会话会被 30d 挡掉。
+          range: archived === 'only' && !rangeRaw
+            ? 'all'
+            : ['today', '7d', '30d', 'all'].includes(rangeRaw)
+              ? rangeRaw
+              : '30d',
+          archived,
+        }
+        const r = await liveTracker.list(q)
+        sendJson(res, 200, {
+          ok: true,
+          items: (r.items || []).map(sanitizeSession),
+          nextCursor: r.nextCursor || null,
+          total: r.total || 0,
+          shownRoots: r.shownRoots || 0,
+          rootTotal: r.rootTotal || 0,
+          truncated: r.truncated === true,
+          counts: r.counts || {},
+          aggregate: r.aggregate || 'idle',
+          byAgent: r.byAgent || {},
+        })
+        return true
+      }
+
+      const sessCtxMatch = p.match(/^\/v1\/sessions\/([^/]+)\/context$/)
+      if (sessCtxMatch && method === 'GET') {
+        const key = decodeURIComponent(sessCtxMatch[1])
+        const idx = key.indexOf(':')
+        const adapterId = idx > 0 ? key.slice(0, idx) : ''
+        const sessionId = idx > 0 ? key.slice(idx + 1) : ''
+        sendJson(res, 200, {
+          ok: true,
+          context: await contextFor(adapterId, {
+            force: url.searchParams.get('force') === '1',
+            session: sessionId,
+            range: url.searchParams.get('range') || 'session',
+          }),
+        })
+        return true
+      }
+
+      const sessFocusMatch = p.match(/^\/v1\/sessions\/([^/]+)\/focus$/)
+      if (sessFocusMatch && method === 'POST') {
+        if (!bridge) {
+          sendJson(res, 503, { ok: false, error: 'bridge-unavailable' })
+          return true
+        }
+        const key = decodeURIComponent(sessFocusMatch[1])
+        const idx = key.indexOf(':')
+        const agentId = idx > 0 ? key.slice(0, idx) : ''
+        const sessionId = idx > 0 ? key.slice(idx + 1) : ''
+        let cwd = ''
+        try {
+          const d = liveTracker ? await liveTracker.detail(key) : null
+          cwd = (d && d.session && d.session.cwd) || ''
+        } catch (err) {}
+        const windows = (await windowsNow()).filter((w) => resolveAdapter(w, adapters).id === agentId)
+        if (!windows.length) {
+          sendJson(res, 404, { ok: false, error: 'host-window-not-found' })
+          return true
+        }
+        // ① 标题包含 cwd 末级目录者优先 ② 否则该 agent 的任意窗口。
+        const tail = String(cwd || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || ''
+        const pick =
+          (tail && windows.find((w) => String(w.title || '').toLowerCase().includes(tail.toLowerCase()))) ||
+          windows[0]
+        const r = await bridge.focus(pick.hwnd)
+        if (!r.ok) {
+          sendJson(res, 404, { ok: false, error: r.error || 'host-window-not-found' })
+          return true
+        }
+        sendJson(res, 200, { ok: true, method: r.method })
+        return true
+      }
+
+      const sessDetailMatch = p.match(/^\/v1\/sessions\/([^/]+)$/)
+      if (sessDetailMatch && method === 'GET') {
+        if (!liveTracker) {
+          sendJson(res, 404, { ok: false, error: 'session-not-found' })
+          return true
+        }
+        const r = await liveTracker.detail(decodeURIComponent(sessDetailMatch[1]))
+        if (!r.ok) {
+          sendJson(res, r.error === 'bad-key' ? 400 : 404, r)
+          return true
+        }
+        sendJson(res, 200, {
+          ok: true,
+          session: sanitizeSession(r.session),
+          turns: (r.turns || []).map((t) => ({ ...t, model: redactHome(t.model || '') })),
+          tools: r.tools || [],
+          models: r.models || [],
+        })
+        return true
+      }
+
       // ---------- 用量 ----------
       if (p === '/v1/usage' && method === 'GET') {
         const range = ['today', '7d', '30d'].includes(String(url.searchParams.get('range') || ''))
@@ -362,6 +541,31 @@ export function createV1Router(deps) {
           modelsByTokens: [],
           rankTotal: null,
         })
+        return true
+      }
+
+      // ---------- 用量下钻（M4） ----------
+      if (p === '/v1/usage/breakdown' && method === 'GET') {
+        if (!usageBreakdown) {
+          sendJson(res, 503, { ok: false, error: 'breakdown-unavailable' })
+          return true
+        }
+        const r = await usageBreakdown.get({
+          by: text(url.searchParams.get('by'), 16) || 'agent',
+          range: text(url.searchParams.get('range'), 16) || '7d',
+          from: text(url.searchParams.get('from'), 10),
+          to: text(url.searchParams.get('to'), 10),
+          agent: text(url.searchParams.get('agent'), 24),
+          currency: text(url.searchParams.get('currency'), 8),
+          time: text(url.searchParams.get('time'), 5),
+          compare: url.searchParams.get('compare') === '1',
+        })
+        res.setHeader('X-Fox-Cache', r.cached ? 'hit' : 'miss')
+        if (!r.ok) {
+          sendJson(res, r.status || 400, { ok: false, error: r.error || 'breakdown-failed' })
+          return true
+        }
+        sendJson(res, 200, r)
         return true
       }
 
@@ -579,6 +783,56 @@ export function createV1Router(deps) {
         return true
       }
 
+      // ---------- 事件注入（M2 内部使用；M5 公开协议） ----------
+      if (p === '/v1/ingest' && method === 'POST') {
+        const settings = readSettings(paths.settings)
+        if (!settings.ingest || settings.ingest.enabled === false) {
+          sendJson(res, 403, { ok: false, error: 'ingest-disabled' })
+          return true
+        }
+        if (!rateAllowed(Date.now())) {
+          sendJson(res, 429, { ok: false, error: 'rate-limited' })
+          return true
+        }
+        let body = null
+        try {
+          body = await readBody(req, MAX_BODY_BYTES)
+        } catch (err) {
+          sendJson(res, err && err.code === 'too-large' ? 413 : 400, {
+            ok: false,
+            error: err && err.code === 'too-large' ? 'body-too-large' : 'bad-json',
+          })
+          return true
+        }
+        const v = validateIngest(body, { now: Date.now() })
+        if (!v.ok) {
+          sendJson(res, v.status || 400, { ok: false, error: v.error })
+          return true
+        }
+        if (!liveTracker) {
+          sendJson(res, 503, { ok: false, error: 'live-unavailable' })
+          return true
+        }
+        if (v.duplicate) {
+          sendJson(res, 200, { ok: true, duplicate: true, eventId: null })
+          return true
+        }
+        const event = v.event
+        const r = liveTracker.ingest(event)
+        // 权限决定：M2 只登记，不阻塞宿主；M5 才做长轮询（fail-open to host）。
+        const waitDecision = event.event === 'permission_request' && body && body.wait
+        if (waitDecision && (!settings.permission || settings.permission.takeover !== true)) {
+          sendJson(res, 200, { ok: true, eventId: event.requestId || null, decision: 'ignored', requestId: event.requestId })
+          return true
+        }
+        if (waitDecision) {
+          sendJson(res, 200, { ok: true, eventId: event.requestId || null, decision: 'timeout', requestId: event.requestId })
+          return true
+        }
+        sendJson(res, 200, { ok: true, eventId: event.requestId || null, changed: r.changed !== false })
+        return true
+      }
+
       // ---------- 宿主事件（等确认提醒 / 轮开始） ----------
       if (p === '/v1/events' && method === 'POST') {
         const body = await readBody(req)
@@ -595,6 +849,19 @@ export function createV1Router(deps) {
         events.push(ev)
         if (events.length > 200) events.shift()
         if (sse) sse.broadcast('event', ev)
+        // 旧入口映射到 ingest：permission-request → waiting_permission 等。
+        if (liveTracker) {
+          const mapped = mapLegacyEvent(ev.type, ev.agentId)
+          if (ev.sessionId) mapped.sessionId = ev.sessionId
+          if (ev.type === 'permission-request') {
+            mapped.event = 'permission_request'
+            mapped.sessionId = ev.sessionId || 'legacy'
+            mapped.requestId = 'legacy-' + ev.at.toString(36) + '-000000'
+            mapped.tool = text(body.tool, 80)
+          }
+          const v = validateIngest(mapped, { now: Date.now() })
+          if (v.ok && !v.duplicate) liveTracker.ingest(v.event)
+        }
         sendJson(res, 200, { ok: true, event: ev })
         return true
       }
@@ -782,6 +1049,11 @@ export function createV1Router(deps) {
             window: b.window ? { ...b.window, exe: redactHome(b.window.exe || ''), title: redactHome(b.window.title || '') } : null,
           })),
           events: events.slice(-40),
+          live: liveTracker ? liveTracker.aggregate() : null,
+          ingest: {
+            enabled: !!(readSettings(paths.settings).ingest && readSettings(paths.settings).ingest.enabled !== false),
+            integrationDir: path.join(DOCK_ROOT, 'integrations', 'zcode-plugin'),
+          },
           update: typeof readUpdateState === 'function' ? readUpdateState() : null,
         })
         return true
@@ -791,7 +1063,11 @@ export function createV1Router(deps) {
       return true
     } catch (err) {
       log('v1 error ' + p + ': ' + (err && err.message ? err.message : err))
-      sendJson(res, 400, { ok: false, error: String((err && err.message) || err).slice(0, 300) })
+      const tooLarge = err && err.code === 'too-large'
+      sendJson(res, tooLarge ? 413 : 400, {
+        ok: false,
+        error: tooLarge ? 'body-too-large' : String((err && err.message) || err).slice(0, 300),
+      })
       return true
     }
   }

@@ -56,6 +56,7 @@
   node --test --test-concurrency=1 test/integration/overlay.itest.mjs
   ```
 
+- `pet: 单击角色打开快览卡` 偶发受前台窗口/焦点影响（真 Electron 命中测试）；单文件复跑即可，不要据此改交互。
 - 服务端口被占时 daemon 会自动 +1；测试认 lock 文件里的实际端口，不要硬编码 39401。
 - 角色/音效列表一次性拉取不自愈的问题已由 `fetchListRetry` 与 bind 探针处理，不要再引入
   「只拉一次」的新调用。
@@ -82,3 +83,111 @@
 - 角色导入：PNG/GIF 签名与结构校验（PNG 全 chunk CRC、GIF 图像描述符与结束符）+ ≤3MB + ≤2048² + id 白名单 + 内置不可删。
 - 凭据：保险库 DPAPI 往返/篡改报错/掩码；接口与诊断包不得出现完整 key。
 - 出站：`blocked-host` 拒绝环回/私有/保留地址；Kimi 与 CommandCode 的固定环回例外只对专用客户端生效。
+
+## 8. 2.0-pre.2 增量（2026-10-22）
+
+### 分层与命令
+
+| 层 | 命令 | 说明 |
+|---|---|---|
+| M0 探针 | `node tools/probe-zcode-db.mjs` / `probe-zcode-hook.mjs` / `probe-kimi-status.mjs` / `probe-win32-focus.mjs` | 只读、不入 CI；输出 JSON 贴进 ADAPTERS「实时信号矩阵」 |
+| 可信度 | `npm test` 内的 `provenance*.test.mjs` | 构造/降级/合并/UI 四标签；四适配器契约软校验；缺失不补 0 属性测试 |
+| 会话层 | `npm test` 内的 `session-model` / `live-reduce` / `live-tracker` / `tail-reader` / `zstd-frame-tail` / `zcode-sessions` | 归约表全表驱动 + 10 万步随机不变量；增量读半行/截断/半帧/坏帧 |
+| 下钻与统计 | `usage-breakdown` / `analytics` / `export` / `incremental-equivalence` | 5 维度、多币种不求和、other、prev、缓存、CSV 公式注入；WB/dsh 追加后与全量一致 |
+| 注入协议 | `ingest-validate` | 字段边界 + 5000 个随机 JSON 模糊测试 + 令牌桶 |
+| 安全 | `redact` | 12 类密钥形态 + 误伤样本；1MB 文本 <50ms |
+| 页面 | `npm run test:ui` | 9 页（`context` → `sessions`）× 双主题 × 三视口（1280/960/760）；axe 严重/致命为 0 |
+| 页面 E2E | `npm run test:e2e:pages` | Playwright + 夹具：导航/详情四标签/计数筛选/键盘/子任务/SSE/25 条分页 + 加载更多/归档筛选/跳转宿主/权限横幅/自定义范围不误发（自绘 DatePicker）/工具下钻/设置 PUT/53 周绿墙与每日每周累计/图表自适应/hash 切页/长区间标签不重叠/GET 缓存/柱图 hover 气泡/视角切换可见性 |
+| 视觉 | `npm run visual` / `visual:update` | 9 页 × 双主题 × 两视口 = 36 张 + 92 张 pre.2 场景基线（合计 128）；`sessions` 取代 `context` |
+| 宠物 | `npm run test:pet` | 80 张状态截图（chip-working/waiting/error/done/multi、quick-sessions 等）；角色本体不再叠加状态徽标 |
+| 集成 | `npm run test:all` | 真 daemon / 真 Electron / 合成宿主库（本机 418 项全绿） |
+
+### 夹具控制端点（仅夹具）
+
+`tools/fixture-daemon.mjs` 新增：
+
+- `POST /__fixture/scene {name}`：热切换 `test/fixtures/scenes/<name>.json`；
+- `POST /__fixture/emit {event,data}`：向 SSE 推任意事件；
+- `POST /__fixture/clock {now}`：记录冻结时钟；
+- `GET /__fixture/calls`：返回收到的写请求（断言点击后确实 POST 了什么）。
+
+`zcode-normal.json` 增加 `liveSessions` / `details` / `breakdown` / `live` 四组数据；
+旧的按 agent 分数组仍兼容（会话列表会拍平成统一 Session）。
+
+§9.3.1 场景（`test/fixtures/scenes/`，由 `node tools/make-pre2-scenes.mjs` 生成）：
+`sessions-live`、`sessions-empty`、`sessions-kimi-only`、`sessions-many`（2000 条）、
+`sessions-long-text`、`permission-pending`、`permission-high-risk`、`permission-queue`、
+`permission-observe-only`、`usage-compare`、`usage-prev-zero`、`usage-forecast-empty`、
+`usage-breakdown-multi-currency`、`usage-breakdown-tool`、`usage-breakdown-model`、
+`usage-breakdown-vendor`、`usage-breakdown-session`、`quota-matrix`、
+`provenance-all-kinds`、`overview-busy`、`overview-idle`、`stats-sourcetags`、
+`stats-kimi-empty`、`settings-live-perm`。
+
+### 基准与浸泡（发版前）
+
+- `bench-sessions.mjs`：50MB WB jsonl、200 个 dsh zstd、50 万行 ZCode 库；
+  `/v1/sessions` p95 <200ms、`/v1/usage/breakdown` p95 <300ms。
+- `soak.mjs`：10 会话 × 1 事件/秒 + SSE + overlay + console，断言 RSS 增长
+  <30MB、句柄不增长、SSE 无积压。
+- 真机清单：TESTING §6 + PLAN §9.6（权限/跳转/150% 缩放/2000 条滚动/Excel 打开 CSV）。
+
+
+### 基准（2026-10-22，本机 Windows / Node 24）
+
+`npm run bench`（ZCode 20 万行 / 4000 会话；WB 20MB / 9.2 万行；dsh 40 个 zstd 文件）：
+
+| 项 | 实测 | 目标 | 结论 |
+|---|---|---|---|
+| ZCode `/v1/sessions` | 首次约 390ms；预热 p95 约 5ms | p95 <200ms | 预热达标；首次含连接/索引构建（lastModel/turn/message 批量扫描） |
+| ZCode `usage/breakdown` | p95 192–248ms（agent/model/session） | p95 <300ms | 达标 |
+| WB 首次扫描 | 30–40ms（20MB / 9.2 万行） | — | 参考值 |
+| WB 追加 1 行 | 5 次 37.5/42.2/35.6/29.6/**1.3ms** | <20ms 且 <全量 1% | 稳态 1.3ms 达标；连续同 tick 追加受 Windows 刷盘/元数据开销影响（非聚合成本） |
+| dsh 40 文件 | p95 10.6ms | — | 参考值 |
+
+> 首次 ZCode 会话查询包含连接建立与全量 GROUP BY；后续轮询走同一只读连接并复用水位结果。
+
+### 视觉基线过目记录（2026-10-22）
+
+- 128 张基线（36 基础 + 92 场景）全部生成并逐张过目；每张场景截图旁另生成 92 张 `*.annot.png`（1px 轮廓 + 宽×高标签，不入库）；联系表在
+  `dock/test/visual/__shots__/pre2-contact-0..3.png`（不入库）。
+- 过目中修正：overview-idle 不再显示 `¥0.00`；工具维度显示调用次数；
+  预测样本不足显示「—」；积分/其它币种不参与金额图；sessions 等待确认只计
+  `waiting_permission`；设置页滚动改为确定性滚动以避免基线漂移。
+- 场景生成器：`node tools/make-pre2-scenes.mjs`（可重复生成 §9.3.1 场景）。
+- 2026-10-22 修复后重新生成并过目 54 张受影响基线：stats 改为填满卡片的
+  53 周绿墙；overview/usage 柱图 viewBox 等于容器宽度，1280 与 960 下字号
+  仍为 12px；其余页面像素不变。
+
+### 修复批次增量（2026-10-24）
+
+- `overlay.itest.mjs`（23 项）新增/更新：宿主失前台约 3 秒落兜底、回前台恢复
+  吸附（含 3 秒内不落位 / 超阈值贴角 / 恢复 / 防抖起点清零四断言，`debugRectResult`
+  模拟）；换角色零延迟 180ms 淡入与 `prefers-reduced-motion` 下关闭（CDP
+  `Emulation.setEmulatedMedia`，断言期间 `PUT /v1/profiles/zcode` 钉住档案角色，
+  规避后台 syncRole 每 1.5s 拉回的竞态）；快览卡刷新键 SVG 中心与按钮中心偏差
+  ≤1px、16×16；兜底位断言 margin 24→4；四象限命中按 `__pet.origin` 换算期望值。
+- `win32.itest.mjs`（9 项，真 PowerShell 桥）新增 `/rect` 响应 `background`
+  布尔字段用例。
+- 新增 `test/unit/window-bounds.test.mjs`（6 项）：任务栏安全边距
+  `overlayWorkAreaBounds`（4 DIP 缩进与最小 1×1 兜底）。
+- 新增 `test/unit/plan-vendor-status.test.mjs`：比例 1→100（500M/500M 满额不再
+  显示 1%）、0.0675→6.8、`percentRemaining` 缺失不编 0、引擎失败无百分比；
+  `host-vendors.test.mjs` 同步更新（null→无百分比）。
+- 新增 `test/unit/quit-semantics.test.mjs`（4 项源码契约）：退出走 `/shutdown`
+  且不触碰启动器/autoStart、托盘与宠物菜单文案含「本次」、控制台 close 为
+  preventDefault+hide、设置 hint 与 autostart 端点。Electron 主进程 `.cjs` 无法
+  在 `node --test` 直接 import，故扫描本仓自有源码标记断言。
+- 新增 `test/unit/volc-plan.test.mjs`（22 项）：V4 签名确定性（now 注入）、凭据
+  整套配对、窗口塑形（Percent/Quota-Used、秒/毫秒 resetAt、全缺返回 no-data）、
+  按量/订阅分流、模板契约。
+- 状态判定（D045）新增事件序列回放与夹具用例：`live-reduce`（思考→工具
+  running→工具结果→继续生成不横跳、静默 ≥90s 回落、回合结束证据立即降级、
+  等待确认不受滞回影响、expire 在途工具保护、running 并集合并）、`zcode-live-status`
+  （夹具 s6/s7/s8 与时间回放 t=0/+30s/+39s working、+41s idle）、`live-tracker`
+  （轮询滞回：推断空闲不降级、running 不与 expire 拉锯、db 证据立即降级）。
+- `pricing.test.mjs` 新增 2 条：钉住 Kimi K3.1 Pro 新价目与短名别名防被
+  `k3` 前缀误套旧价。价目复核留档 `docs/dock/pricing-audit-2026-10-24.md`。
+- 视觉基线：quota-matrix 场景加入火山方舟行后更新 4 张基线（1280/960 × 双主题，
+  platform/edge 无 ENV-MISMATCH），`npm run visual` 128/128；`npm run test:pet`
+  80 张以 `reducedMotion:'reduce'` 生成，无淡入干扰。
+- 本批未新增已知偶发失败（已知偶发仍见 §5）。

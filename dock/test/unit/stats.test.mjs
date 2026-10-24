@@ -66,14 +66,15 @@ test('stats: 摘要 / 连续天数 / 峰值 / 模型占比', () => {
   assert.equal(s.tools[0].errorRate, 0.0667)
 })
 
-test('stats: 热力图按周对齐，日/周/累计都由 UI 从同一份数据派生', () => {
+test('stats: 热力图固定最近 53 周，与统计范围解耦', () => {
   const s = buildStats(fixture())
-  assert.ok(s.heatmap.weeks.length >= 1)
+  assert.equal(s.heatmap.weeks.length, 53)
   const cells = s.heatmap.weeks.flatMap((w) => w.days).filter(Boolean)
-  assert.equal(cells.length, 5)
-  assert.equal(cells[0].date, dateKeyOfDay(BASE))
+  assert.equal(cells.length, 368, '53 列按周日对齐，最后一周截至今天')
+  assert.equal(cells[0].date, s.heatmap.startDate)
   assert.equal(cells.at(-1).date, dateKeyOfDay(BASE + 4))
   assert.equal(s.heatmap.maxTokens, 400)
+  assert.equal(s.heatmap.peakDate, dateKeyOfDay(BASE + 4))
   assert.equal(s.dailyModelUsage.length, 5)
 })
 
@@ -90,4 +91,18 @@ test('stats: rangeSince 与非法 range 回退全部', () => {
   assert.equal(rangeSince('30d', NOW), NOW - 30 * 86400000)
   assert.equal(rangeSince('all', NOW), 0)
   assert.equal(rangeSince('nope', NOW), 0)
+})
+
+test('stats: 热力图使用独立历史数据，不受 7 天范围影响', () => {
+  const f = fixture()
+  const s = buildStats({ ...f, range: '7d', since: NOW - 7 * 86400000, heatmapDays: f.days })
+  assert.equal(s.heatmap.weeks.length, 53)
+  const tokens = s.heatmap.weeks
+    .flatMap((w) => w.days)
+    .filter((d) => d && d.totalTokens > 0)
+    .map((d) => d.totalTokens)
+    .sort((a, b) => a - b)
+  assert.deepEqual(tokens, [100, 200, 300, 400])
+  assert.equal(s.heatmap.maxTokens, 400)
+  assert.equal(s.summary.peakDayTokens, 400)
 })

@@ -94,3 +94,38 @@ test('scheduler: 失败按指数退避，成功后恢复', async () => {
   assert.equal(calls, 2)
   assert.equal(s._state.get('kimi').fail, 0)
 })
+
+test('scheduler: 压缩事件时间变化也要广播（used 同为 null）', async () => {
+  let lastAt = 1000
+  const adapters = [
+    fakeAdapter('zcode', () => ({
+      supported: true,
+      used: null,
+      limit: 200000,
+      sessionId: 's',
+      confidence: 'derived',
+      compaction: { count: 1, lastAt, derived: false },
+      updatedAt: lastAt,
+    })),
+  ]
+  let nowMs = 5000
+  const service = createContextService({ adapters, now: () => nowMs, ttlMs: 0 })
+  const sse = fakeSse(1)
+  const s = createContextScheduler({
+    adapters,
+    service,
+    sse,
+    getSettings: () => ({ pet: { mode: 'attached', agentId: 'zcode' } }),
+    now: () => nowMs,
+    pollMs: { default: 1000 },
+  })
+  await s.tick()
+  assert.equal(sse.events.filter((e) => e.e === 'context').length, 1)
+  lastAt = 4000
+  nowMs += 2000
+  await s.tick()
+  const events = sse.events.filter((e) => e.e === 'context')
+  assert.equal(events.length, 2, '压缩时间变化应触发 context 广播')
+  assert.equal(events[1].d.context.used, null)
+  assert.equal(events[1].d.context.compaction.lastAt, 4000)
+})

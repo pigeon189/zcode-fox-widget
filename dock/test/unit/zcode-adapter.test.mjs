@@ -214,7 +214,7 @@ test('zcode: 统计页聚合总量、模型、日与热力图', () => {
     assert.equal(s.summary.totalTurns, 1)
     assert.equal(s.models.length, 1)
     assert.equal(s.models[0].share, 1)
-    assert.equal(s.heatmap.weeks.length, 1)
+    assert.equal(s.heatmap.weeks.length, 53, '活动墙固定最近 53 周')
     assert.equal(s.heatmap.maxTokens, 4_000_000)
     assert.equal(s.summary.currentStreakDays, 1)
   } finally {

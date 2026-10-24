@@ -59,6 +59,53 @@
       "version": "2.0.0-fixture",
       "uptime": 3600,
       "port": 39490
+    },
+    "live": {
+      "aggregate": "waiting_permission",
+      "counts": {
+        "working": 1,
+        "waiting": 1,
+        "waiting_permission": 1,
+        "waiting_input": 0,
+        "error": 1,
+        "done": 1,
+        "idle": 1,
+        "unknown": 1
+      },
+      "byAgent": {
+        "zcode": {
+          "working": 1,
+          "waiting": 1,
+          "error": 1,
+          "done": 0,
+          "total": 3,
+          "lastAt": 1792399990000
+        },
+        "workbuddy": {
+          "working": 0,
+          "waiting": 0,
+          "error": 0,
+          "done": 1,
+          "total": 1,
+          "lastAt": 1792399970000
+        },
+        "dsh": {
+          "working": 0,
+          "waiting": 0,
+          "error": 0,
+          "done": 0,
+          "total": 1,
+          "lastAt": 1792396400000
+        },
+        "kimi": {
+          "working": 0,
+          "waiting": 0,
+          "error": 0,
+          "done": 0,
+          "total": 1,
+          "lastAt": 1792399400000
+        }
+      }
     }
   },
   "snapshots": {
@@ -649,7 +696,13 @@
       "configured": true,
       "status": "ok",
       "keyMasked": "sk-••••8c5",
-      "keySource": "zcode-provider"
+      "keySource": "zcode-provider",
+      "prov": {
+        "kind": "exact",
+        "origin": "api",
+        "source": "vendor:deepseek",
+        "asOf": 1792555200000
+      }
     },
     {
       "id": "zcode-plan",
@@ -661,7 +714,13 @@
       "remaining": 720,
       "total": 1000,
       "configured": true,
-      "status": "ok"
+      "status": "ok",
+      "prov": {
+        "kind": "exact",
+        "origin": "local-log",
+        "source": "vendor:zcode-plan",
+        "asOf": 1792555200000
+      }
     },
     {
       "id": "commandcode",
@@ -694,7 +753,13 @@
         "resetAt": null
       },
       "configured": true,
-      "status": "ok"
+      "status": "ok",
+      "prov": {
+        "kind": "exact",
+        "origin": "api",
+        "source": "vendor:commandcode",
+        "asOf": 1792555200000
+      }
     },
     {
       "id": "moonshot-kimi",
@@ -705,7 +770,13 @@
       "balance": 21.5,
       "configured": true,
       "status": "ok",
-      "keyMasked": "sk-••••YtN"
+      "keyMasked": "sk-••••YtN",
+      "prov": {
+        "kind": "exact",
+        "origin": "api",
+        "source": "vendor:moonshot-kimi",
+        "asOf": 1792555200000
+      }
     },
     {
       "id": "relay-packycode",
@@ -715,7 +786,14 @@
       "available": false,
       "reason": "未配置凭据",
       "configured": false,
-      "status": "unavailable"
+      "status": "unavailable",
+      "prov": {
+        "kind": "unavailable",
+        "origin": "unknown",
+        "source": "vendor:relay-packycode",
+        "asOf": 1792555200000,
+        "reason": "no-data"
+      }
     },
     {
       "id": "openai",
@@ -725,7 +803,14 @@
       "available": false,
       "reason": "未配置凭据",
       "configured": false,
-      "status": "unavailable"
+      "status": "unavailable",
+      "prov": {
+        "kind": "unavailable",
+        "origin": "unknown",
+        "source": "vendor:openai",
+        "asOf": 1792555200000,
+        "reason": "no-data"
+      }
     }
   ],
   "roles": [
@@ -843,7 +928,23 @@
       "hwnd": "0x1",
       "rect": null,
       "display": null
-    }
+    },
+    "live": {
+      "enabled": true
+    },
+    "permission": {
+      "takeover": false,
+      "waitMs": 15000,
+      "notify": "whenHidden",
+      "hotkeys": {
+        "allow": "Ctrl+Alt+Y",
+        "deny": "Ctrl+Alt+N"
+      }
+    },
+    "ingest": {
+      "enabled": true
+    },
+    "retentionDays": 30
   },
   "profiles": {
     "zcode": {
@@ -4020,6 +4121,816 @@
           "avgDurationMs": 8947
         }
       ]
+    }
+  },
+  "liveSessions": [
+    {
+      "key": "zcode:ses_live1",
+      "agentId": "zcode",
+      "sessionId": "ses_live1",
+      "parentKey": null,
+      "title": "重构 billing 适配器",
+      "cwd": "D:WorkSpace\fox-dock",
+      "model": "deepseek-v4.1-flash",
+      "provider": "deepseek",
+      "status": "working",
+      "statusSince": 1792399880000,
+      "statusSource": "db",
+      "startedAt": 1792396400000,
+      "updatedAt": 1792399940000,
+      "endedAt": null,
+      "turns": {
+        "count": 12,
+        "current": {
+          "id": "t",
+          "index": 12,
+          "startedAt": 1792399940000
+        },
+        "avgDurationMs": 52000
+      },
+      "tokens": {
+        "total": 1234567,
+        "input": 864196.8999999999,
+        "output": 370370.1,
+        "cacheRead": 493826.80000000005,
+        "cacheWrite": null,
+        "reasoning": null
+      },
+      "cost": {
+        "amount": 1.23,
+        "currency": "CNY",
+        "unit": "money"
+      },
+      "tools": {
+        "calls": 38,
+        "errors": 1,
+        "running": []
+      },
+      "errors": {
+        "model": 0,
+        "tool": 1,
+        "last": null
+      },
+      "pending": [],
+      "provenance": {
+        "tokens": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "fixture#zcode",
+          "asOf": 1792400000000
+        },
+        "cost": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 fixture",
+          "asOf": 1792400000000
+        },
+        "status": {
+          "kind": "exact",
+          "origin": "db",
+          "source": "fixture#status",
+          "asOf": 1792400000000
+        },
+        "tools": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#tools",
+          "asOf": 1792400000000
+        }
+      }
+    },
+    {
+      "key": "zcode:ses_live2",
+      "agentId": "zcode",
+      "sessionId": "ses_live2",
+      "parentKey": null,
+      "title": "修复流式响应截断",
+      "cwd": "D:WorkSpace\fox-dockdock",
+      "model": "glm-5.3",
+      "provider": "deepseek",
+      "status": "waiting_permission",
+      "statusSince": 1792399880000,
+      "statusSource": "db",
+      "startedAt": 1792396400000,
+      "updatedAt": 1792399940000,
+      "endedAt": null,
+      "turns": {
+        "count": 4,
+        "current": null,
+        "avgDurationMs": 42000
+      },
+      "tokens": {
+        "total": 210000,
+        "input": 147000,
+        "output": 63000,
+        "cacheRead": 84000,
+        "cacheWrite": null,
+        "reasoning": null
+      },
+      "cost": {
+        "amount": 0.43,
+        "currency": "CNY",
+        "unit": "money"
+      },
+      "tools": {
+        "calls": 12,
+        "errors": 0,
+        "running": []
+      },
+      "errors": {
+        "model": 0,
+        "tool": 0,
+        "last": null
+      },
+      "pending": [
+        {
+          "id": "req-0000000000001",
+          "kind": "permission",
+          "agentId": "zcode",
+          "sessionKey": "zcode:ses_live2",
+          "tool": "Bash",
+          "preview": "rm -rf build/",
+          "risk": "high",
+          "createdAt": 1792399990000,
+          "expiresAt": 1792400014000,
+          "state": "pending"
+        }
+      ],
+      "provenance": {
+        "tokens": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "fixture#zcode",
+          "asOf": 1792400000000
+        },
+        "cost": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 fixture",
+          "asOf": 1792400000000
+        },
+        "status": {
+          "kind": "exact",
+          "origin": "db",
+          "source": "fixture#status",
+          "asOf": 1792400000000
+        },
+        "tools": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#tools",
+          "asOf": 1792400000000
+        }
+      }
+    },
+    {
+      "key": "zcode:ses_child",
+      "agentId": "zcode",
+      "sessionId": "ses_child",
+      "parentKey": "zcode:ses_live1",
+      "title": "子任务：补测试",
+      "cwd": "D:WorkSpace\fox-dock",
+      "model": "deepseek-v4.1-flash",
+      "provider": "deepseek",
+      "status": "error",
+      "statusSince": 1792399880000,
+      "statusSource": "db",
+      "startedAt": 1792396400000,
+      "updatedAt": 1792399940000,
+      "endedAt": null,
+      "turns": {
+        "count": 2,
+        "current": null,
+        "avgDurationMs": 42000
+      },
+      "tokens": {
+        "total": 88000,
+        "input": 61599.99999999999,
+        "output": 26400,
+        "cacheRead": 35200,
+        "cacheWrite": null,
+        "reasoning": null
+      },
+      "cost": {
+        "amount": 0.08,
+        "currency": "CNY",
+        "unit": "money"
+      },
+      "tools": {
+        "calls": 4,
+        "errors": 1,
+        "running": []
+      },
+      "errors": {
+        "model": 0,
+        "tool": 1,
+        "last": {
+          "at": 1792399980000,
+          "kind": "tool",
+          "message": "工具调用失败：Bash"
+        }
+      },
+      "pending": [],
+      "provenance": {
+        "tokens": {
+          "kind": "exact",
+          "origin": "local-db",
+          "source": "fixture#zcode",
+          "asOf": 1792400000000
+        },
+        "cost": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 fixture",
+          "asOf": 1792400000000
+        },
+        "status": {
+          "kind": "exact",
+          "origin": "db",
+          "source": "fixture#status",
+          "asOf": 1792400000000
+        },
+        "tools": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#tools",
+          "asOf": 1792400000000
+        }
+      }
+    },
+    {
+      "key": "workbuddy:wb_live1",
+      "agentId": "workbuddy",
+      "sessionId": "wb_live1",
+      "parentKey": null,
+      "title": "整理发布说明",
+      "cwd": "E:\notes",
+      "model": "wb-pro",
+      "provider": "deepseek",
+      "status": "done",
+      "statusSince": 1792399880000,
+      "statusSource": "db",
+      "startedAt": 1792396400000,
+      "updatedAt": 1792399940000,
+      "endedAt": 1792399970000,
+      "turns": {
+        "count": 5,
+        "current": null,
+        "avgDurationMs": 42000
+      },
+      "tokens": {
+        "total": 560000,
+        "input": 392000,
+        "output": 168000,
+        "cacheRead": 224000,
+        "cacheWrite": null,
+        "reasoning": null
+      },
+      "cost": {
+        "amount": 50,
+        "currency": "CREDIT",
+        "unit": "credit"
+      },
+      "tools": {
+        "calls": 9,
+        "errors": 0,
+        "running": []
+      },
+      "errors": {
+        "model": 0,
+        "tool": 0,
+        "last": null
+      },
+      "pending": [],
+      "provenance": {
+        "tokens": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#workbuddy",
+          "asOf": 1792400000000
+        },
+        "cost": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 fixture",
+          "asOf": 1792400000000
+        },
+        "status": {
+          "kind": "exact",
+          "origin": "db",
+          "source": "fixture#status",
+          "asOf": 1792400000000
+        },
+        "tools": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#tools",
+          "asOf": 1792400000000
+        }
+      }
+    },
+    {
+      "key": "dsh:dsh_live1",
+      "agentId": "dsh",
+      "sessionId": "dsh_live1",
+      "parentKey": null,
+      "title": "调试 dsh 会话日志",
+      "cwd": "E:dshproj",
+      "model": "deepseek-v4",
+      "provider": "deepseek",
+      "status": "idle",
+      "statusSince": 1792399880000,
+      "statusSource": "db",
+      "startedAt": 1792396400000,
+      "updatedAt": 1792399940000,
+      "endedAt": null,
+      "turns": {
+        "count": 3,
+        "current": null,
+        "avgDurationMs": 42000
+      },
+      "tokens": {
+        "total": 320000,
+        "input": 224000,
+        "output": 96000,
+        "cacheRead": 128000,
+        "cacheWrite": null,
+        "reasoning": null
+      },
+      "cost": {
+        "amount": 0.31,
+        "currency": "CNY",
+        "unit": "money"
+      },
+      "tools": {
+        "calls": 6,
+        "errors": 0,
+        "running": []
+      },
+      "errors": {
+        "model": 0,
+        "tool": 0,
+        "last": null
+      },
+      "pending": [],
+      "provenance": {
+        "tokens": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#dsh",
+          "asOf": 1792400000000
+        },
+        "cost": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 fixture",
+          "asOf": 1792400000000
+        },
+        "status": {
+          "kind": "exact",
+          "origin": "db",
+          "source": "fixture#status",
+          "asOf": 1792400000000
+        },
+        "tools": {
+          "kind": "exact",
+          "origin": "local-log",
+          "source": "fixture#tools",
+          "asOf": 1792400000000
+        }
+      }
+    },
+    {
+      "key": "kimi:kimi_live1",
+      "agentId": "kimi",
+      "sessionId": "kimi_live1",
+      "parentKey": null,
+      "title": "Kimi 套餐问答",
+      "cwd": "",
+      "model": "kimi-k2",
+      "provider": "deepseek",
+      "status": "unknown",
+      "statusSince": 1792399880000,
+      "statusSource": "db",
+      "startedAt": 1792396400000,
+      "updatedAt": 1792399940000,
+      "endedAt": null,
+      "turns": {
+        "count": 0,
+        "current": null,
+        "avgDurationMs": 42000
+      },
+      "tokens": {
+        "total": null,
+        "input": null,
+        "output": null,
+        "cacheRead": null,
+        "cacheWrite": null,
+        "reasoning": null
+      },
+      "cost": null,
+      "tools": {
+        "calls": 0,
+        "errors": 0,
+        "running": []
+      },
+      "errors": {
+        "model": 0,
+        "tool": 0,
+        "last": null
+      },
+      "pending": [],
+      "provenance": {
+        "tokens": {
+          "kind": "unavailable",
+          "origin": "local-log",
+          "source": "fixture",
+          "asOf": 1792400000000,
+          "reason": "no-data"
+        },
+        "cost": {
+          "kind": "unavailable",
+          "origin": "unknown",
+          "source": "fixture",
+          "asOf": 1792400000000,
+          "reason": "no-data"
+        },
+        "status": {
+          "kind": "unavailable",
+          "origin": "unknown",
+          "source": "fixture#status",
+          "asOf": 1792400000000,
+          "reason": "host-unsupported"
+        },
+        "tools": {
+          "kind": "unavailable",
+          "origin": "local-log",
+          "source": "fixture#tools",
+          "asOf": 1792400000000,
+          "reason": "host-unsupported"
+        }
+      }
+    }
+  ],
+  "details": {
+    "zcode:ses_live1": {
+      "turns": [
+        {
+          "id": "t1",
+          "index": 1,
+          "startedAt": 1792396400000,
+          "endedAt": 1792396460000,
+          "durationMs": 60000,
+          "tokens": 300000,
+          "cost": {
+            "amount": 0.3,
+            "currency": "CNY",
+            "unit": "money"
+          },
+          "status": "completed",
+          "model": "deepseek-v4.1-flash"
+        },
+        {
+          "id": "t2",
+          "index": 2,
+          "startedAt": 1792398200000,
+          "endedAt": 1792398260000,
+          "durationMs": 60000,
+          "tokens": 520000,
+          "cost": {
+            "amount": 0.52,
+            "currency": "CNY",
+            "unit": "money"
+          },
+          "status": "completed",
+          "model": "deepseek-v4.1-flash"
+        },
+        {
+          "id": "t3",
+          "index": 3,
+          "startedAt": 1792399880000,
+          "endedAt": 1792399940000,
+          "durationMs": 60000,
+          "tokens": 414567,
+          "cost": {
+            "amount": 0.41,
+            "currency": "CNY",
+            "unit": "money"
+          },
+          "status": "completed",
+          "model": "deepseek-v4.1-flash"
+        }
+      ],
+      "tools": [
+        {
+          "name": "Bash",
+          "calls": 18,
+          "errors": 1,
+          "avgDurationMs": 1200,
+          "lastAt": 1792399900000
+        },
+        {
+          "name": "Read",
+          "calls": 12,
+          "errors": 0,
+          "avgDurationMs": 80,
+          "lastAt": 1792399910000
+        },
+        {
+          "name": "Edit",
+          "calls": 8,
+          "errors": 0,
+          "avgDurationMs": 140,
+          "lastAt": 1792399920000
+        }
+      ],
+      "models": [
+        {
+          "modelId": "deepseek-v4.1-flash",
+          "provider": "deepseek",
+          "tokens": 1234567,
+          "calls": 38,
+          "errors": 1
+        }
+      ]
+    },
+    "zcode:ses_live2": {
+      "turns": [
+        {
+          "id": "t1",
+          "index": 1,
+          "startedAt": 1792399400000,
+          "endedAt": 1792399520000,
+          "durationMs": 120000,
+          "tokens": 210000,
+          "cost": {
+            "amount": 0.43,
+            "currency": "CNY",
+            "unit": "money"
+          },
+          "status": "completed",
+          "model": "glm-5.3"
+        }
+      ],
+      "tools": [
+        {
+          "name": "Bash",
+          "calls": 6,
+          "errors": 0,
+          "avgDurationMs": 900,
+          "lastAt": 1792399900000
+        }
+      ],
+      "models": []
+    }
+  },
+  "breakdown": {
+    "ok": true,
+    "supported": true,
+    "by": "agent",
+    "range": {
+      "from": "2026-10-13",
+      "to": "2026-10-19",
+      "days": 7
+    },
+    "unit": "money",
+    "currency": "CNY",
+    "series": [
+      {
+        "key": "zcode",
+        "label": "ZCode",
+        "tokens": 2400000,
+        "amount": 12.34,
+        "credits": null,
+        "calls": 86,
+        "errors": 2,
+        "byDay": [
+          {
+            "d": "2026-10-13",
+            "tokens": 680000,
+            "amount": 3.3,
+            "credits": null,
+            "calls": 18,
+            "errors": 1
+          },
+          {
+            "d": "2026-10-14",
+            "tokens": 600000,
+            "amount": 2.95,
+            "credits": null,
+            "calls": 17,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-15",
+            "tokens": 520000,
+            "amount": 2.5999999999999996,
+            "credits": null,
+            "calls": 16,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-16",
+            "tokens": 440000,
+            "amount": 2.25,
+            "credits": null,
+            "calls": 15,
+            "errors": 1
+          },
+          {
+            "d": "2026-10-17",
+            "tokens": 360000,
+            "amount": 1.9,
+            "credits": null,
+            "calls": 14,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-18",
+            "tokens": 280000,
+            "amount": 1.5499999999999998,
+            "credits": null,
+            "calls": 13,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-19",
+            "tokens": 200000,
+            "amount": 1.2,
+            "credits": null,
+            "calls": 12,
+            "errors": 1
+          }
+        ],
+        "prov": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 zcode",
+          "asOf": 1792400000000
+        }
+      },
+      {
+        "key": "dsh",
+        "label": "DeepSeek Harness",
+        "tokens": 620000,
+        "amount": 3.21,
+        "credits": null,
+        "calls": 24,
+        "errors": 0,
+        "byDay": [
+          {
+            "d": "2026-10-13",
+            "tokens": 170000,
+            "amount": 0.825,
+            "credits": null,
+            "calls": 18,
+            "errors": 1
+          },
+          {
+            "d": "2026-10-14",
+            "tokens": 150000,
+            "amount": 0.7375,
+            "credits": null,
+            "calls": 17,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-15",
+            "tokens": 130000,
+            "amount": 0.6499999999999999,
+            "credits": null,
+            "calls": 16,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-16",
+            "tokens": 110000,
+            "amount": 0.5625,
+            "credits": null,
+            "calls": 15,
+            "errors": 1
+          },
+          {
+            "d": "2026-10-17",
+            "tokens": 90000,
+            "amount": 0.475,
+            "credits": null,
+            "calls": 14,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-18",
+            "tokens": 70000,
+            "amount": 0.38749999999999996,
+            "credits": null,
+            "calls": 13,
+            "errors": 0
+          },
+          {
+            "d": "2026-10-19",
+            "tokens": 50000,
+            "amount": 0.3,
+            "credits": null,
+            "calls": 12,
+            "errors": 1
+          }
+        ],
+        "prov": {
+          "kind": "estimated",
+          "origin": "pricing-table",
+          "source": "pricing:2026-10 deepseek",
+          "asOf": 1792400000000
+        }
+      }
+    ],
+    "other": null,
+    "total": {
+      "tokens": 3020000,
+      "amount": 15.55,
+      "credits": null,
+      "calls": 110,
+      "errors": 2,
+      "byCurrency": {
+        "CNY": 15.55
+      }
+    },
+    "truncated": false,
+    "prev": {
+      "range": {
+        "from": "2026-10-13",
+        "to": "2026-10-19"
+      },
+      "series": [],
+      "other": null,
+      "total": {
+        "tokens": 2800000,
+        "amount": 14.2,
+        "credits": null,
+        "calls": 100,
+        "errors": 1,
+        "byCurrency": {
+          "CNY": 14.2
+        }
+      }
+    },
+    "provenance": {
+      "tokens": {
+        "kind": "exact",
+        "origin": "local-db",
+        "source": "fixture"
+      },
+      "amount": {
+        "kind": "estimated",
+        "origin": "pricing-table",
+        "source": "fixture"
+      }
+    }
+  },
+  "live": {
+    "aggregate": "waiting_permission",
+    "counts": {
+      "working": 1,
+      "waiting": 1,
+      "waiting_permission": 1,
+      "waiting_input": 0,
+      "error": 1,
+      "done": 1,
+      "idle": 1,
+      "unknown": 1
+    },
+    "byAgent": {
+      "zcode": {
+        "working": 1,
+        "waiting": 1,
+        "error": 1,
+        "done": 0,
+        "total": 3,
+        "lastAt": 1792399990000
+      },
+      "workbuddy": {
+        "working": 0,
+        "waiting": 0,
+        "error": 0,
+        "done": 1,
+        "total": 1,
+        "lastAt": 1792399970000
+      },
+      "dsh": {
+        "working": 0,
+        "waiting": 0,
+        "error": 0,
+        "done": 0,
+        "total": 1,
+        "lastAt": 1792396400000
+      },
+      "kimi": {
+        "working": 0,
+        "waiting": 0,
+        "error": 0,
+        "done": 0,
+        "total": 1,
+        "lastAt": 1792399400000
+      }
     }
   }
 }

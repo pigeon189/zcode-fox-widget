@@ -5,6 +5,10 @@
 //
 // `pick` 是切换到这个角色时说的第一句（原挂件叫「挑经句」，大字显示）；
 // `lines` 是点击 / 随机说的时候抽的池子。
+//
+// 文件尾部还有两组纯函数（供 pet.js 与单元测试共用）：
+//   · 模型族 → 角色 + 两拍状态机（P0-1 按模型换角色）
+//   · 今日预算判定与去重键（P0-2 每日预算提醒）
 
 var FOX_ROLES = {
   fox: {
@@ -16,7 +20,7 @@ var FOX_ROLES = {
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
       '大模型的事情，怎么能叫偷...',
-      '你说免费鸡蛋啊...最近卖完了...',
+      '免费鸡蛋，刚出炉的免费鸡蛋有人要吗',
       '我去睡觉啦，测完叫我',
       '压力一只黑色嘎啦嘛？！',
       'Zzzzzzz...',
@@ -81,7 +85,9 @@ var FOX_ROLES = {
     tag: 'Kimi Code 默认',
     pick: ['好模型... ↓', '好女孩...↓'],
     lines: [
-      '科研K3.1中...',
+      '质朴，你的索塔通用语言模型5.5还未释放，英雄联盟',
+      '我坐好了，谁能告诉我10月24日0时发生了什么',
+      '正在生成3D建模中...',
       '我依旧是国一模',
       '训练，轻而易举啊！',
       "Let me go🎵I'm making the calls🎵",
@@ -148,4 +154,114 @@ var FOX_ROLE_ORDER = ['fox', 'whale', 'gpt', 'kimi', 'xiaoke', 'gemini']
 
 function foxRoleOf(id) {
   return FOX_ROLES[id] || FOX_ROLES.fox
+}
+
+// ---------- 按模型换角色（P0-1） ----------
+//
+// 模型名优先、provider 兜底；大小写不敏感。认不出就返回 null，绝不猜。
+// 正则都带前后边界，避免 "zai" 之类的短词误伤普通单词。
+var FOX_MODEL_FAMILIES = [
+  { family: 'glm', roleId: 'fox', re: /(^|[^a-z0-9])(glm|zhipu|bigmodel|zai)([^a-z0-9]|$)/ },
+  { family: 'deepseek', roleId: 'whale', re: /(^|[^a-z0-9])(deepseek|dsh)([^a-z0-9]|$)/ },
+  { family: 'kimi', roleId: 'kimi', re: /(^|[^a-z0-9])(kimi|moonshot)([^a-z0-9]|$)/ },
+  { family: 'claude', roleId: 'xiaoke', re: /(^|[^a-z0-9])(claude|anthropic)([^a-z0-9]|$)/ },
+  { family: 'gemini', roleId: 'gemini', re: /(^|[^a-z0-9])(gemini|google)([^a-z0-9]|$)/ },
+  {
+    family: 'gpt',
+    roleId: 'gpt',
+    re: /(^|[^a-z0-9])(gpt|chatgpt|openai|o[1-4])([^a-z0-9]|$)/,
+  },
+]
+
+function foxModelFamily(model, provider) {
+  var m = String(model == null ? '' : model).toLowerCase()
+  var p = String(provider == null ? '' : provider).toLowerCase()
+  var i
+  if (m) {
+    for (i = 0; i < FOX_MODEL_FAMILIES.length; i++) {
+      if (FOX_MODEL_FAMILIES[i].re.test(m)) return FOX_MODEL_FAMILIES[i]
+    }
+  }
+  if (p) {
+    for (i = 0; i < FOX_MODEL_FAMILIES.length; i++) {
+      if (FOX_MODEL_FAMILIES[i].re.test(p)) return FOX_MODEL_FAMILIES[i]
+    }
+  }
+  return null
+}
+
+function foxRoleForModel(model, provider) {
+  var hit = foxModelFamily(model, provider)
+  return hit ? hit.roleId : null
+}
+
+function emptyAutoRole() {
+  return { family: '', streak: 0, capturedAt: null, roleId: null }
+}
+
+// 两拍状态机（纯函数）：
+//   · 只有 capturedAt 变化才算新的一拍（同一快照被多处渲染不能提前切）；
+//   · 同一个模型族连续两拍才给出 roleId；
+//   · 族变化时 streak 归 1，并暂时保留已应用的角色，第二拍才切，避免闪回；
+//   · 认不出模型 → 清空（回落到手动/档案角色）；
+//   · enabled=false 立即清空，重新开启后必须重新累计两拍。
+function nextAutoRole(state, input, enabled) {
+  if (!enabled) return emptyAutoRole()
+  var prev = state && typeof state === 'object' ? state : emptyAutoRole()
+  var at = input && input.capturedAt
+  at = typeof at === 'number' && isFinite(at) ? at : null
+  if (at !== null && prev.capturedAt === at) {
+    return { family: prev.family || '', streak: prev.streak || 0, capturedAt: prev.capturedAt, roleId: prev.roleId || null }
+  }
+  var hit = foxModelFamily(input && input.model, input && input.provider)
+  var family = hit ? hit.family : ''
+  var streak = !family ? 0 : family === (prev.family || '') ? (prev.streak || 0) + 1 : 1
+  var roleId = !family ? null : streak >= 2 ? hit.roleId : prev.roleId || null
+  return { family: family, streak: streak, capturedAt: at === null ? prev.capturedAt || null : at, roleId: roleId }
+}
+
+// ---------- 每日预算提醒（P0-2） ----------
+
+var BUDGET_KEY_PREFIX = 'fox-dock.budget.v1.'
+
+// 本地日期（不是 UTC）：跨天以用户本机日历为准。
+function localDateKey(ms) {
+  var d = new Date(typeof ms === 'number' && isFinite(ms) ? ms : Date.now())
+  var m = String(d.getMonth() + 1)
+  var day = String(d.getDate())
+  return d.getFullYear() + '-' + (m.length < 2 ? '0' + m : m) + '-' + (day.length < 2 ? '0' + day : day)
+}
+
+// 返回本次应当提醒的 {kind, threshold, amount, currency}，不需要提醒时返回 null。
+// 只认 ok && supported && !stale；金额/积分预算各自独立，阈值 0 = 关闭。
+function budgetAlertOf(snapshot, limits) {
+  var s = snapshot && typeof snapshot === 'object' ? snapshot : null
+  if (!s || s.ok !== true || s.supported !== true || s.stale === true) return null
+  var today = s.today && typeof s.today === 'object' ? s.today : null
+  var amount = today && typeof today.amount === 'number' && isFinite(today.amount) ? today.amount : null
+  if (amount === null) return null
+  var l = limits && typeof limits === 'object' ? limits : {}
+  var isCredit = s.unit === 'credit' || (today && today.currency === 'CREDIT')
+  if (isCredit) {
+    var credit = Number(l.budgetCredit)
+    if (!(credit > 0) || amount < credit) return null
+    return { kind: 'credit', threshold: credit, amount: amount, currency: 'CREDIT' }
+  }
+  if (s.unit !== 'money') return null
+  var money = Number(l.budgetMoney)
+  if (!(money > 0) || amount < money) return null
+  return { kind: 'money', threshold: money, amount: amount, currency: (today && today.currency) || '' }
+}
+
+function budgetAlertKey(dateKey, agentId, kind, threshold) {
+  return (
+    BUDGET_KEY_PREFIX +
+    String(dateKey || '') +
+    '.' +
+    String(agentId || '-') +
+    '.' +
+    String(kind || 'money') +
+    '.' +
+    String(threshold)
+  )
 }

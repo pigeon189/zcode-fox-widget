@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
 import zlib from 'node:zlib'
 
 import { crc32 } from '../../shared/zip.mjs'
@@ -142,4 +143,139 @@ test('roles: 文件名由 id 决定，路径穿越 id 直接拒绝', () => {
 test('roles: 建议 id 避开内置与已存在', () => {
   assert.equal(suggestRoleId('Fox'), 'fox-2')
   assert.equal(suggestRoleId('My Role!', ['my-role']), 'my-role-2')
+})
+
+// ---------- 宠物层 roles.js（浏览器全局脚本，用 vm 载入） ----------
+//
+// 这两组纯函数是 P0-1（按模型换角色）与 P0-2（每日预算）的判定核心，
+// 不依赖 DOM，直接按浏览器里的全局作用域执行。
+
+const petRoles = (() => {
+  const source = fs.readFileSync(new URL('../../overlay/roles.js', import.meta.url), 'utf8')
+  // 用当前 realm 执行：vm.createContext 会产生跨 realm 的对象原型，
+  // deepStrictEqual 会把「结构相同」判成不同。脚本本身不碰 DOM，可以直接跑。
+  vm.runInThisContext(source, { filename: 'overlay/roles.js' })
+  return {
+    foxRoleForModel: globalThis.foxRoleForModel,
+    nextAutoRole: globalThis.nextAutoRole,
+    budgetAlertOf: globalThis.budgetAlertOf,
+    budgetAlertKey: globalThis.budgetAlertKey,
+    localDateKey: globalThis.localDateKey,
+    BUDGET_KEY_PREFIX: globalThis.BUDGET_KEY_PREFIX,
+  }
+})()
+
+test('pet roles: 模型/厂商 → 角色族（模型优先、provider 兜底、大小写不敏感）', () => {
+  const { foxRoleForModel } = petRoles
+  assert.equal(foxRoleForModel('glm-4.7', ''), 'fox')
+  assert.equal(foxRoleForModel('GLM-4.6V-Flash', ''), 'fox')
+  assert.equal(foxRoleForModel('', 'zhipu'), 'fox')
+  assert.equal(foxRoleForModel('deepseek-chat', ''), 'whale')
+  assert.equal(foxRoleForModel('', 'dsh'), 'whale')
+  assert.equal(foxRoleForModel('gpt-5.1', ''), 'gpt')
+  assert.equal(foxRoleForModel('o3-mini', ''), 'gpt')
+  assert.equal(foxRoleForModel('', 'openai'), 'gpt')
+  assert.equal(foxRoleForModel('kimi-k2-0905-preview', ''), 'kimi')
+  assert.equal(foxRoleForModel('', 'moonshot'), 'kimi')
+  assert.equal(foxRoleForModel('claude-sonnet-4-5', ''), 'xiaoke')
+  assert.equal(foxRoleForModel('', 'anthropic'), 'xiaoke')
+  assert.equal(foxRoleForModel('gemini-3-pro', ''), 'gemini')
+  assert.equal(foxRoleForModel('', 'google'), 'gemini')
+  // 模型命中时不被 provider 改写
+  assert.equal(foxRoleForModel('glm-4.7', 'anthropic'), 'fox')
+  // 认不出就是 null，不猜
+  assert.equal(foxRoleForModel('mystery-model', 'mystery'), null)
+  assert.equal(foxRoleForModel('', ''), null)
+  assert.equal(foxRoleForModel(null, undefined), null)
+  // 短词不能被普通单词误伤（amazing 里没有独立 token 的 zai）
+  assert.equal(foxRoleForModel('amazing-model', ''), null)
+  assert.equal(foxRoleForModel('mistral-large', ''), null)
+})
+
+test('pet roles: 连续两拍才切；同一 capturedAt 不重复计数；族变化保留旧角色', () => {
+  const { nextAutoRole } = petRoles
+  const empty = { family: '', streak: 0, capturedAt: null, roleId: null }
+  assert.deepEqual(nextAutoRole(empty, { model: 'glm-4.7', capturedAt: 1 }, true), {
+    family: 'glm',
+    streak: 1,
+    capturedAt: 1,
+    roleId: null,
+  })
+  const two = nextAutoRole({ family: 'glm', streak: 1, capturedAt: 1, roleId: null }, { model: 'glm-4.7', capturedAt: 2 }, true)
+  assert.equal(two.roleId, 'fox')
+  assert.equal(two.streak, 2)
+  // 同一拍重复调用（多处渲染）不能把下一族提前切
+  assert.deepEqual(nextAutoRole(two, { model: 'deepseek-chat', capturedAt: 2 }, true), two)
+  // 族变化的第一拍：streak 归 1，仍显示旧角色
+  const first = nextAutoRole(two, { model: 'deepseek-chat', capturedAt: 3 }, true)
+  assert.equal(first.family, 'deepseek')
+  assert.equal(first.streak, 1)
+  assert.equal(first.roleId, 'fox')
+  // 第二拍才真正切
+  const switched = nextAutoRole(first, { model: 'deepseek-chat', capturedAt: 4 }, true)
+  assert.equal(switched.roleId, 'whale')
+  assert.equal(switched.streak, 2)
+  // 认不出 → 清零回落到手动/档案角色
+  const cleared = nextAutoRole(switched, { model: 'mystery', capturedAt: 5 }, true)
+  assert.deepEqual(cleared, { family: '', streak: 0, capturedAt: 5, roleId: null })
+})
+
+test('pet roles: provider 兜底也能累计两拍；关闭开关立即清空', () => {
+  const { nextAutoRole } = petRoles
+  let s = nextAutoRole(null, { model: '', provider: 'anthropic', capturedAt: 10 }, true)
+  assert.equal(s.streak, 1)
+  s = nextAutoRole(s, { model: '', provider: 'anthropic', capturedAt: 11 }, true)
+  assert.equal(s.roleId, 'xiaoke')
+  // enabled=false：立即清空，重新开启必须重新累计两拍
+  assert.deepEqual(nextAutoRole(s, { model: '', provider: 'anthropic', capturedAt: 12 }, false), {
+    family: '',
+    streak: 0,
+    capturedAt: null,
+    roleId: null,
+  })
+  const again = nextAutoRole(null, { model: '', provider: 'anthropic', capturedAt: 13 }, true)
+  assert.equal(again.streak, 1)
+  assert.equal(again.roleId, null)
+})
+
+test('pet roles: 预算阈值只认 ok+supported+未过期，金额/积分互不串门', () => {
+  const { budgetAlertOf } = petRoles
+  const money = { ok: true, supported: true, unit: 'money', today: { amount: 12, currency: 'CNY' } }
+  assert.deepEqual(budgetAlertOf(money, { budgetMoney: 10 }), {
+    kind: 'money',
+    threshold: 10,
+    amount: 12,
+    currency: 'CNY',
+  })
+  assert.equal(budgetAlertOf({ ...money, today: { amount: 9.99, currency: 'CNY' } }, { budgetMoney: 10 }), null)
+  assert.equal(budgetAlertOf(money, { budgetMoney: 0 }), null)
+  assert.equal(budgetAlertOf({ ...money, ok: false }, { budgetMoney: 10 }), null)
+  assert.equal(budgetAlertOf({ ...money, supported: false }, { budgetMoney: 10 }), null)
+  assert.equal(budgetAlertOf({ ...money, stale: true }, { budgetMoney: 10 }), null)
+  // 积分宿主只吃 budgetCredit；金额预算再低也不弹
+  const credit = { ok: true, supported: true, unit: 'credit', today: { amount: 100, currency: 'CREDIT' } }
+  assert.deepEqual(budgetAlertOf(credit, { budgetMoney: 1, budgetCredit: 100 }), {
+    kind: 'credit',
+    threshold: 100,
+    amount: 100,
+    currency: 'CREDIT',
+  })
+  assert.equal(budgetAlertOf(credit, { budgetMoney: 1, budgetCredit: 0 }), null)
+  assert.equal(budgetAlertOf(money, { budgetMoney: 0, budgetCredit: 1 }), null, '金额宿主不弹积分预算')
+})
+
+test('pet roles: 预算去重键带日期/宿主/类型/阈值，旧日期键可识别', () => {
+  const { budgetAlertKey, localDateKey, BUDGET_KEY_PREFIX } = petRoles
+  assert.equal(localDateKey(new Date(2026, 9, 4, 12, 30).getTime()), '2026-10-04')
+  assert.equal(localDateKey(new Date(2026, 0, 9, 0, 0).getTime()), '2026-01-09')
+  assert.equal(BUDGET_KEY_PREFIX, 'fox-dock.budget.v1.')
+  const key = budgetAlertKey('2026-10-04', 'zcode', 'money', 10)
+  assert.equal(key, 'fox-dock.budget.v1.2026-10-04.zcode.money.10')
+  assert.notEqual(
+    key,
+    budgetAlertKey('2026-10-04', 'zcode', 'money', 20),
+    '改阈值必须生成新键才能再次提醒'
+  )
+  assert.notEqual(key, budgetAlertKey('2026-10-05', 'zcode', 'money', 10), '跨天必须重置')
+  assert.equal(budgetAlertKey('2026-10-04', '', 'credit', 5), 'fox-dock.budget.v1.2026-10-04.-.credit.5')
 })

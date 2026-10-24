@@ -54,6 +54,9 @@ button {
   display: block;
   pointer-events: none;
   -webkit-user-drag: none;
+  /* 换角色零延迟淡入：src 立刻换，新图 load 时从 32% 浮回（pet.js）。
+     一次性功能动画（D039 允许）；reduced-motion 下关闭。 */
+  transition: opacity 180ms ease;
 }
 #fox.mirror img {
   transform: scaleX(-1);
@@ -62,7 +65,10 @@ button {
   filter: drop-shadow(0 0 10px var(--pet-accent));
 }
 @media (prefers-reduced-motion: reduce) {
-  #fox img { animation: none; }
+  #fox img { animation: none; transition: none; }
+  /* D039：reduced-motion 下所有动画关闭——包括「工作中」转点这类
+     状态存续动画（静态显示缺口圆环即可，颜色不变）。 */
+  .chip-dot.working { animation: none; }
 }
 
 #pet-menu {
@@ -152,6 +158,8 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   font-size: 12px;
   color: var(--text-3);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #chip-value {
   font-size: 14px;
@@ -172,11 +180,6 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
     filter: brightness(0.72);
   }
 }
-.chip-unlink {
-  font-size: 12px;
-  color: var(--text-3);
-}
-
 /* ---------- 气泡 / 台词 ---------- */
 #bubble,
 #say {
@@ -267,6 +270,13 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-right: 40px;
+}
+.quick-refresh {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
 }
 .quick-dot {
   width: 8px;
@@ -427,21 +437,31 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   color: var(--text-2);
 }
 .icon-btn {
+  /* 与控制台 console.css 的 .icon-btn 同规格：32×32、透明边、flex 居中，
+     快览卡刷新键不再出现「图标贴左上、带一圈边框」的观感（问题5）。 */
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 /* ---------- 菜单 ---------- */
 #menu {
   position: absolute;
   z-index: 40;
-  width: 224px;
+  /* 224 → 196：状态栏挂件右键菜单不占太多横向空间；文本仍完整可见。 */
+  width: 196px;
   max-height: calc(100vh - 24px);
   overflow: auto;
   padding: 4px;
@@ -455,16 +475,17 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
 }
 .menu-item {
   width: 100%;
-  min-height: 36px;
+  min-height: 34px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px;
+  gap: 8px;
+  padding: 5px 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--text);
   font-size: 13px;
+  line-height: 1.35;
   text-align: left;
 }
 .menu-item:hover {
@@ -474,21 +495,23 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   color: var(--bad);
 }
 .menu-title {
-  padding: 8px 10px 4px;
+  padding: 6px 8px 3px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-3);
 }
 .menu-sep {
   height: 1px;
-  margin: 4px 6px;
+  margin: 4px 4px;
   background: var(--border);
 }
 .menu-sub {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 10px 8px;
+  /* 菜单内容区 174px（196 - 边框2 - 菜单内边距8 - 本行内边距12）；
+     4×40 + 3×4 = 172，正好放下一行。 */
+  gap: 4px;
+  padding: 4px 6px 7px;
 }
 .menu-role {
   width: 40px;
@@ -508,13 +531,16 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   border-color: var(--pet-accent);
 }
 .menu-size {
-  min-width: 44px;
+  /* 4 档（4×40 + 3×4 = 172）能放进 196px 菜单的一行里；nowrap 防止 100% 折行。 */
+  min-width: 40px;
   height: 32px;
+  padding: 0 2px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   font-size: 12px;
+  white-space: nowrap;
 }
 .menu-size.active {
   border-color: var(--pet-accent);
@@ -554,3 +580,65 @@ body[data-corner-h="left"] #chip {
 body[data-corner-h="right"] #chip {
   border-top-right-radius: 6px;
 }
+
+/* ---------- 2.0-pre.2：会话状态 ---------- */
+.chip-dot.working {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--st-working) 30%, transparent);
+  border-top-color: var(--st-working);
+  animation: fd-spin 0.9s linear infinite;
+}
+.chip-dot.done { background: var(--st-done); }
+.chip-multi {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--pet-accent);
+  color: var(--on-accent);
+  border: 2px solid var(--surface);
+  font: 700 12px/12px var(--font-ui);
+  text-align: center;
+}
+.quick-sessions { margin-top: 12px; }
+.quick-sessions .quick-label { font-size: 12px; font-weight: 600; color: var(--text-3); }
+.quick-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 0;
+  background: none;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  padding: 0;
+}
+.quick-session-row:hover { color: var(--pet-accent); }
+.quick-session-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-session-row .state { font-size: 12px; color: var(--text-3); }
+.quick-session-row .status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pet-accent);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; }
+.quick-session-row .status-dot.working { background: var(--st-working); }
+.quick-session-row .status-dot.waiting_permission,
+.quick-session-row .status-dot.waiting_input { background: var(--st-waiting); }
+.quick-session-row .status-dot.error { background: var(--st-error); }
+.quick-session-row .status-dot.done { background: var(--st-done); }
+.quick-session-row .status-dot.idle,
+.quick-session-row .status-dot.unknown { background: var(--st-idle); }

@@ -6,7 +6,7 @@ import { Icon } from './components/icons.mjs'
 import { Badge, IconButton, Segmented, Skeleton, Toasts } from './components/base.mjs'
 import { fmtPct, fmtReset, fmtTime, agentName, reasonText, pctTone, setHideMoney } from './lib/format.mjs'
 import { OverviewPage } from './pages/overview.mjs'
-import { ContextPage } from './pages/context.mjs'
+import { SessionsPage } from './pages/sessions.mjs'
 import { UsagePage } from './pages/usage.mjs'
 import { StatsPage } from './pages/stats.mjs'
 import { QuotaPage } from './pages/quota.mjs'
@@ -19,7 +19,7 @@ const html = htm.bind(h)
 
 const PAGES = [
   { id: 'overview', label: '总览', icon: 'dashboard', group: '监控' },
-  { id: 'context', label: '上下文', icon: 'layers', group: '监控' },
+  { id: 'sessions', label: '会话', icon: 'sessions', group: '监控' },
   { id: 'usage', label: '用量', icon: 'chart', group: '监控' },
   { id: 'stats', label: '统计', icon: 'activity', group: '监控' },
   { id: 'quota', label: '额度与余额', icon: 'gauge', group: '监控' },
@@ -30,7 +30,7 @@ const PAGES = [
 ]
 const PAGE_COMPONENTS = {
   overview: OverviewPage,
-  context: ContextPage,
+  sessions: SessionsPage,
   usage: UsagePage,
   stats: StatsPage,
   quota: QuotaPage,
@@ -41,37 +41,88 @@ const PAGE_COMPONENTS = {
 }
 
 const params = new URLSearchParams(location.search)
+const PAGE_PARAM = String(params.get('page') || '')
+if (/^(sessions|overview|usage|stats|quota|vendors|roles|settings|about)(\?[A-Za-z0-9%&=_.:-]*)?$/.test(PAGE_PARAM)) {
+  history.replaceState(null, '', '#' + PAGE_PARAM)
+}
 const BASE =
   String(params.get('base') || '') ||
   (params.get('port') ? 'http://127.0.0.1:' + params.get('port') : '') ||
   (/^https?:$/.test(location.protocol) ? location.origin : '')
 
+const API_CACHE = new Map()
+const API_CACHE_LIMIT = 120
+let forceUntil = 0
+
+// 页面切换时复用最近一次成功结果：统计/用量/厂商这类数据变化慢，重复抓取
+// 只会让每次点导航都等几秒。实时性强的会话列表/状态不缓存。
+function cacheTtlFor(pathname) {
+  const p = String(pathname).split('?')[0]
+  if (/^\/v1\/agents\/[^/]+\/stats$/.test(p)) return 60000
+  if (/^\/v1\/usage(\/breakdown)?$/.test(p)) return 30000
+  if (/^\/v1\/vendors(\/.*)?$/.test(p)) return 30000
+  if (/^\/v1\/roles$/.test(p)) return 60000
+  if (/^\/v1\/diag\/bundle$/.test(p)) return 30000
+  if (/^\/v1\/profiles\/[^/]+$/.test(p)) return 30000
+  if (/^\/v1\/sessions\/[^/]+\/context$/.test(p)) return 3000
+  if (/^\/v1\/sessions\/[^/]+$/.test(p)) return 8000
+  if (/^\/v1\/agents\/[^/]+\/snapshot$/.test(p)) return 5000
+  if (/^\/v1\/agents\/[^/]+\/context$/.test(p)) return 3000
+  return 0
+}
+
+function clearApiCache() {
+  API_CACHE.clear()
+}
+
 async function rawApi(pathname, opts = {}) {
   if (window.foxDock && window.foxDock.api) {
-    const r = await window.foxDock.api(pathname, opts)
-    return r
+    return window.foxDock.api(pathname, opts)
   }
   if (!BASE) throw new Error('无法连接 daemon（缺少 base/port）')
-  const res = await fetch(BASE + pathname, {
-    method: opts.method || 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-    signal: AbortSignal.timeout(opts.timeoutMs || 20000),
-  })
-  let data = null
-  try {
-    data = await res.json()
-  } catch (err) {}
-  return { status: res.status, ok: res.ok, data }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(BASE + pathname, {
+        method: opts.method || 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        signal: AbortSignal.timeout(opts.timeoutMs || 20000),
+      })
+      let data = null
+      try {
+        data = await res.json()
+      } catch (err) {}
+      return { status: res.status, ok: res.ok, data }
+    } catch (err) {
+      const method = opts.method || 'GET'
+      if (method !== 'GET' || attempt === 1) throw err
+      await new Promise((r) => setTimeout(r, 300))
+    }
+  }
+  throw new Error('fetch failed')
 }
 
 async function api(pathname, opts = {}) {
-  const r = await rawApi(pathname, opts)
+  const method = opts.method || 'GET'
+  let path = pathname
+  const forced = method === 'GET' && (opts.force === true || Date.now() < forceUntil)
+  if (forced && !/[?&]force=1(&|$)/.test(path)) path += (path.includes('?') ? '&' : '?') + 'force=1'
+  const ttl = method === 'GET' && !forced ? (opts.ttl != null ? Number(opts.ttl) : cacheTtlFor(path)) : 0
+  if (ttl > 0) {
+    const hit = API_CACHE.get(path)
+    if (hit && Date.now() - hit.at <= ttl) return hit.data
+    if (hit) API_CACHE.delete(path)
+  }
+  const r = await rawApi(path, { ...opts, method })
   if (!r.ok || (r.data && r.data.ok === false && r.data.error)) {
     const message = (r.data && (r.data.error || r.data.reason)) || 'HTTP ' + r.status
     const err = new Error(String(message))
     err.status = r.status
     throw err
+  }
+  if (ttl > 0) {
+    API_CACHE.set(path, { at: Date.now(), data: r.data })
+    if (API_CACHE.size > API_CACHE_LIMIT) API_CACHE.delete(API_CACHE.keys().next().value)
   }
   return r.data
 }
@@ -98,8 +149,23 @@ function App() {
   const [sessions, setSessions] = useState([])
   const [profile, setProfile] = useState(null)
   const [page, setPage] = useState(() => {
-    const fromHash = String(location.hash || '').replace('#', '')
-    return PAGE_COMPONENTS[fromHash] ? fromHash : 'overview'
+    const raw = String(location.hash || '').replace('#', '')
+    let id = raw.split('?')[0]
+    if (id === 'context') {
+      id = 'sessions'
+      history.replaceState(null, '', '#sessions?tab=context')
+    } else if (!PAGE_COMPONENTS[id]) {
+      try {
+        id = localStorage.getItem('fox-dock.console.page') || ''
+      } catch (err) {
+        id = ''
+      }
+      if (id === 'context') {
+        id = 'sessions'
+        history.replaceState(null, '', '#sessions?tab=context')
+      }
+    }
+    return PAGE_COMPONENTS[id] ? id : 'overview'
   })
   const [view, setView] = useState('follow')
   const [refreshAt, setRefreshAt] = useState(Date.now())
@@ -108,6 +174,7 @@ function App() {
   const [roleImages, setRoleImages] = useState({})
   const [lastDataAt, setLastDataAt] = useState(0)
   const [events, setEvents] = useState([])
+  const [liveTick, setLiveTick] = useState(0)
   const refreshRef = useRef(refreshAt)
   refreshRef.current = refreshAt
 
@@ -120,6 +187,7 @@ function App() {
   async function reloadState() {
     const d = await api('/v1/state')
     setState(d)
+    setConnected(true)
     return d
   }
   async function loadSettings() {
@@ -138,6 +206,10 @@ function App() {
     return d.vendors || []
   }
   function refresh() {
+    // 刷新按钮必须真的穿透两层缓存：渲染层缓存 + daemon 各服务的 TTL。
+    // forceUntil 让紧随 refreshAt 的 GET 自动带 force=1。
+    forceUntil = Date.now() + 3000
+    clearApiCache()
     setRefreshAt(Date.now())
   }
 
@@ -255,6 +327,11 @@ function App() {
           setConnected(true)
         } else if (event === 'context' && data && data.adapterId) {
           setContexts((prev) => ({ ...prev, [data.adapterId]: data.context }))
+        } else if (event === 'session' || event === 'sessions' || event === 'live') {
+          setLiveTick((n) => n + 1)
+          if (event === 'sessions' || event === 'live') {
+            setState((prev) => (prev ? { ...prev, live: data } : prev))
+          }
         } else if (event === 'event') {
           setEvents((list) => [...list.slice(-19), data])
           if (data.type === 'permission-request') {
@@ -275,6 +352,13 @@ function App() {
           const d = JSON.parse(e.data)
           setContexts((prev) => ({ ...prev, [d.adapterId]: d.context }))
         } catch (err) {}
+      })
+      es.addEventListener('session', () => setLiveTick((n) => n + 1))
+      es.addEventListener('sessions', (e) => {
+        try {
+          setState((prev) => (prev ? { ...prev, live: JSON.parse(e.data) } : prev))
+        } catch (err) {}
+        setLiveTick((n) => n + 1)
       })
       es.onopen = () => setConnected(true)
       es.onerror = () => setConnected(false)
@@ -339,8 +423,24 @@ function App() {
     } catch (err) {}
   }
 
+  useEffect(() => {
+    function onHash() {
+      const raw = String(location.hash || '').replace('#', '')
+      let id = raw.split('?')[0]
+      if (id === 'context') {
+        id = 'sessions'
+        history.replaceState(null, '', '#sessions?tab=context')
+      }
+      if (PAGE_COMPONENTS[id]) setPage(id)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
   function navigate(id) {
+    if (id === 'context') id = 'sessions'
     if (!PAGE_COMPONENTS[id]) return
+    if (!['sessions', 'stats', 'quota'].includes(id)) setView('follow')
     setPage(id)
     location.hash = id
     try {
@@ -434,8 +534,12 @@ function App() {
     profile,
     refreshAt,
     viewAgent,
+    view,
     events,
+    live: (state && state.live) || { aggregate: 'idle', counts: {} },
+    liveTick,
     api,
+    clearApiCache,
     toast,
     refresh,
     navigate,
@@ -463,6 +567,9 @@ function App() {
   ]
   const groups = ['监控', '管理']
   const online = connected && state
+  // 只有按宿主取数的页面才显示视角切换；总览/用量是四 agent 合并视图，
+  // 厂商/角色/设置/关于也不按宿主变化。
+  const showAgentSwitch = ['sessions', 'stats', 'quota'].includes(page)
 
   return html`<${Fragment}>
     <div class="titlebar">
@@ -492,9 +599,9 @@ function App() {
       <main class="main">
         <header class="page-head">
           <h1>${(PAGES.find((p) => p.id === page) || {}).label || '关于与诊断'}</h1>
-          <${Segmented} value=${view} options=${viewOptions} onChange=${setView} label="视角" />
+          ${showAgentSwitch ? html`<${Segmented} value=${view} options=${viewOptions} onChange=${setView} label="视角" />` : null}
           <span class="spacer"></span>
-          <span class="fresh">${lastDataAt ? '上次更新 ' + fmtTime(lastDataAt) : ''}</span>
+          <span class="fresh" data-visual-mask>${lastDataAt ? '上次更新 ' + fmtTime(lastDataAt) : ''}</span>
           <${IconButton} icon="refresh" label="刷新" onClick=${refresh} />
         </header>
         <div class="content" id="content" tabindex="0" aria-label="页面内容">
