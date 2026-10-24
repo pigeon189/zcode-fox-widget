@@ -5366,6 +5366,14 @@ try {
       })
     )
     check(
+      '位置记忆：恢复之前不落盘（浮层隐身期重载不会用初始摆位覆盖 POS_KEY，issue #11 回归绊线）',
+      src.indexOf('if (!positionRestored) return') !== -1 &&
+        src.indexOf('if (!positionRestored) return') < src.indexOf('v:2 = 净距离格式'),
+      JSON.stringify({
+        guard: src.indexOf('if (!positionRestored) return') !== -1,
+      })
+    )
+    check(
       'rua：角色门控只留大肥鱼/小克，出厂队列按角色增删 C 变体',
       /roleId === 'whale' \|\| roleId === 'xiaoke'/.test(src) &&
         /if \(allowRua\) variants\.push\(\{ w: 5, modules: \[\{ type: 'img', img: 'rua', size: 'A' \}\] \}\)/.test(src) &&
