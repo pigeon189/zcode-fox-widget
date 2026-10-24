@@ -207,7 +207,7 @@ function mkRoot(name, entries) {
     ['lib/new.js', Buffer.from('new')],
     ['.codebuddy-plugin/plugin.json', Buffer.from('{"version":"1.11.0"}')],
   ])
-  const plan = U.planApply(root, files, ['lib/keep.js', 'lib/gone.js', 'lib/change.js', 'README.md'])
+  const plan = await U.planApply(root, files, ['lib/keep.js', 'lib/gone.js', 'lib/change.js', 'README.md'])
   check(
     'planApply：内容相同跳过、变化重写、缺失新增、旧清单独有项进删除集、不存在的旧项忽略',
     plan.skip.includes('lib/keep.js') &&
@@ -220,17 +220,17 @@ function mkRoot(name, entries) {
   )
   // 无 manifest 的 git 工作区：不猜、不删（readOldFileList 返回 null → remove 空）
   fs.mkdirSync(path.join(root, '.git'), { recursive: true })
-  const gitPlan = U.planApply(root, files, U.readOldFileList(root, { manifest: null }))
+  const gitPlan = await U.planApply(root, files, U.readOldFileList(root, { manifest: null }))
   check('readOldFileList：无 manifest 的 git 工作区返回 null（只覆盖不删除）', gitPlan.remove.length === 0, JSON.stringify(gitPlan.remove))
 
   // 无 manifest 的非 git 目录：整目录扫描 → 旧文件被清理
   const plain = mkRoot('plan-plain', { 'lib/old.js': 'old', 'lib/keep.js': 'same' })
-  const plainPlan = U.planApply(plain, files, U.readOldFileList(plain, { manifest: null }))
+  const plainPlan = await U.planApply(plain, files, U.readOldFileList(plain, { manifest: null }))
   check('readOldFileList：非 git 目录整目录扫描，旧文件进入删除集', plainPlan.remove.includes('lib/old.js') && plainPlan.skip.includes('lib/keep.js'), JSON.stringify(plainPlan))
 
   // 兜底清单（非 manifest）不得越出「新包顶层目录集合」删文件：git ls-files 给的是
   // 当前 HEAD 的全部被跟踪文件，本地领先目标 tag 的提交若不设限会被连带删除
-  const localOnly = U.planApply(plain, files, { files: ['lib/old.js', 'scratch/local-only.js'], source: 'git' })
+  const localOnly = await U.planApply(plain, files, { files: ['lib/old.js', 'scratch/local-only.js'], source: 'git' })
   check(
     'planApply：兜底清单只清理新包顶层目录内的文件（本地独有目录不误删）',
     localOnly.remove.includes('lib/old.js') && !localOnly.remove.includes('scratch/local-only.js'),
