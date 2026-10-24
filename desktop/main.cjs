@@ -176,9 +176,15 @@ function setPetMode(value) {
 // 不依赖页面配合（页面已经死了，没法自证），也不依赖外部判活。
 const PAGE_BEAT_MS = 30000
 const PAGE_BEAT_TIMEOUT_MS = 5000
+// 功能探针（issue #13）：页面活着（1+1 能答）但输入链路断流——interactive 永远
+// 停在 false，悬停/点击全部穿透，只能手动重启。健康页面里「光标压在鲸鱼/面板上
+// 却未接管」是不可能态（页面轮询 200ms 内就会把接管翻上来），连续两拍观测到即
+// 判定断流，重建窗口恢复。只在浮层可见时探测（隐身期光标位置无意义，防误报）。
+const PROBE_STUCK_LIMIT = 2
 let pageBeatTimer = null
 let pageBeatFails = 0
 let pageBeatOk = 0
+let probeStuckStreak = 0
 
 function startPageHeartbeat() {
   if (pageBeatTimer) return
@@ -191,6 +197,10 @@ async function probePage() {
   const wc = win.webContents
   if (!wc || wc.isDestroyed()) return
   if (wc.isLoading()) return // 正在加载/重载：这一拍放过
+  if (!overlayShown) {
+    probeStuckStreak = 0 // 隐身期不做功能探测：接管本来就为 false
+    return
+  }
   try {
     const v = await Promise.race([
       wc.executeJavaScript('1+1'),
@@ -201,6 +211,7 @@ async function probePage() {
     pageBeatFails = 0
     pageBeatOk++
   } catch (err) {
+    probeStuckStreak = 0
     pageBeatFails++
     log(
       'page-beat-fail',
@@ -212,7 +223,37 @@ async function probePage() {
     try {
       wc.reload()
     } catch (e) {}
+    return
   }
+  // 功能探针：1+1 正常只说明 JS 线程活着，输入链路（onCursor → trackPointerAt →
+  // 接管）仍可能已断流。让页面用主进程自己算的光标页面坐标做命中测试——光标
+  // 压在鲸鱼/面板上而 interactive 为 false，连续两拍即重建。
+  try {
+    const cpt = screen.getCursorScreenPoint()
+    const cb = win.getContentBounds()
+    const px = Math.round(cpt.x - cb.x)
+    const py = Math.round(cpt.y - cb.y)
+    const probe = await Promise.race([
+      wc.executeJavaScript('(window.__zcwProbe ? window.__zcwProbe(' + px + ',' + py + ') : null)'),
+      new Promise((res) => setTimeout(() => res(null), PAGE_BEAT_TIMEOUT_MS)),
+    ])
+    if (!probe || typeof probe.hit !== 'boolean' || typeof probe.interactive !== 'boolean') return
+    if (probe.hit && !probe.interactive) {
+      probeStuckStreak++
+      log(
+        'page-probe-stuck',
+        '(' + probeStuckStreak + '/' + PROBE_STUCK_LIMIT + ') hit=true interactive=false @ ' + px + ',' + py
+      )
+      if (probeStuckStreak >= PROBE_STUCK_LIMIT) {
+        probeStuckStreak = 0
+        log('page-recreate', '输入链路断流（命中未接管连续 ' + PROBE_STUCK_LIMIT + ' 拍），重建窗口恢复')
+        recreateWindow('page-interactive-stuck')
+      }
+      return
+    }
+    if (probeStuckStreak) log('page-probe-recovered', String(probeStuckStreak) + ' stuck beat(s) before')
+    probeStuckStreak = 0
+  } catch (err) {}
 }
 
 function createWindow() {

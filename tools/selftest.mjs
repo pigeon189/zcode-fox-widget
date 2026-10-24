@@ -3593,6 +3593,30 @@ try {
         /hideOverlay\('host-identity-changed'\)/.test(mainSrc),
       ''
     )
+    check(
+      'issue#13：页面心跳带功能探针，命中未接管连续两拍重建窗口（输入链路断流自愈）',
+      mainSrc.indexOf('window.__zcwProbe') !== -1 &&
+        mainSrc.indexOf("'page-probe-stuck'") !== -1 &&
+        mainSrc.indexOf("recreateWindow('page-interactive-stuck')") !== -1 &&
+        mainSrc.indexOf('if (!overlayShown)') !== -1,
+      JSON.stringify({
+        probe: mainSrc.indexOf('window.__zcwProbe') !== -1,
+        stuckLog: mainSrc.indexOf("'page-probe-stuck'") !== -1,
+        recreate: mainSrc.indexOf("recreateWindow('page-interactive-stuck')") !== -1,
+        shownGate: mainSrc.indexOf('if (!overlayShown)') !== -1,
+      })
+    )
+    check(
+      'issue#13：浮层页面暴露 __zcwProbe 功能探针（命中测试 + 接管状态）',
+      (() => {
+        const widgetSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'widget.js'), 'utf8')
+        return (
+          /window\.__zcwProbe = function \(x, y\)/.test(widgetSrc) &&
+          widgetSrc.indexOf('hit: isWhaleHit({ clientX: x, clientY: y }) || inChrome(node)') !== -1
+        )
+      })(),
+      ''
+    )
     // 两线各有一个「按宿主窗口算浮层边界」的函数，名字不同（本线是
     // applyHostBounds，ZCode 线是 applyZCodeBounds）。从 main cherry-pick 浮层补丁时
     // hunk 能对上、函数名却可能对不上——2026-10-18 真机就弹过
@@ -5244,7 +5268,12 @@ try {
     const proj = path.join(lab, 'projects', 'p1')
     fs.mkdirSync(proj, { recursive: true })
     const lines = []
-    let ts = Date.now() - 3600_000
+    // 夹具锚定「今天 01:00」而不是裸 now−1h：本用例对「轮次必须落在今天」敏感，
+    // 午夜后一小时内跑自检时 now−1h 会落到昨天，today 聚合必然为 0（2026-10-25
+    // 00:1x 实测踩中误报）。01:00 起步 + 40 分钟跨度，任何时刻运行都整段落在今天。
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    let ts = todayStart.getTime() + 3600_000
     for (let i = 0; i < 40; i++) {
       ts += 60_000
       lines.push(
