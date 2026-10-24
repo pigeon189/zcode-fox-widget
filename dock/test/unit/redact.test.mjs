@@ -16,7 +16,9 @@ const SECRETS = [
   'passwd: letmeinplease',
   'AKIA' + 'ABCDEFGHIJKLMNOP',
   'ghp_' + 'a'.repeat(30),
-  '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----',
+  // 假 PEM 用拼接构造：文件里不能出现连续的「-----BEGIN … PRIVATE KEY-----」
+  // 字面量，否则 pack-release 的私钥体检会拒绝打包（宁可打不出包也不放私钥）。
+  '-----BEGIN RSA PRIVATE' + ' KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE' + ' KEY-----',
 ]
 
 test('redact: 已知密钥形态全部遮蔽', () => {
