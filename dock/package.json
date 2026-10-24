@@ -1,6 +1,6 @@
 {
   "name": "fox-dock",
-  "version": "2.0.0-pre.1",
+  "version": "2.0.0-pre.2",
   "private": true,
   "type": "module",
   "description": "Universal desktop pet for agent cost visibility: ZCode / WorkBuddy / Kimi Code / DeepSeek Harness",
@@ -25,6 +25,7 @@
     "check:sync": "node tools/check-pricing-sync.mjs",
     "e2e:real": "node tools/e2e-real.mjs",
     "soak": "node tools/soak.mjs",
+    "bench": "node tools/bench-sessions.mjs",
     "keygen": "node tools/dock-keygen.mjs",
     "sign": "node tools/sign-manifest.mjs",
     "pack": "node tools/pack-release.mjs",
@@ -32,6 +33,7 @@
     "lint:layout": "node tools/ui-check.mjs --axe 0",
     "test:a11y": "node tools/ui-check.mjs --axe 1",
     "test:e2e": "node tools/ui-check.mjs --axe 0",
+    "test:e2e:pages": "node tools/run-tests.mjs --suite e2e",
     "test:electron:console": "node tools/console-smoke.mjs",
     "visual": "node tools/visual-test.mjs",
     "visual:update": "node tools/visual-test.mjs --update",
