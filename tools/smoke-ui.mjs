@@ -1303,6 +1303,47 @@ try {
   await new Promise((r) => setTimeout(r, 700))
   const cornerResetSaved = await (await fetch('http://127.0.0.1:' + PORT + '/whale/size.json')).json()
   check('默认位置：切回右下并落盘（后续用例位置不受影响）', cornerResetSaved.defaultCorner === 'br', JSON.stringify({ saved: cornerResetSaved.defaultCorner }))
+  // issue #11 回归：设置可能是在另一个存储域改的（ZCode 内嵌页与桌面浮层各有
+  // 各的 localStorage）。模拟：同域把默认切到左下，再把本域伪装成「另一个域」
+  // ——POS_KEY 与 CORNER_KEY 都还记着右下；重载页面（=重启）后必须按配置里的
+  // 新默认（左下）落位并重记位置，不能让本域旧位置一直赢。
+  const crossDomainSet = JSON.parse(
+    await cdp.eval(
+      "(function(){var s=document.querySelector('select.zcwv-corner-select');if(!s)return null;" +
+        "s.value='bl';s.dispatchEvent(new Event('change'));" +
+        "return JSON.stringify({value:s.value})})()"
+    )
+  )
+  await new Promise((r) => setTimeout(r, 700))
+  await cdp.eval(
+    "(function(){localStorage.setItem('zcw-pos',JSON.stringify({v:2,hAnchor:'right',hDist:8,vAnchor:'bottom',vDist:8}));" +
+      "localStorage.setItem('zcw-default-corner','br');return 'ok'})()"
+  )
+  await cdp.send('Page.reload')
+  const crossBooted = await pollEval(
+    cdp,
+    "(document.readyState === 'complete' && document.querySelector('.zcwv-hint')) ? true : false",
+    30000
+  )
+  await new Promise((r) => setTimeout(r, 900))
+  const crossPos = JSON.parse(
+    await cdp.eval(
+      "(function(){var r=document.querySelector('.zcwv-root').getBoundingClientRect();" +
+        "return JSON.stringify({left:Math.round(r.left),top:Math.round(r.top)," +
+        "pos:JSON.parse(localStorage.getItem('zcw-pos')||'null')})})()"
+    )
+  )
+  check(
+    '默认位置跨域同步：别的域记着右下时，配置里的左下重启后仍生效',
+    !!crossBooted && !!crossPos && crossPos.left <= 8 && !!crossPos.pos && crossPos.pos.hAnchor === 'left',
+    JSON.stringify({ booted: crossBooted, pos: crossPos })
+  )
+  // 复位：默认角落切回右下并等去抖落盘，别把状态漏给后面的用例
+  await cdp.eval(
+    "(function(){var s=document.querySelector('select.zcwv-corner-select');if(!s)return false;s.value='br';" +
+      "s.dispatchEvent(new Event('change'));return true})()"
+  )
+  await new Promise((r) => setTimeout(r, 700))
   // 隐藏菜单按钮（移植 DSH）：开启后按钮不再出现、右键角色唤出菜单且落地持久化
   const hideRow = JSON.parse(
     await cdp.eval(

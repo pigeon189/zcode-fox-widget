@@ -5357,6 +5357,15 @@ try {
       })
     )
     check(
+      '默认位置：配置角落与本域记忆不同时按跨域变更处理（issue #11 回归绊线）',
+      src.indexOf('cornerChangedFromConfig = incomingCorner !== defaultCorner') !== -1 &&
+        src.indexOf('if (cornerChangedFromConfig && !layoutTouched)') !== -1,
+      JSON.stringify({
+        detect: src.indexOf('cornerChangedFromConfig = incomingCorner !== defaultCorner') !== -1,
+        apply: src.indexOf('if (cornerChangedFromConfig && !layoutTouched)') !== -1,
+      })
+    )
+    check(
       'rua：角色门控只留大肥鱼/小克，出厂队列按角色增删 C 变体',
       /roleId === 'whale' \|\| roleId === 'xiaoke'/.test(src) &&
         /if \(allowRua\) variants\.push\(\{ w: 5, modules: \[\{ type: 'img', img: 'rua', size: 'A' \}\] \}\)/.test(src) &&
