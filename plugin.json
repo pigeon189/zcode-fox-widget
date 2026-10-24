@@ -1,0 +1,15 @@
+{
+  "name": "gemini-hakimi-widget",
+  "displayName": "反重力哈基米记账桌宠",
+  "description": "专为 Google Antigravity 打造的桌宠与余额挂件，移植自 dsh 小鲸鱼与 zcode 小狐狸挂件。直连 Antigravity 本地 ConnectRPC 官方限额、60FPS Q弹物理果冻回弹摸头动画与 Prompt Cache 记账。(https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight)",
+  "version": "2.3.0",
+  "homepage": "https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight",
+  "repository": "https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight.git",
+  "license": "MIT",
+  "logo": "assets/logo.png",
+  "suggestedPrompts": [
+    "启动哈基米记账桌宠",
+    "查看当前会话 Token 消耗与今日账单",
+    "关闭哈基米记账挂件"
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "_source": "Official Google Antigravity & Claude 4 Models Pricing & Quotas",
+  "usd_to_cny": 7.25,
+  "default_model": "gemini-3.8-flash",
+  "context_window": 1048576,
+  "models": {
+    "gemini-4-argon": {
+      "display_name": "Gemini 4 Argon",
+      "short_name": "4 Argon",
+      "vendor": "Gemini",
+      "badge": "FLAGSHIP",
+      "note": "反重力旗舰深度推理模型 ($2/$10, 缓存命中 $0.10)",
+      "context_window": 1048576,
+      "quota_5h_turns": 600,
+      "quota_5h_tokens": 25000000,
+      "quota_weekly_turns": 3500,
+      "quota_weekly_tokens": 150000000,
+      "tiers": [
+        {
+          "hit": 0.1,
+          "miss": 2.0,
+          "out": 10.0
+        }
+      ]
+    },
+    "gemini-3.8-flash": {
+      "display_name": "Gemini 3.8 Flash",
+      "short_name": "3.8 Flash",
+      "vendor": "Gemini",
+      "badge": "FLASH",
+      "note": "反重力极速高频主力模型 ($0.75/$3.75, 缓存命中 $0.075)",
+      "context_window": 1048576,
+      "quota_5h_turns": 2500,
+      "quota_5h_tokens": 80000000,
+      "quota_weekly_turns": 15000,
+      "quota_weekly_tokens": 500000000,
+      "tiers": [
+        {
+          "hit": 0.075,
+          "miss": 0.75,
+          "out": 3.75
+        }
+      ]
+    },
+    "claude-opus-5-5": {
+      "display_name": "Claude Opus 5.5",
+      "short_name": "Opus 5.5",
+      "vendor": "Claude",
+      "badge": "CLAUDE",
+      "note": "Anthropic 超大思考模型 ($4/$20, 缓存命中 $0.20)",
+      "context_window": 200000,
+      "quota_5h_turns": 400,
+      "quota_5h_tokens": 15000000,
+      "quota_weekly_turns": 2200,
+      "quota_weekly_tokens": 90000000,
+      "tiers": [
+        {
+          "hit": 0.2,
+          "miss": 4.0,
+          "out": 20.0
+        }
+      ]
+    },
+    "claude-sonnet-5-5": {
+      "display_name": "Claude Sonnet 5.5",
+      "short_name": "Sonnet 5.5",
+      "vendor": "Claude",
+      "badge": "CLAUDE",
+      "note": "Anthropic 编程深度模型 ($2/$10, 缓存命中 $0.10)",
+      "context_window": 200000,
+      "quota_5h_turns": 800,
+      "quota_5h_tokens": 30000000,
+      "quota_weekly_turns": 5000,
+      "quota_weekly_tokens": 200000000,
+      "tiers": [
+        {
+          "hit": 0.1,
+          "miss": 2.0,
+          "out": 10.0
+        }
+      ]
+    }
+  },
+  "limits": {
+    "free": {
+      "rpm": 15,
+      "tpm": 1000000,
+      "rpd": 1500,
+      "quota_multiplier": 1.0
+    },
+    "tier1": {
+      "rpm": 1000,
+      "tpm": 4000000,
+      "rpd": 10000,
+      "quota_multiplier": 5.0
+    }
+  }
+}

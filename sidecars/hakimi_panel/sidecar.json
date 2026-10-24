@@ -1,0 +1,20 @@
+{
+  "command": "python",
+  "args": [
+    "server.py"
+  ],
+  "description": "反重力哈基米 (Gemini) 实时 Token 记账、缓存省钱账单与 RPM/TPM/RPD 限额监控面板",
+  "display_name": "哈基米记账",
+  "has_web_ui": true,
+  "restart_policy": "always",
+  "ui_config": {
+    "display_name": "哈基米记账手账",
+    "views": [
+      {
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/ui.html",
+        "title": "哈基米记账"
+      }
+    ]
+  }
+}

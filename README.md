@@ -1,244 +1,172 @@
-# ZCode狐娘小挂件（zcode-fox-widget）
+# Antigravity-Gemini-Wight (反重力哈基米 / Gemini 记账桌宠)
 
-<div align="center"><img src="assets/fox.png" width="420" alt="ZCode狐娘小挂件"></div>
+<div align="center">
+  <img src="assets/gemini_normal.png" width="180" alt="Antigravity Gemini Hakimi">
+  <p><strong>专为 Google Antigravity 打造的原生二次元记账桌宠与配额监控插件</strong></p>
+  <p>
+    <a href="https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight"><img src="https://img.shields.io/badge/GitHub-Antigravity--Gemini--Wight-blue?logo=github" alt="GitHub Repo"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT"></a>
+    <img src="https://img.shields.io/badge/version-2.3-pink.svg" alt="Version 2.3">
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Antigravity-purple.svg" alt="Platform: Windows / Antigravity">
+    <img src="https://img.shields.io/badge/RPC-LanguageServer%20Live-emerald.svg" alt="ConnectRPC Live">
+  </p>
+</div>
 
-> 常驻 ZCode 右下角的桌宠：显示 **DeepSeek 余额**、**GLM Plan 剩余配额**、**CommandCode 三重额度**、**各厂商今日已用**与**当前峰谷时段**，每轮对话结束弹气泡报告本轮花费。
+> **项目仓库**：[KKKomeijiSatori/Antigravity-Gemini-Wight: 一个适配Antigravity的桌宠/余额小挂件，移植自dsh小鲸鱼和zcode小狐狸挂件。使用 MIT 协议，源自 MeteorNOX 原版与pigeon189的zode版本。](https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight)
 >
-> 浮层跟着 ZCode 窗口移动、最小化、关闭，指针不在它身上时点击直接穿透；开「桌宠模式」后以整个工作区为家，切应用也不隐身。
->
-> 同仓双分支：本分支 `main` 是 ZCode 线（按量余额口径），`workbuddy` 分支是 [WorkBuddy 线](https://github.com/pigeon189/zcode-fox-widget/tree/workbuddy)（订阅积分口径）。
+> 专为 **Google Antigravity** 平台深度定制开发：融合 **Sidecar 原生内置面板** 与 **Win32 零延迟物理吸附桌面独立桌宠** 双形态，直连反重力官方 `language_server.exe` ConnectRPC 配额接口，秒级同步 **5 小时 / 每周滚动限额与重置时间**，提供 **WPF 硬件加速 60FPS Q 弹物理果冻回弹摸头动画**、Token 逐轮账单与 Prompt Cache 节省审计。
 
 ---
 
-## 快速开始
+## 📜 渊源与致谢 (Lineage & Acknowledgements)
 
-**前置**：ZCode 客户端；`node -v` 可用（`node:sqlite` 需 ≥ 22.5，缺了「每轮消耗/用量记录」会退化）；Windows（浮层依赖 Win32，macOS / Linux 只能用本地页面）。
+本项目遵循 **MIT 协议** 开源，其灵感、核心交互与部分视觉/音效资产承袭自前代优秀桌宠小挂件的持续演进：
 
-1. **加市场源（二选一）**
+| 版本 | 仓库 / 来源 | 贡献与定位 | 协议 |
+| :--- | :--- | :--- | :---: |
+| **原版** | [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget) | DSH 大肥鱼记账挂件首创者。奠定了摸头按压/回弹双音效、摸头形变、气泡队列交互与 Prompt 缓存记账理念。 | MIT |
+| **ZCode 移植版** | [pigeon189/zcode-fox-widget](https://github.com/pigeon189/zcode-fox-widget)<br>*(基线源自 nb10yyds/zcode-whale-widget)* | ZCode 狐娘小挂件。引入了 Windows 桌面浮层模式、多模型与本地账本管理，持续迭代了音效与台词包。 | MIT |
+| **本反重力版** | [KKKomeijiSatori/Antigravity-Gemini-Wight](https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight) | **Google Antigravity 深度重构版**。重写为 ConnectRPC 直连、60FPS 硬件加速弹性回弹动画、沙盒桌面突围、四象限物理像素吸附。 | MIT |
 
-   **A. GitHub 源（推荐）**：设置 → 插件管理 → **发现** → 右上角 `+` → 市场源填
-   `pigeon189/zcode-fox-widget`。宿主认 `owner/repo`，拉的就是默认分支 `main`；升级 = 对市场点「重新抓取」。
+---
 
-   **B. 本地目录（要改代码时用）**：克隆后在同一入口点 `+`，把**仓库绝对路径**填进市场源（指向含 `marketplace.json` 的仓库根）。
+## 🎵 资产来源说明 (Asset Provenance)
 
-   > 同时装 WorkBuddy 版时，两边各克隆一份——两个宿主盯同一个工作区，任一端重抓都会覆盖另一端。
+本项目在保留上游 MIT 许可证的前提下，沿用并精调了部分经典资产，具体来源如下（详见 [`NOTICE`](./NOTICE)）：
 
-2. **安装并启用** `zcode-fox-widget`（清单默认启用）。
-3. **重启会话**（或重开 ZCode），让 MCP 与 hooks 生效。
-4. **要桌面浮层再装运行时**（约 150MB 下载 / 370MB 占用，一次性）：
+1. **音效素材（`assets/sounds/`）**：
+   - 沿用自 MeteorNOX 原版（DeepSeek-Balance-Whale-Widget）与 pigeon189（zcode-fox-widget）的开源音效：
+     - `press.wav` / `D1.mp3`：摸头按下音效
+     - `release.wav` / `D2.mp3`：摸头释放/回弹音效
+     - `approve-default.wav`, `coin.wav`, `chime.wav`, `pop.wav`, `sparkle.wav`, `task-end-a.wav`：操作、金币掉落、缓存命中提示音
+     - `cost-default.wav`：轮次计费结算提示音
+     - `Ya1.mp3`, `Ya2.mp3`：警告与提醒音效
+     - `minecraft-exp-orb.wav`：经验球拾取音效
+   - 音效加载采用 Win32 `PlaySoundW` 内存锁（`GCHandle.Alloc` Pinned）与 DirectSound 极速回放，0 延迟无卡顿。
+2. **立绘与图像素材（`assets/`）**：
+   - `gemini_normal.png`, `gemini_blush.png`, `gemini_full_normal.png`：Gemini 哈基米专属形象素材（二次元粉发小狐狸 / Gemini 娘形象）。
+   - `rua.gif`, `bubble-petpet.gif`：沿用自 DSH / zcode 上游摸头表情包素材。
+   - `icon.ico`, `icon.png`, `logo.png`：托盘图标与 Antigravity 插件 Logo。
+3. **台词文案（`assets/quotes.json`）**：
+   - 承袭原版大肥鱼的呼噜呼噜摸头声与互动趣味，针对 Google Antigravity 百万上下文、Prompt Caching 缓存机制、四大真实模型量身定制了数百句二次元互动台词。
 
-   ```bash
-   node lib/cli.mjs desktop install
+---
+
+## ✨ 核心特性
+
+### 1. 直连 Antigravity 官方 ConnectRPC (`GetUserStatus`)
+- **100% 真实云端额度**：无需手动输入 API Key，自动发现本地 `language_server.exe` 的 CSRF Token 与端口。
+- **5 小时与每周滚动双窗口**：精确捕获每个模型的 `quotaInfo.remainingFraction` 与 `quotaInfo.resetTime`，自动转换为本地时间倒计时。
+- **零值省略精确判定**：当模型额度用尽（`0%`）时，Protobuf3 JSON 仅返回 `resetTime`，插件精准识别为 `0%`（杜绝旧版误判为 `100%` 的问题）。
+
+### 2. 严格锁定反重力四大真实可用模型
+彻底剥离所有非反重力环境的虚构/失效模型，专注服务反重力四大核心生产力模型：
+- 🌟 **Gemini 4 Argon** (`gemini-4-argon` / `MODEL_PLACEHOLDER_M417~M419`)：反重力旗舰深度推理模型（周滚动配额）。
+- ⚡ **Gemini 3.8 Flash** (`gemini-3.8-flash` / `MODEL_PLACEHOLDER_M318~M320`)：极速高频主力模型（5h 滚动配额）。
+- 🧠 **Claude Opus 5.5** (`claude-opus-5-5` / `MODEL_PLACEHOLDER_M400~M402/M26`)：Anthropic 深度思考模型（5h 滚动配额）。
+- 💻 **Claude Sonnet 5.5** (`claude-sonnet-5-5` / `MODEL_PLACEHOLDER_M403~M405`)：Anthropic 编程高阶模型（5h 滚动配额）。
+- **切模型 100% 防炸加固**：在客户端与 Sidecar 服务层均加入了完整的兜底字典，无论是手动切换还是 Antigravity 内部自动路由，永不触发 `KeyError`。
+
+### 3. 硬件加速 60FPS Q 弹物理果冻回弹摸头动画
+- **按下下潜（MouseDown, 95ms）**：`CubicEase` 平滑下压形变（`ScaleX: 1.14, ScaleY: 0.84`），头顶爱心气泡轻盈上浮。
+- **松手回弹（MouseUp, 480ms）**：基于 WPF `DoubleAnimationUsingKeyFrames` 实现四级阻尼弹性果冻回弹：
+  - `120ms`：向上拉伸过冲（`ScaleX: 0.91, ScaleY: 1.13`）
+  - `240ms`：二次下压反弹（`ScaleX: 1.055, ScaleY: 0.955`）
+  - `360ms`：微阻尼收敛（`ScaleX: 0.986, ScaleY: 1.014`）
+  - `480ms`：自然静止（`ScaleX: 1.0, ScaleY: 1.0`）
+- 由 WPF GPU 渲染线程驱动，连续戳摸头丝滑流畅，彻底告别旧版定格抽帧卡顿感。
+
+### 4. 彻底解决 Win32 / WPF 桌面悬浮痛点
+- **跨桌面突围启动 (`WinSta0\Default`)**：使用 Win32 `CreateProcessW` 强制指定目标桌面为用户交互桌面，彻底解决 Antigravity 沙盒虚拟桌面（`WinSta0\exebox-*`）导致桌宠“在后台跑但屏幕看不见”的系统级问题。
+- **防止最小化坐标飞出屏幕**：在宿主探测中过滤 `IsIconic` 最小化状态，强制施加 `[-1200, 600]` 物理坐标钳制，彻底消灭 `corner_offset_x: 33930` 飞出屏幕的问题。
+- **100% 物理像素驱动**：贴边吸附与四象限自适应全程使用 Win32 物理像素（`GetWindowRect` + `SetWindowPos`），气泡显隐使用 `Opacity + IsHitTestVisible`，点击彻底不再乱飞。
+
+### 5. 交互手势与免打扰设计
+- **单击桌宠**：触发大肥鱼原版摸头音效（`press.wav` + `release.wav`）+ 脸红 Q 弹 + 随机元气台词。
+- **单击两次桌宠（270ms ~ 950ms）或点击气泡右上角 `×`**：独立开关头顶基础配额气泡。
+- **快速双击桌宠（<= 270ms）或点击底部 `📊`**：展开或收起四象限自适应详情面板。
+- **独立音效开关**：摸头音效与缓存命中提示音均可独立开启/静音。
+
+### 6. 伴随 Antigravity 窗口最小化隐藏与关闭联动
+- **最小化联动隐藏**：在开启吸附状态下，当 Antigravity 主窗口最小化或按下 Win+D 返回桌面时，桌宠主窗口与详情面板自动隐形（Visibility = Collapsed），杜绝遮挡屏幕。
+- **恢复联动展示与 0ms 复位**：当 Antigravity 窗口从任务栏还原时，桌宠立即重现并自动贴边复位至所选吸附角。
+- **关闭联动伴随退出**：当 Antigravity 窗口关闭或主进程结束时，桌宠自动识别退出信号并优雅关闭退出。
+- **全端开关自由掌控**：可在桌宠右键菜单（🙈 伴随 Antigravity 最小化隐藏与关闭联动）或内置 WebUI 侧边栏中随时一键开关。
+
+---
+
+## 🚀 安装与使用指南
+
+### 方法一：作为 Antigravity 官方扩展插件安装（推荐）
+
+1. 将本仓库内容克隆或解压至 Antigravity 插件目录：
+   ```powershell
+   # 默认 Antigravity 插件路径：
+   C:\Users\<用户名>\.gemini\config\plugins\gemini-hakimi-widget
    ```
-
-装好后打开 ZCode，鲸鱼会自己出现。
-
-### 更新
-
-- **市场刷新**：对 `zcode-fox-local` 点「重新抓取」→ 重装 → 重启客户端（宿主按版本号建新目录，最干净）。
-- **挂件内更新**：菜单「检查更新…」→ 有新版时「立即更新」→ 完成后「重启挂件」。走镜像候选链，落盘前校验发布签名清单；也可以完全关掉（`WHALE_DISABLE_UPDATE_CHECK=1`）。
-
-数据（key、账本、角色、泡泡、Electron 运行时）都在 `~/.zcode/whale/`，两种方式都不丢配置。完整性与发布流程见 [`CONTRIBUTING.md`](./CONTRIBUTING.md) 的「发布物完整性」。
+2. 重启 Antigravity，插件随软件自动激活。
+3. 在 Antigravity 中点击侧边栏面板入口或输入指令呼出：
+   - 内置面板：`[哈基米记账](sidecar://gemini-hakimi-widget/hakimi_panel/ui.html)`
+   - 面板内可一键开关“桌面悬浮宠物”，也可勾选“每次启动 Antigravity 自动弹出悬浮宠物”。
 
 ---
 
-## 功能
+### 方法二：独立运行桌面悬浮桌宠模式
 
-- **余额与今日已用**：DeepSeek 余额（需自带 key）、本机库口径的今日已用、当前峰谷时段；另有记账/实时令牌两种对账口径兜底。
-- **GLM Plan 配额**：客户端日志与直连套餐接口双源，显示窗口剩余额度与重置时间。
-- **CommandCode 三重额度**：月度池 + 5 小时 / 周窗口，支持本地账号池。
-- **厂商卡**：35 个模板（含 Kimi / MiniMax / Gemini 订阅窗口，以及 26 家无余额接口、只报凭据状态的厂商）。
-- **每轮消耗**：气泡报金额或配额百分比，`cli.mjs turn` 可逐档核对 token 分桶。
-- **记账二级页**：用量记录（今日 / 近 7 天 / 逐轮，支持按模型名或日期搜索）、额度预警、余额预警、今日预算、余额校正；余额卡同时显示赠金 / 充值构成。
-- **角色**：六套内置（嘎啦嘛 / 大肥鱼 / GPT娘 / kimi娘 / 小克 / 哈基米），按模型自动换角色、配色自定义、可导入自己的图。
-- **桌宠模式**：整屏工作区漫游，锁在最上层，失焦不隐身。
+如果你希望不依赖侧边栏面板、作为独立轻量桌宠挂件运行：
+
+1. **直接启动**：双击根目录下的 `scripts/Launch-Hakimi.vbs` 或运行 `scripts/Start-Widget.bat`。
+2. **退出桌宠**：右键点击桌宠托盘图标或桌宠身体右键菜单 → **退出哈基米桌宠**（或运行 `scripts/Stop-Widget.bat`）。
+3. **开机自启动**：运行 `scripts/Enable-AutoStart.bat` 写入开机自启（运行 `scripts/Disable-AutoStart.bat` 可随时移除）。
+4. **创建桌面快捷方式**：运行 `scripts/Create-Desktop-Shortcut.ps1` 即可在桌面生成一键启动快捷方式。
 
 ---
 
-## 使用
+## 📂 项目结构
 
-### 挂件菜单
-
-悬停鲸鱼 → 右上角三点按钮：
-
-| 分组 | 内容 |
-|---|---|
-| 外观 | 大小 0.6–2.5×（只缩放角色与气泡，菜单尺寸恒定）；主题：浅色 / 深色 / 跟随 ZCode |
-| 声音 | 音效组与音量，可导入自定义音效；音量 0 即静音 |
-| 角色 | 选内置形象或导入图片（可改名 / 删除，内置形象也能隐藏）；「按模型换角色」默认开，手选后自动关 |
-| 显示与口径 | 对账口径（记账 / 实时·令牌）、峰谷播报风格、气泡主显示跟随哪个计费源 |
-| 气泡 | 思考气泡开关、按压泡泡编辑器（含每轮消耗文案）、等确认提醒 |
-| 位置与行为 | 「位置与行为…」二级页：默认位置（右下 / 左下 / 右上 / 左上）、避让滚动条、隐藏菜单按钮、每轮消耗提示与自动关闭秒数 |
-| 浮层 | 桌宠模式、跟随延迟（16 / 40 / 100 / 250ms） |
-| 更新与关闭 | 「检查更新…」面板（含「重启挂件」「关闭插件」）；关闭只停当前这一份，下次会话照常拉起 |
-
-### 命令行
-
-```bash
-node lib/cli.mjs status           # 余额 + 今日已用 + 服务与浮层状态
-node lib/cli.mjs turn             # 上一轮消耗与逐档明细
-node lib/cli.mjs start / stop     # 启停挂件服务（页面与浮层共用）
-node lib/cli.mjs window start|stop|status|restart
-node lib/cli.mjs desktop install  # 安装 Electron 运行时（仅浮层需要）
-node lib/cli.mjs restart-all      # 服务 + 浮层一起重启
-node lib/cli.mjs close            # 本次关闭（不写自启开关）
-echo 'sk-...' | node lib/cli.mjs key   # 写 Key（走 stdin，不留命令行痕迹）
-node lib/cli.mjs mode ledger|token     # 对账口径
-node lib/cli.mjs json             # 结构化输出
+```text
+Gemini-Hakimi-Widget/
+├── assets/                       # 角色立绘、原版音效与台词包
+│   ├── gemini_normal.png         # 正常状态立绘
+│   ├── gemini_blush.png          # 摸头害羞立绘
+│   ├── quotes.json               # 专属台词库
+│   └── sounds/                   # 大肥鱼原版摸头音效 (press/release/task/cost...)
+├── config/                       # 用户配置与状态持久化
+│   └── config.json               # 坐标、音效、活动模型配置
+├── rules/                        # Antigravity 规则提示词 (AGENTS.md)
+├── scripts/                      # 启动、退出与开机自启管理脚本
+│   ├── Launch-Hakimi.vbs         # 无黑框静默启动器 (STA 保护)
+│   ├── Start-Widget.bat          # 启动批处理
+│   ├── Stop-Widget.bat           # 终止挂件批处理
+│   ├── Enable-AutoStart.bat      # 写入开机自启
+│   └── Create-Desktop-Shortcut.ps1
+├── sidecars/                     # Antigravity 内置 Sidecar 面板
+│   └── hakimi_panel/
+│       ├── server.py             # HTTP 守护进程 + 跨桌面突围启动器
+│       ├── sidecar.json          # Sidecar 注册清单
+│       └── ui.html               # 现代化手账 WebUI (GPT-Niang 限额矩阵)
+├── skills/                       # Antigravity Skill 技能定义
+├── src/                          # 核心业务逻辑
+│   ├── AntigravityMonitor.ps1    # ConnectRPC 官方限额引擎与日志审计
+│   ├── HakimiWidget.ps1          # WPF 硬件加速 60FPS 悬浮窗宿主
+│   ├── Pricing.json              # 反重力四大模型定价与限额规格表
+│   └── WidgetWindow.xaml         # XAML 视觉模板 (物理吸附与四象限自适应)
+├── CHANGELOG_AND_FIXES.md        # 完整问题排查与技术演化复盘文档
+├── NOTICE                        # 完整开源沿革与资产致谢说明
+├── hooks.json                    # Antigravity SessionStart 钩子配置
+├── plugin.json                   # Antigravity 插件清单配置
+└── README.md                     # 项目介绍文档
 ```
 
-自动启动：插件带 SessionStart hook，每次会话启动幂等拉起；同时默认在 Windows 启动文件夹放一个隐藏的看门进程，**ZCode.exe 一出现就拉起挂件，不用先选会话**。排查看 `~/.zcode/whale/autostart.log` 与 `~/.zcode/whale/zcode-watch.log`。
+---
 
-```bash
-node lib/cli.mjs watch status      # 看门进程与 Startup 项状态
-node lib/cli.mjs watch install     # 立即安装并启动（SessionStart 也会自动确保）
-node lib/cli.mjs watch uninstall   # 卸载 Startup 项并停掉看门进程
-node lib/cli.mjs watch once        # 只探测一次并拉起（排障）
-```
+## 🛠️ 技术演进与踩坑复盘
 
-### 在对话里用
-
-输入 `/fox`（或 `/fox turn`、`/fox window start`），或直接问「我还有多少余额」——ZCode 会调 MCP：
-
-| 工具 | 作用 |
-|---|---|
-| `whale_balance` | 余额、今日已用、峰谷时段 |
-| `whale_last_turn` | 上一轮消耗与明细 |
-| `whale_widget` | 服务与浮层的启停 / 状态 |
-| `whale_config` | 查看或修改配置（Key、口径、端口、自启、跟随间隔） |
-
-### 浮层交互
-
-- 角色可拖到窗口内任意位置，靠边吸附，贴左缘时整体镜像。
-- **指针要先落在角色上，点击才被浮层接管**——穿透设计的必然代价，换来不误触。
-- 普通交互不抢 ZCode 前台；菜单里的输入控件按上去才临时接管键盘，离开即交还。
+详细的底层 Win32 API 交互、DPI 物理像素坐标系映射、ConnectRPC 协议逆向以及沙盒虚拟桌面突围等技术细节，请参阅：
+👉 [CHANGELOG_AND_FIXES.md](./CHANGELOG_AND_FIXES.md)
 
 ---
 
-## 首次配置
+## 📄 开源许可证
 
-**API Key 只服务于 DeepSeek 余额卡；不配也能用**（余额卡显示「未找到 Key」是正常状态）。
-
-查找顺序：环境变量 `DEEPSEEK_API_KEY` → `~/.zcode/whale/config.json` 的 `apiKey` / `vendorKeys.<模板 id>` → ZCode provider 配置。
-
-```bash
-echo 'sk-xxxxxxxx' | node lib/cli.mjs key
-```
-
-`~/.zcode/whale/config.json` 常用字段：
-
-| 字段 | 默认 | 作用 |
-|---|---|---|
-| `autoStartWidget` | `true` | 会话启动时拉起服务 |
-| `autoStartOverlay` | `true` | 顺便拉起浮层 |
-| `autoStartWithZcode` | `true` | 登录后看门进程随 ZCode 启动拉起（不等 SessionStart） |
-| `followIntervalMs` | `40` | 跟随探测间隔（菜单选择会覆盖） |
-| `port` | 自动（39322） | 固定端口，占用时顺延 |
-
-**火山方舟 Coding Plan 配额卡（可选）**：菜单「显示」选「火山 Coding Plan」或厂商列表里的 `volc-plan` 模板。凭据必须用火山 **IAM Access Key（`AKLT…`）** 做 V4 签名——模型调用用的 Coding Plan Key（`ark-…`）不适用。IAM AK/SK 在火山控制台 → 右上角头像 → 访问控制 → 新建用户（通过用户名创建，访问方式选**编程访问**），授权时搜索并勾选系统策略 `ArkReadOnlyAccess` + `BillingCenterReadOnlyAccess`，创建后生成 AK/SK；它与 `ark-` key 是两套体系，互不通用（追求最小授权也可只授自定义策略 `ark:GetCodingPlanUsage`）。接口只给 5 小时/周/月三个窗口的已用百分比，没有调用次数也没有金额；未订阅/无数据会如实显示，不会补 0%。凭据两个来源（现读、不落盘日志）：环境变量（支持 `VOLC_ACCESS_KEY_ID` / `VOLC_ACCESS_KEY_SECRET` 及 `VOLC_ARK_*`、`VOLC_ACCESS_KEY` / `VOLC_SECRET_KEY`、`ARK_ACCESS_KEY_*` 别名，与 dsh-volcark-quota 对齐），或 `config.json`：
-
-```json
-{ "vendorKeys": { "volc-access-key-id": "AKLT…", "volc-access-key-secret": "…" } }
-```
-
-（AK/SK 是成对的两个键，不走其它厂商 `vendorKeys.<模板 id>` 的单键模式；未配置时火山卡会显示「未配置火山 IAM 凭据（AK/SK）」提示。）
-
-**自动识别接入类型**：先按当前模型的 providerId 查找有效 Base URL，再根据官方域名与完整路径区分 API、Coding Plan 和 Agent Plan。providerId 可以是 UUID，不要求包含厂商名称。
-
-官方直连域名为 `ark.cn-beijing.volces.com`，使用 HTTPS、默认端口，无查询参数或片段：
-
-| Base URL 路径（兼容末尾 `/`） | 统计与显示 |
-| --- | --- |
-| `/api/v3` | 火山 API 本地按量估算 |
-| `/api/coding`、`/api/coding/v3` | Coding Plan 订阅配额 |
-| `/api/plan`、`/api/plan/v3` | Agent Plan 订阅配额 |
-
-菜单「显示」统一提供 **火山方舟**：按当前火山接入选择金额或对应套餐卡；切到其它厂商时保留最近的火山接入，重开页面仍保留该接入 ID。尚未识别过火山接入时提示先在 ZCode 选择；已删除的接入也会提示重新选择。API 金额为所有火山按量记录的今日合计，不是单个 provider 的金额。自动跟随模式继续跟随当前厂商。
-
-显示选择不修改计费分类。配额查询失败也不改变分类；Coding 与 Agent 各自查询、缓存，不跨套餐回退。API 估算无需 IAM 凭据，个人版配额查询仍需 IAM AK/SK。请确认配置的 IAM 凭据与模型接入属于同一账号；插件不自动验证账号绑定。企业版席位配额暂不支持。
-
-旧的 `volcBillingByProvider` 声明不再参与判断，可从配置中移除；旧的 `displayMode: "volc"` 自动沿用为「火山方舟」。未知火山路径不自动判为订阅，统计保留估算，固定视图提示路径未识别；自定义代理不通过名称或 key 形态猜套餐。缺模型价目时沿用 tokens 兜底，不虚构金额。
-
-分类按当前 provider 配置解释本机历史记录；改变同一个 provider 的 Base URL 可能重新归类其历史用量，建议按量与订阅使用不同 provider。金额是本地估算，不是官方账单。
-
-排查时可运行 `node lib/cli.mjs providers` 查看接入 ID 与来源（不输出密钥）；或请求 `/whale/volc.json?providerId=<经过 URL 编码的 ID>&refresh=1` 查看该接入的模式和查询结果。
-
-本机时间偏差超过 15 分钟会返回 `InvalidTimestamp`（界面提示「时间偏差过大」），校准时钟即可。
-
----
-
-## 数据与计价口径
-
-- **今日已用 = 本机库（主口径）**：读 ZCode 落库的每轮用量，按各厂商价目折算；按模型可见、不受充值干扰。
-- **预付池不计真金白银**：GLM Plan 与 CommandCode credit 的钱在买额度时就付了，只按配额 / tokens 报，不并进「今日已用」。
-- **对账口径兜底**：记账（观测余额下降）覆盖该账号全部花费但会漏记停机期间；实时·令牌需要 `DEEPSEEK_PLATFORM_TOKEN`，过期自动回落。两口径不一致时并排展示。
-- **每轮消耗**：按缓存命中 / 未命中 / 缓存写入 / 输出分档计价，DeepSeek 再按峰谷取价；输入 token **含缓存**，折价前必须减掉（否则虚高十几倍）。
-- **等价金额（`≈`）不代表真实扣费**，只用于横向比较。
-
-`node lib/cli.mjs turn` 可逐档核对；价目在 `lib/pricing.mjs` 顶部，核对流程见 `skills/zcode-fox-widget/`。
-
----
-
-## 常见问题
-
-| 现象 | 处理 |
-|---|---|
-| 界面上看不到挂件 | ZCode 没有界面注入点，必须走桌面浮层：`desktop install` 后 `window start` |
-| 打开 ZCode 没自动出现 | 看 `~/.zcode/whale/autostart.log` 最后一行：无新行 = hook 没加载；`skip: autoStartWidget=false` = 配置关了自启；`overlay=skipped:no-runtime` = 运行时没装 |
-| 打开 ZCode 停在首页、挂件要等选会话才出现 | 看门进程没在跑：`node lib/cli.mjs watch status`；`watch install` 后重开 ZCode，日志在 `~/.zcode/whale/zcode-watch.log` |
-| 点桌面 / 任务栏后挂件消失 | 普通模式在 ZCode 失焦时按设计隐身；菜单开「桌宠模式」后会一直悬浮（实测可压在浏览器/桌面上）。开了桌宠模式仍消失，再发版本号与 `overlay-debug.log` |
-| 要反馈问题 | 菜单 →「关于 / 自检…」→「全选复制」，把那段 JSON 一起发出来（不含密钥，路径已脱敏） |
-| 和挂件互动后 ZCode 画面卡住 | 确认浮层是新版（`window status` / `/whale/health` 的 version）。浮层的 `focusable:false` 与 `type:'toolbar'` 都不能删，否则会抢宿主前台或触发停帧 |
-| 余额显示「未找到 DeepSeek API Key」 | 预期：三条来源都没命中。逐条看 `/whale/health` 的 `keyProbe` |
-| 今日已用一直是 0 | 本机库今天还没记录；`cli.mjs status` 看双口径与来源 |
-| 每轮消耗不弹 | 需要至少完成一轮对话（`turn_usage` 有 `completed`），且菜单里开关是开的 |
-| 鲸鱼不跟着 ZCode 走 | `window stop` → `window start` 重建；`WHALE_DEBUG_PORT` 启动可看 `overlay-debug.log` |
-| 浮层里点不动 | 指针要先落在角色上（光标变 `grab`）；整块都点不动时检查是否有别的置顶窗口压着 |
-| 菜单数字框打不了字 | 指针按上去就会临时接管键盘；仍不行说明浮层是旧版 |
-| Plan 配额不显示 | 日志与接口都没数据；`/whale/plan.json` 的 `apiReason` / `probedDirs` 说明原因 |
-| CommandCode 读不到 | 只支持本机反代：`~/.cmdgo-bridge/credentials.json` 不存在或反代没跑 |
-| 换了图片 / 音效不生效 | 资产路由 `no-store`，强刷即可；确认替换的是 `assets/` 下的同名文件 |
-
----
-
-## 已知限制
-
-- 浮层仅 **Windows**（依赖 Win32 与 PowerShell）；macOS / Linux 只有本地页面。
-- 跟随靠轮询，拖动时理论上有约一个探测间隔的滞后（默认 40ms，实测约 13ms）。
-- 浮层内吸附无滑动动画（避免透明窗口合成层错位）；本地页面里动画完整。
-- 穿透的代价：点击前指针得先落在角色上。
-- 每轮消耗只统计 ZCode 记录的轮次，宿主外直接调用的 API 不计入。
-
----
-
-## 安全
-
-- **出站白名单**：业务请求只发往 `api.deepseek.com` / `platform.deepseek.com`；更新链路是另一份白名单（GitHub 与转发镜像）。两者都拒绝环回 / 私有地址。
-- **本地服务**：只监听 `127.0.0.1`，校验 `Host` 与写操作 `Origin`；停止服务要 `server.json` 里的随机令牌。
-- **更新**：下载整包在内存中解压、逐条校验路径，并核对发布签名清单（`.release-hashes.json` + ed25519）；清单外文件忽略不落盘。
-- **浮层**：只加载本机页面，`contextIsolation` 下仅暴露必要 IPC；外链交给系统浏览器。
-- **凭据**：只在内存中使用，不写日志、只显示掩码。
-
----
-
-## 移植与许可
-
-| | |
-|---|---|
-| 原版 | [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT）——DSH 的 Web 插件 |
-| ZCode 移植 | [nb10yyds/zcode-whale-widget](https://github.com/nb10yyds/zcode-whale-widget)——宿主适配层重写 |
-| 本仓库 | fork 自上址（v1.1.0 起延续开发，v1.8.5 起用现名） |
-
-视觉、鲸鱼素材、音效、台词与定价表来自上游；`GLM.png` / `gpt.png` / `kimi.png` / `gemini.png` 为自有素材，`xiaoke.png` 取自 [aklnaaw/dsh-xiaoke-widget](https://github.com/aklnaaw/dsh-xiaoke-widget)（MIT，已获授权）。逐条清单见 [`NOTICE`](./NOTICE)，许可见 [`LICENSE`](./LICENSE)。
-
-## 文档地图
-
-| 想找 | 去哪 |
-|---|---|
-| 安装 / 使用 / 排障 | 本文件 |
-| 这版改了什么 | [CHANGELOG.md](./CHANGELOG.md) |
-| 发布流程与发布物完整性 | [CONTRIBUTING.md](./CONTRIBUTING.md) |
-| 给 ZCode 内助手读的使用说明 | [skills/zcode-fox-widget/SKILL.md](./skills/zcode-fox-widget/SKILL.md) |
-| 贡献规范 | [CONTRIBUTING.md](./CONTRIBUTING.md) |
-| 一次性调查 / 交接档案 | [docs/INDEX.md](./docs/INDEX.md) |
-
+本项目基于 [MIT License](./LICENSE) 开源，请遵守相关衍生作品版权声明。

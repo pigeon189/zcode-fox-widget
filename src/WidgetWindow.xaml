@@ -1,0 +1,369 @@
+﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gemini Hakimi Ledger"
+        Width="350" Height="350"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="False"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.ClearTypeHint="Enabled"
+        RenderOptions.BitmapScalingMode="HighQuality">
+
+    <Canvas x:Name="Root" Width="350" Height="350" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+        <Canvas.RenderTransform>
+            <TransformGroup>
+                <ScaleTransform x:Name="WidgetScale" ScaleX="1" ScaleY="1"/>
+                <ScaleTransform x:Name="FacingScale" ScaleX="1" ScaleY="1"/>
+            </TransformGroup>
+        </Canvas.RenderTransform>
+
+        <!-- Upper-Body Corner-Flush Mascot (208x208 at 142,142 -> flush with 350,350 corner!) -->
+        <Canvas x:Name="MascotContainer" Width="208" Height="208" Canvas.Left="142" Canvas.Top="142"
+                Cursor="Hand" RenderTransformOrigin="1.0,1.0"
+                ToolTip="单击: 摸摸头 · 单击两次: 开关气泡 · 快速双击: 展开详情窗">
+            <Canvas.RenderTransform>
+                <TransformGroup>
+                    <ScaleTransform x:Name="MascotScale" ScaleX="1.0" ScaleY="1.0"/>
+                    <ScaleTransform x:Name="SquishScale" ScaleX="1.0" ScaleY="1.0"/>
+                    <TranslateTransform x:Name="BreathTranslate" X="0" Y="0"/>
+                </TransformGroup>
+            </Canvas.RenderTransform>
+
+            <Image x:Name="CharacterImg"
+                   Width="208" Height="208"
+                   Stretch="Uniform"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+
+            <!-- Floating Heart / Sparkle when petted (Uses Opacity instead of Visibility to prevent WPF layout jump!) -->
+            <Border x:Name="HeartBadge" Opacity="0" IsHitTestVisible="False" Canvas.Left="24" Canvas.Top="16"
+                    CornerRadius="11" Padding="8,3" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <TranslateTransform x:Name="HeartTranslate" X="0" Y="0"/>
+                        <ScaleTransform x:Name="HeartScale" ScaleX="1.0" ScaleY="1.0"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#F2FF5C8D" Offset="0"/>
+                        <GradientStop Color="#F2A855F7" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <TextBlock x:Name="HeartText" Text="♥ 呼噜噜~" Foreground="White" FontSize="11" FontWeight="Bold"/>
+            </Border>
+        </Canvas>
+
+        <!-- Beautified Soft-Glass Base Bubble (5-Hour & Weekly Quotas + Hakimi Speech) -->
+        <Canvas x:Name="Bubble" Width="278" Height="175" Canvas.Left="10" Canvas.Top="8" Cursor="Hand" RenderTransformOrigin="0.5,1.0">
+            <Canvas.RenderTransform>
+                <TransformGroup>
+                    <ScaleTransform x:Name="BubbleScale" ScaleX="1.0" ScaleY="1.0"/>
+                </TransformGroup>
+            </Canvas.RenderTransform>
+            <!-- Independent Shadow Layer: prevents Milcore soft-bitmap rasterization of child text -->
+            <Border x:Name="BubbleShadow"
+                    Width="256" Height="142"
+                    Canvas.Left="8" Canvas.Top="4"
+                    CornerRadius="26"
+                    Background="#FCFFFFFF">
+                <Border.Effect>
+                    <DropShadowEffect Color="#312E81" BlurRadius="14" ShadowDepth="3" Opacity="0.14"/>
+                </Border.Effect>
+            </Border>
+
+            <!-- Soft Cloud/Squircle Main Bubble Card (Pure Vector ClearType Text, No Bitmap Blur!) -->
+            <Border x:Name="BubbleCard"
+                    Width="256" Height="142"
+                    Canvas.Left="8" Canvas.Top="4"
+                    CornerRadius="26"
+                    BorderThickness="2"
+                    UseLayoutRounding="True"
+                    SnapsToDevicePixels="True"
+                    TextOptions.TextFormattingMode="Display"
+                    TextOptions.TextRenderingMode="ClearType">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FCFFFFFF" Offset="0.0"/>
+                        <GradientStop Color="#FAF7FF" Offset="0.55"/>
+                        <GradientStop Color="#FFF2F8" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <Border.BorderBrush>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#6366F1" Offset="0.0"/>
+                        <GradientStop Color="#A855F7" Offset="0.5"/>
+                        <GradientStop Color="#EC4899" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Border.BorderBrush>
+
+                <!-- Inner Subtle Highlight Border -->
+                <Border CornerRadius="24" BorderBrush="#80FFFFFF" BorderThickness="1" Padding="13,9,13,8">
+                    <!-- Un-mirrored Text Container when FacingScale.ScaleX = -1 -->
+                    <Grid x:Name="TextOverlay" RenderTransformOrigin="0.5,0.5">
+                        <Grid.RenderTransform>
+                            <ScaleTransform x:Name="TextFacingScale" ScaleX="1" ScaleY="1"/>
+                        </Grid.RenderTransform>
+
+                        <!-- Mode 1: GPT-Niang Style 5-Hour & Weekly Quota View -->
+                        <Grid x:Name="QuotaViewGrid" Opacity="1" IsHitTestVisible="True">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Header Row: Title + Model Badge + Quick Close Bubble (×) -->
+                            <Grid Grid.Row="0" Margin="0,0,0,5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="✦ " FontSize="11" FontWeight="Bold" Foreground="#A855F7" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="HeaderTitle"
+                                               Text="Gemini 剩余额度"
+                                               FontFamily="Microsoft YaHei UI"
+                                               FontSize="12"
+                                               FontWeight="Bold"
+                                               Foreground="#334155"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <Border Grid.Column="1" Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1"
+                                        CornerRadius="7" Padding="6,1" Margin="6,0,4,0" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <TextBlock x:Name="ActiveModelBadge" Text="4 Argon" FontSize="9.5" FontWeight="Bold" Foreground="#4F46E5"/>
+                                </Border>
+
+                                <Border x:Name="BubbleCloseBtn" Grid.Column="2" Width="18" Height="18" CornerRadius="9"
+                                        Background="#1464748B" Cursor="Hand" ToolTip="关闭气泡 (也可单击两次桌宠开关气泡)">
+                                    <TextBlock Text="×" FontSize="12" FontWeight="Bold" Foreground="#64748B"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
+                                </Border>
+                            </Grid>
+
+                            <!-- 5-Hour Quota Row (5 小时) -->
+                            <Grid Grid.Row="1" Margin="0,1,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44"/>
+                                    <ColumnDefinition Width="52"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="5 小时"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="12"
+                                           FontWeight="Bold"
+                                           Foreground="#475569"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="FiveHourValue"
+                                           Grid.Column="1"
+                                           Text="94%"
+                                           FontFamily="Segoe UI Semibold"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="#0F172A"
+                                           VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="2,0,0,0">
+                                    <Border x:Name="FiveHourBarTrack"
+                                            Width="126"
+                                            Height="7"
+                                            Background="#E2E8F0"
+                                            CornerRadius="3.5"
+                                            HorizontalAlignment="Left">
+                                        <Border x:Name="FiveHourBarFill"
+                                                Width="118"
+                                                Height="7"
+                                                Background="#10B981"
+                                                CornerRadius="3.5"
+                                                HorizontalAlignment="Left"/>
+                                    </Border>
+                                    <TextBlock x:Name="FiveHourResetText"
+                                               Text="⏳ 重置 01:52"
+                                               FontFamily="Microsoft YaHei UI"
+                                               FontSize="9.5"
+                                               Foreground="#64748B"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Weekly Quota Row (每周) -->
+                            <Grid Grid.Row="2" Margin="0,0,0,5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44"/>
+                                    <ColumnDefinition Width="52"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="每周"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="12"
+                                           FontWeight="Bold"
+                                           Foreground="#475569"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="WeeklyValue"
+                                           Grid.Column="1"
+                                           Text="99%"
+                                           FontFamily="Segoe UI Semibold"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="#0F172A"
+                                           VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="2,0,0,0">
+                                    <Border x:Name="WeeklyBarTrack"
+                                            Width="126"
+                                            Height="7"
+                                            Background="#E2E8F0"
+                                            CornerRadius="3.5"
+                                            HorizontalAlignment="Left">
+                                        <Border x:Name="WeeklyBarFill"
+                                                Width="124"
+                                                Height="7"
+                                                Background="#3B82F6"
+                                                CornerRadius="3.5"
+                                                HorizontalAlignment="Left"/>
+                                    </Border>
+                                    <TextBlock x:Name="WeeklyResetText"
+                                               Text="📅 重置 10-28 00:00"
+                                               FontFamily="Microsoft YaHei UI"
+                                               FontSize="9.5"
+                                               Foreground="#64748B"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Footer Pill Strip -->
+                            <Border x:Name="FooterDetailPill" Grid.Row="3" Background="#F1F5F9" BorderBrush="#E2E8F0" BorderThickness="1"
+                                    CornerRadius="9" Padding="8,2" HorizontalAlignment="Center" Cursor="Hand"
+                                    ToolTip="点击展开/收起各模型限额详情窗口">
+                                <TextBlock x:Name="UpdatedText"
+                                           Text="今日 ¥0.00 · ⚡省 ¥0.00 · 详情 ↗"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           Foreground="#4F46E5"
+                                           HorizontalAlignment="Center"/>
+                            </Border>
+                        </Grid>
+
+                        <!-- Mode 2: Hakimi Speech / Quote View (Uses Opacity instead of Visibility!) -->
+                        <Grid x:Name="QuoteViewGrid" Opacity="0" IsHitTestVisible="False">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <Border x:Name="BubbleBadgeBorder" Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1.2" CornerRadius="10" Padding="10,2.5" HorizontalAlignment="Center" Margin="0,0,0,7">
+                                    <TextBlock x:Name="BubbleBadgeText" Text="⚡ 本轮对话结算" FontSize="11.5" FontWeight="Bold" Foreground="#4F46E5"/>
+                                </Border>
+                                <TextBlock x:Name="BubbleText"
+                                           Text="✨ 本轮消耗 18,290 Token"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="15"
+                                           FontWeight="Bold"
+                                           Foreground="#0F172A"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"
+                                           MaxWidth="232"
+                                           LineHeight="21"/>
+                                <TextBlock x:Name="BubbleSubText"
+                                           Text="生成 1,200 | 缓存 92.5% (省¥0.08)"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="11.5"
+                                           FontWeight="SemiBold"
+                                           Foreground="#475569"
+                                           HorizontalAlignment="Center"
+                                           TextAlignment="Center"
+                                           MaxWidth="232"
+                                           Margin="0,7,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Border>
+
+            <!-- Soft Comic Thought Bubble Droplet Tails pointing to Mascot's head -->
+            <Ellipse x:Name="Tail"
+                     Width="20" Height="14"
+                     Canvas.Left="196" Canvas.Top="149"
+                     Fill="#FFF5FA"
+                     Stroke="#B855F7"
+                     StrokeThickness="2"/>
+
+            <Ellipse x:Name="TailNear"
+                     Width="12" Height="9"
+                     Canvas.Left="214" Canvas.Top="163"
+                     Fill="#FFF5FA"
+                     Stroke="#EC4899"
+                     StrokeThickness="1.8"/>
+        </Canvas>
+
+        <!-- Floating Mini Action Bar on Mascot Corner: 💬 (Bubble) + 📊 (Details) + ☰ (Menu) -->
+        <!-- Toggle Base Bubble Button (💬) -->
+        <Border x:Name="BubbleToggleBtn"
+                Width="23" Height="23"
+                Canvas.Left="266" Canvas.Top="158"
+                Background="#F5FFFFFF"
+                BorderBrush="#EC4899"
+                BorderThickness="1.6"
+                CornerRadius="11.5"
+                Cursor="Hand"
+                ToolTip="显示/隐藏头顶气泡 (也可单击两次桌宠)"
+                RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform>
+                <ScaleTransform x:Name="BubbleBtnFacingScale" ScaleX="1" ScaleY="1"/>
+            </Border.RenderTransform>
+            <TextBlock Text="💬"
+                       FontSize="10.5"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+        </Border>
+
+        <!-- Detail Info Window Toggle Button (📊) -->
+        <Border x:Name="DetailButton"
+                Width="23" Height="23"
+                Canvas.Left="293" Canvas.Top="158"
+                Background="#F5FFFFFF"
+                BorderBrush="#6366F1"
+                BorderThickness="1.6"
+                CornerRadius="11.5"
+                Cursor="Hand"
+                ToolTip="展开/收起各模型限额与详细账单窗口 (也可快速双击桌宠)"
+                RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform>
+                <ScaleTransform x:Name="DetailFacingScale" ScaleX="1" ScaleY="1"/>
+            </Border.RenderTransform>
+            <TextBlock Text="📊"
+                       FontSize="10.5"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+        </Border>
+
+        <!-- Quick Menu Button (☰) -->
+        <Border x:Name="MenuButton"
+                Width="23" Height="23"
+                Canvas.Left="320" Canvas.Top="158"
+                Background="#F5FFFFFF"
+                BorderBrush="#334155"
+                BorderThickness="1.6"
+                CornerRadius="11.5"
+                Cursor="Hand"
+                ToolTip="打开哈基米设置菜单 (右键菜单)"
+                RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform>
+                <ScaleTransform x:Name="MenuFacingScale" ScaleX="1" ScaleY="1"/>
+            </Border.RenderTransform>
+            <TextBlock Text="☰"
+                       FontFamily="Segoe UI Symbol"
+                       FontSize="11.5"
+                       FontWeight="Bold"
+                       Foreground="#1E293B"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Margin="0,-1,0,0"/>
+        </Border>
+    </Canvas>
+</Window>

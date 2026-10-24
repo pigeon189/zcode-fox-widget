@@ -1,0 +1,12 @@
+{
+  "gemini-hakimi-autostart": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-widget.ps1",
+        "timeout": 10
+      }
+    ]
+  }
+}

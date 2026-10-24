@@ -1,122 +1,65 @@
 NOTICE
 ======
 
-ZCode狐娘小挂件（zcode-fox-widget，https://github.com/pigeon189/zcode-fox-widget）的完整沿革：
+Antigravity-Gemini-Wight (https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight) 的完整沿革与资产致谢：
 
     1. MeteorNOX / DeepSeek-Balance-Whale-Widget（原版，DSH Web 插件）
        https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget
-       Copyright (c) 2026 MeteorNOX
+       Copyright (c) 2026 MeteorNOX (MIT License)
 
-    2. nb10yyds / zcode-whale-widget（ZCode 移植版，本仓库 fork 的基线）
+    2. nb10yyds / zcode-whale-widget（ZCode 移植版基线）
        https://github.com/nb10yyds/zcode-whale-widget
-       Copyright (c) 2026 nb10yyds
+       Copyright (c) 2026 nb10yyds (MIT License)
 
-    3. pigeon189 / zcode-fox-widget（本仓库，fork 后独立发展）
-       Copyright (c) 2026 pigeon189
+    3. pigeon189 / zcode-fox-widget（ZCode 狐娘小挂件，fork 后独立发展）
+       https://github.com/pigeon189/zcode-fox-widget
+       Copyright (c) 2026 pigeon189 (MIT License)
 
-第 2 项是第 1 项的移植版本；本仓库在第 2 项的基础上继续开发（v1.1.0 起）。
+    4. KKKomeijiSatori / Antigravity-Gemini-Wight（本仓库，Google Antigravity 深度重构移植版）
+       https://github.com/KKKomeijiSatori/Antigravity-Gemini-Wight
+       Copyright (c) 2026 KKKomeijiSatori (MIT License)
 
-沿用自上游的部分
-----------------
+第 2、3 项为第 1 项的 ZCode 平台移植版本；本仓库在上述优秀项目的基础上，针对 Google Antigravity 原生环境进行了全面的架构重构与深度重写。
 
-1. assets/ 下的全部素材：DSniang1.png、DSniang02.png、rua.gif、Ya1.mp3、Ya2.mp3、
-   D1.mp3、D2.mp3，以及 LICENSE。这些文件原样复制，未作修改。
+沿用自上游的部分 (Inherited Assets & Concepts)
+---------------------------------------------
 
-2. 前端挂件的交互与视觉规格：气泡 SVG 几何（1026×700 画布上的大椭圆、尾巴半椭圆、
-   两个小气泡）、字号档（A/B/P/C 四档与联动变量）、动画参数（数字滚动 700ms ease-out、
-   按压 scaleY(0.88) scaleX(1.05) 与 cubic-bezier(.34,1.56,.64,1)、气泡 5 秒自动收起、
-   60 秒刷新）、拖拽与四分之一吸附、左吸附水平镜像、命中检测按图片 alpha 通道、
-   随机台词六组的文案与权重、两套音效的播放时序。这些在 lib/widget.js 中按同一套
-   参数重写，逻辑与常量与上游一致。
+1. assets/sounds/ 音效素材：
+   沿用自 MeteorNOX 原版（DeepSeek-Balance-Whale-Widget）与 pigeon189（zcode-fox-widget）的全部开源音效文件（MIT 协议）：
+   - press.wav, release.wav, D1.mp3, D2.mp3（大肥鱼经典摸头按下与回弹音效）
+   - approve-default.wav, coin.wav, chime.wav, pop.wav, sparkle.wav, task-end-a.wav（任务完成与缓存提示音）
+   - cost-default.wav（轮次计费结算提示音）
+   - Ya1.mp3, Ya2.mp3（警告与提醒音效）
+   - minecraft-exp-orb.wav（经验球拾取音效）
 
-3. 计费口径与定价表：PEAK_HOURS（工作日北京时间 9–12、14–18）、BASE_PRICE、
-   PRO_PRICE、缓存读取按命中价 / 输入与缓存写入按未命中价 / 输出与思考按输出价、
-   2026-08-23 起周末全天谷价（见 lib/pricing.mjs）。
+2. 经典视觉与交互规范：
+   - 气泡经典几何与圆角卡片、字号联动
+   - 双音效按压与释放时序（press -> release）
+   - 经典 rua.gif 与 bubble-petpet.gif 摸头动图
+   - 摸头计数、呼噜呼噜摸头台词与上下文缓存省钱理念
 
-4. 记账模式的语义：按观测到的余额下降累计当日用量、充值不扣减、币种切换只重置基准
-   不记差值、跨天归档保留 30 天（见 lib/balance.mjs）。
+本反重力移植版新增与重构的部分 (Antigravity-Specific Architecture)
+------------------------------------------------------------------
 
-5. 余额接口的取项规则：多币种数组顺序不固定，优先 CNY 且大于 0，其次任意非零项，
-   再退回 CNY 项，最后取第一项；以及 25 秒缓存、in-flight 去重、瞬时失败回退旧值
-   并标记 stale、4xx 不重试不回退（见 lib/balance.mjs）。
+1. 直连 Antigravity 本地 ConnectRPC 官方接口：
+   - 彻底告别第三方或手动 API Key 模式，自动嗅探本地 language_server.exe 的监听端口与 CSRF Token。
+   - 调用 POST /exa.language_server_pb.LanguageServerService/GetUserStatus 实时同步官方云端 5 小时与每周滚动配额（remainingFraction 与 resetTime）。
+   - 准确处理 Protobuf3 零值省略（0% 额度时仅返回 resetTime，不再误判为 100%）。
 
-本移植版新增/改造的部分
-----------------------
+2. 严格锁定反重力四大真实可用模型：
+   - 聚焦 Gemini 4 Argon、Gemini 3.8 Flash、Claude Opus 5.5、Claude Sonnet 5.5 四大反重力官方支持模型。
+   - 彻底剔除所有非反重力环境的失效/虚构模型，全链路切模型 100% 防炸加固。
 
-- 独立的本地 HTTP 挂件服务（lib/server.mjs）与独立页面，替代上游对 DSH 网页的脚本注入。
-- 凭据发现链（lib/credentials.mjs）：新增「复用 ZCode 客户端里已配的 DeepSeek provider」
-  这一来源，并加入出站主机白名单与地址校验。
-- 每轮消耗数据源（lib/turn-cost.mjs）：改为读取 ZCode 的 turn_usage 表，并支持回退到
-  模型 I/O 日志。
-- MCP 服务（lib/mcp-server.mjs）、会话自启 hook（lib/autostart.mjs）、命令行入口
-  （lib/cli.mjs）、/whale 命令与 skill，均为 ZCode 平台适配新增。
-- 台词中指向 DSH 的文案改为 ZCode（`.zcode` 目录、平台令牌说明）。
+3. 硬件加速 60FPS Q 弹物理果冻回弹摸头动画：
+   - 抛弃旧版 3 帧无补间抽帧卡顿逻辑，改用 WPF 原生 DoubleAnimationUsingKeyFrames 样条衰减。
+   - 按下 95ms 平滑下压形变，松手 480ms 四级弹性果冻回弹，爱心气泡轻盈上浮，连点丝滑不卡顿。
 
-2026-09-29 起新增的移植与改造（v1.1.0）
---------------------------------------
+4. 跨桌面突围启动器 (WinSta0\Default)：
+   - 解决 Antigravity 沙盒虚拟桌面 (WinSta0\exebox) 隔离导致桌宠看不见的问题，使用 Win32 CreateProcessW 强制交付至前台用户桌面。
 
-- **厂商模板框架**（lib/vendors.mjs）：沿用上游 API_TEMPLATES 的思路与 schema 形态
-  （kind: balance/quota、字段路径、probeUrl、多窗口订阅），首批模板中的
-  OpenRouter / Kimi(Moonshot) 国内国际 / 智谱 Coding Plan 配额窗口的接口与字段
-  取自上游模板表。凭据处理与上游不同：不把密钥写进模板，改为「发现引用 + 现读」。
-- **用量记录窗口**：面板形态与「今日 / 近 7 天 / 按日展开 / 模型占比」的能力划分
-  参考上游 usage-records 实现；数据源改为直读 ZCode 的 model_usage 库。
-- **余额预警 / 今日预算**：阈值设置、每日一次去重、气泡提醒的交互参考上游
-  checkUsageAlerts 机制，阈值口径扩展为「Plan 剩余配额百分比」等 ZCode 特有来源。
-- **充值检测与余额校正**：余额上升不冲减消费并标记「待核对余额调整」、校正公式
-  「当日起点 + 累计到账 − 非调用扣减 − 当前余额」、换 key 分本（旧账归档不混算）
-  均沿用上游 0.3.x 记账内核的语义。
-- **自定义角色**：上传/选择/恢复默认的能力参考上游角色系统，实现改为本地目录 + 索引。
-  v1.3.0 的改名 / 删除是本地扩展（上游没有对应交互）。
-- **自定义气泡文字（v1.3.0）**：功能对应上游主菜单「按压泡泡设置 → 自定义泡泡」的
-  「首次点击弹出内容 + 再次点击弹出内容（点完上一个显示下一个）」与 `{cost}` 一类
-  占位符插值；上游是模块化编辑器（字体/底色/随机语句加权/随机图片/模块库），
-  本移植只落地「文字 + 三档字号 + 占位符 + 队列」，配置拆成独立的
-  `~/.zcode/whale/bubble-content.json`（文件划分沿用上游 `.dshw-bubble.json`
-  与 `.dshw-usage.json` 分离的做法）。
-- **ZCode 特有（无上游对应）**：GLM 平价分档价目表（来源 docs.bigmodel.cn，
-  2026-09-29 版）；ZCode Plan（v1.7.8 起界面名为 GLM Plan，template id 仍是
-  `zcode-plan`）套餐配额的日志尾随读取（lib/plan-balance.mjs）；
-  基于 session_entry「runtime/model_selection」的计费源智能切换；ZCode 深浅
-  主题配色（取自 ZCode 客户端 .theme-zai-dark/light 的实测 token）；
-  「跟随系统」主题（prefers-color-scheme）；浮层窗口的不可激活方案
-  （Electron focusable:false + 按键类控件时才临时接管键盘焦点），上游是网页版
-  挂件、没有窗口激活这层问题。
+5. 坐标防飞与零延迟物理吸附：
+   - 过滤宿主窗口最小化 (-32000) 异常坐标，强制施加 [-1200, 600] 物理坐标钳制。
+   - 贴边吸附与四象限自适应全程使用 100% Win32 物理像素，彻底消除点击乱飞。
 
-2026-09-30 起的价目与素材来源（v1.2.0）
---------------------------------------
-
-六家厂商价目取自各厂商官网 2026-09-29 版——OpenAI 为 community.openai.com 官方
-员工帖与 LiteLLM 注册表交叉验证（platform.openai.com 反爬未能直取，建议人工复核）；
-Claude 来自 claude.com/pricing；Qwen 来自 help.aliyun.com 模型服务计费页
-（华北2北京价）；MiniMax 来自 platform.minimaxi.com；MiMo 来自
-platform.xiaomimimo.com / mimo.mi.com（双端点拆分与 Token Plan 夜间 0.8x
-消耗系数依官方 FAQ）；Kimi 来自 platform.kimi.com。嘎啦嘛形象 `GLM.png`
-为项目提供素材，非上游资产。
-
-上游许可为 MIT，允许使用、复制、修改、合并、发布、分发、再许可和/或销售本软件的
-副本，前提是保留上述版权声明与许可声明。本目录内 LICENSE 即为上游许可原文。
-
-2026-09-29 起的 fork 延续开发（v1.1.0 – v1.8.5）
-----------------------------------------------
-
-ZCode 版 DeepSeek 余额小鲸鱼挂件自 v1.1.0 起在本仓库（pigeon189 fork）持续开发：
-多厂商计价内核（八家价目 + 34 个厂商模板）、GLM Plan 配额、CommandCode 三重额度与
-多账号池、按压泡泡（DSH 式队列编辑器）、桌宠模式（全屏工作区漫游）、冻结自愈体系、
-「跟随 ZCode」主题、UI/UX 修复与可访问性、价目复核流程等，逐版本说明见仓库
-CHANGELOG.md 与各版本 tag。2026-10-05 起以「ZCode狐娘小挂件（zcode-fox-widget）」
-为名独立发布。
-
-    Copyright (c) 2026 pigeon189（ZCode狐娘小挂件 / zcode-fox-widget）
-    MIT License（见本目录 LICENSE）
-
-2026-10-22 起的素材来源（猫娘音效集）
---------------------------------------
-
-内置可选音效集「猫娘」（nya，lib/paths.mjs SOUND_SETS）的两段音频来自
-Cici Fyre / Free Catgirl Fighting Voice Pack
-（https://cicifyre.itch.io/free-catgirl-fighting-voice-pack ，作者页面标注
-CC0 1.0 Universal）：assets/Nya1.wav 为该包 Meow/002_meow.wav 加工谱系
-（test8/03_playful_fall.wav）0–0.810s 的起音段；assets/Nya2.wav 为 100ms
-数字静音，作为「一声制」（松手无声）定稿的松手占位。CC0 不要求署名，
-本节与 docs/CATGIRL-SOUND-NOTES.md 留档出处与加工/实机选择过程。
+6. Sidecar 原生内置面板 + 独立桌面桌宠双形态：
+   - 内置 Sidecar 面板（ui.html）与桌面独立 WPF 悬浮桌宠（HakimiWidget.ps1）状态双向实时同步。

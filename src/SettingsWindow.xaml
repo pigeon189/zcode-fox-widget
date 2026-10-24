@@ -1,0 +1,165 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gemini 哈基米设置"
+        Width="320" Height="148"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize">
+
+    <Window.Resources>
+        <!-- Blue Pill Slider Style matching user screenshot -->
+        <Style x:Key="BluePillSlider" TargetType="{x:Type Slider}">
+            <Setter Property="Stylus.IsPressAndHoldEnabled" Value="false"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Slider}">
+                        <Grid VerticalAlignment="Center">
+                            <!-- Track Background -->
+                            <Border Height="7" CornerRadius="3.5" Background="#E2E8F0" BorderBrush="#CBD5E1" BorderThickness="0.5"/>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="{x:Type RepeatButton}">
+                                                <Border Height="7" CornerRadius="3.5,0,0,3.5" Background="#2563EB"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="{x:Type RepeatButton}">
+                                                <Border Height="7" Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="{x:Type Thumb}">
+                                                <Grid Width="16" Height="16" Cursor="Hand">
+                                                    <Ellipse Fill="#2563EB" Stroke="#1D4ED8" StrokeThickness="1"/>
+                                                    <Ellipse Width="6" Height="6" Fill="#FFFFFF" Opacity="0.4"/>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Margin="8" Background="#FAFAFE" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="10">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="14" Color="#1E293B" Opacity="0.22" ShadowDepth="2" Direction="270"/>
+        </Border.Effect>
+
+        <Grid Margin="12,8,12,8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header Row -->
+            <Grid Grid.Row="0" Margin="0,0,0,8" Cursor="SizeAll" x:Name="SettingsHeaderBar">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="✦ " Foreground="#1E40AF" FontWeight="Bold" FontSize="13"/>
+                    <TextBlock Text="Gemini 哈基米设置" Foreground="#1E3A8A" FontWeight="Bold" FontSize="13"/>
+                </StackPanel>
+
+                <Button Grid.Column="1" x:Name="SettingsCloseBtn" Content="✕" Width="22" Height="22"
+                        Cursor="Hand" Background="Transparent" BorderThickness="0" Foreground="#64748B"
+                        FontWeight="Bold" FontSize="12">
+                    <Button.Style>
+                        <Style TargetType="{x:Type Button}">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="{x:Type Button}">
+                                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="b" Property="Background" Value="#FEE2E2"/>
+                                                <Setter Property="Foreground" Value="#DC2626"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+
+            <!-- 1. 本体大小 Slider Row -->
+            <Grid Grid.Row="1" VerticalAlignment="Center" Margin="2,0,2,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="62"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Label -->
+                <TextBlock Grid.Column="0" Text="本体大小" Foreground="#1F2937" FontSize="12.5" VerticalAlignment="Center"/>
+
+                <!-- Blue Slider -->
+                <Slider Grid.Column="1" x:Name="ScaleSlider" Style="{StaticResource BluePillSlider}"
+                        Minimum="5" Maximum="20" SmallChange="1" LargeChange="1"
+                        IsSnapToTickEnabled="True" TickFrequency="1" Value="10"
+                        VerticalAlignment="Center"/>
+
+                <!-- Value Box -->
+                <Border Grid.Column="2" BorderBrush="#93C5FD" BorderThickness="1" CornerRadius="6"
+                        Background="#FFFFFF" Width="44" Height="24" Margin="8,0,0,0">
+                    <TextBlock x:Name="ScaleValText" Text="10" Foreground="#1E3A8A"
+                               FontWeight="SemiBold" FontSize="12"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+
+            <!-- 2. 气泡大小 Slider Row (独立控制，不跟随本体变大变小) -->
+            <Grid Grid.Row="2" VerticalAlignment="Center" Margin="2,2,2,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="62"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Label -->
+                <TextBlock Grid.Column="0" Text="气泡大小" Foreground="#1F2937" FontSize="12.5" VerticalAlignment="Center"/>
+
+                <!-- Blue Slider for Bubble -->
+                <Slider Grid.Column="1" x:Name="BubbleScaleSlider" Style="{StaticResource BluePillSlider}"
+                        Minimum="5" Maximum="20" SmallChange="1" LargeChange="1"
+                        IsSnapToTickEnabled="True" TickFrequency="1" Value="10"
+                        VerticalAlignment="Center"/>
+
+                <!-- Value Box -->
+                <Border Grid.Column="2" BorderBrush="#93C5FD" BorderThickness="1" CornerRadius="6"
+                        Background="#FFFFFF" Width="44" Height="24" Margin="8,0,0,0">
+                    <TextBlock x:Name="BubbleScaleValText" Text="10" Foreground="#1E3A8A"
+                               FontWeight="SemiBold" FontSize="12"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

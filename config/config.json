@@ -1,0 +1,21 @@
+﻿{
+    "anchor_corner":  0,
+    "opacity":  1,
+    "position_y":  887,
+    "scale":  1,
+    "follow_antigravity":  true,
+    "active_plan":  "free",
+    "antigravity_brain_path":  "C:\\Users\\1\\.gemini\\antigravity\\brain",
+    "position_x":  1756,
+    "click_through":  false,
+    "hide_with_antigravity":  true,
+    "sound_enabled":  true,
+    "corner_offset_y":  -350,
+    "cache_sound_enabled":  false,
+    "bubble_scale":  1,
+    "corner_offset_x":  -350,
+    "active_model":  "claude-sonnet-5-5",
+    "sound_volume":  0.8,
+    "speech_bubble_enabled":  false,
+    "topmost":  true
+}

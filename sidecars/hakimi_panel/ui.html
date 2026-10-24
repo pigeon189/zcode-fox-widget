@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>哈基米记账 (Gemini Hakimi Ledger)</title>
+  <style>
+    :root {
+      --bg: #0f1420;
+      --bg-grad: radial-gradient(circle at 20% 0%, rgba(56, 189, 248, 0.14), transparent 55%),
+                 radial-gradient(circle at 85% 15%, rgba(168, 85, 247, 0.14), transparent 50%),
+                 #0f1420;
+      --card-bg: rgba(23, 31, 50, 0.88);
+      --card-inner: rgba(15, 23, 42, 0.72);
+      --card-border: rgba(148, 163, 184, 0.16);
+      --card-hover: rgba(56, 189, 248, 0.35);
+      --text: #f1f5f9;
+      --text-sub: #94a3b8;
+      --text-muted: #64748b;
+      --blue: #38bdf8;
+      --purple: #a855f7;
+      --pink: #f472b6;
+      --emerald: #34d399;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+      --bubble-bg: linear-gradient(135deg, #1e293b 0%, #2e1f47 100%);
+      --bubble-border: #60a5fa;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f4f7fb;
+        --bg-grad: radial-gradient(circle at 20% 0%, rgba(56, 189, 248, 0.18), transparent 55%),
+                   radial-gradient(circle at 85% 15%, rgba(168, 85, 247, 0.15), transparent 50%),
+                   #f4f7fb;
+        --card-bg: rgba(255, 255, 255, 0.92);
+        --card-inner: rgba(241, 245, 249, 0.85);
+        --card-border: rgba(15, 23, 42, 0.1);
+        --card-hover: rgba(37, 99, 235, 0.35);
+        --text: #0f172a;
+        --text-sub: #475569;
+        --text-muted: #64748b;
+        --blue: #0284c7;
+        --purple: #7e22ce;
+        --pink: #db2777;
+        --emerald: #059669;
+        --amber: #d97706;
+        --rose: #e11d48;
+        --bubble-bg: linear-gradient(135deg, #ffffff 0%, #f5f3ff 100%);
+        --bubble-border: #3b82f6;
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
+      background: var(--bg-grad);
+      color: var(--text);
+      padding: 12px;
+      font-size: 12.5px;
+      line-height: 1.45;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Top Header */
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 700;
+      font-size: 14px;
+      background: linear-gradient(90deg, #38bdf8, #a855f7, #f472b6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .live-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-sub);
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 8px var(--emerald);
+      animation: pulseDot 2s infinite;
+    }
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    /* Card Common */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 10px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+      backdrop-filter: blur(10px);
+      transition: border-color 0.2s;
+    }
+    .card:hover {
+      border-color: var(--card-hover);
+    }
+    .section-title {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-sub);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    /* Mascot Stage Card */
+    .mascot-stage {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 10px 10px;
+      overflow: hidden;
+    }
+    .speech-bubble {
+      position: relative;
+      width: 100%;
+      background: var(--bubble-bg);
+      border: 1.5px solid var(--bubble-border);
+      border-radius: 12px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: var(--text);
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.15);
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      text-align: center;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .speech-bubble::after {
+      content: '';
+      position: absolute;
+      bottom: -7px;
+      left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 12px;
+      height: 12px;
+      background: var(--card-bg);
+      border-right: 1.5px solid var(--bubble-border);
+      border-bottom: 1.5px solid var(--bubble-border);
+    }
+    .speech-bubble.pop-anim {
+      transform: scale(1.03);
+    }
+
+    .mascot-wrap {
+      position: relative;
+      width: 142px;
+      height: 142px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      margin: 2px 0 6px;
+      animation: hakimiFloat 3.6s ease-in-out infinite;
+    }
+    .mascot-glow {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.28) 0%, rgba(168, 85, 247, 0.18) 50%, transparent 72%);
+      pointer-events: none;
+      transition: all 0.3s;
+    }
+    .mascot-wrap.blushing .mascot-glow {
+      background: radial-gradient(circle, rgba(244, 114, 182, 0.42) 0%, rgba(168, 85, 247, 0.22) 55%, transparent 75%);
+      transform: scale(1.12);
+    }
+    .mascot-img {
+      width: 136px;
+      height: 136px;
+      object-fit: contain;
+      filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.32));
+      transform-origin: center bottom;
+      transition: transform 0.08s ease-out;
+    }
+    @keyframes hakimiFloat {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-5px); }
+    }
+    .mascot-img.q-bounce {
+      animation: qBounce 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+    @keyframes qBounce {
+      0% { transform: scale(1.14, 0.84); }
+      24% { transform: scale(0.91, 1.13) translateY(-4px); }
+      50% { transform: scale(1.055, 0.955) translateY(1.5px); }
+      74% { transform: scale(0.986, 1.014) translateY(-0.5px); }
+      100% { transform: scale(1, 1) translateY(0); }
+    }
+
+    /* Floating Hearts on Pet */
+    .heart-particle {
+      position: absolute;
+      pointer-events: none;
+      font-size: 16px;
+      animation: floatUp 1s ease-out forwards;
+      z-index: 20;
+    }
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateY(0) scale(0.8); }
+      100% { opacity: 0; transform: translateY(-48px) scale(1.35); }
+    }
+
+    /* Quick Action Buttons */
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      width: 100%;
+      justify-content: center;
+      margin-top: 4px;
+    }
+    .btn {
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 5px 9px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.18s;
+    }
+    .btn:hover {
+      border-color: var(--blue);
+      transform: translateY(-1px);
+    }
+    .btn:active {
+      transform: translateY(0);
+    }
+    .btn.active-emerald {
+      border-color: rgba(52, 211, 153, 0.5);
+      color: var(--emerald);
+      background: rgba(16, 185, 129, 0.12);
+    }
+    .btn.primary-pink {
+      border-color: rgba(244, 114, 182, 0.45);
+      color: var(--pink);
+      background: rgba(244, 114, 182, 0.1);
+    }
+
+    /* Model & Plan Bar */
+    .config-bar {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .model-select {
+      flex: 1;
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 5px 8px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+    }
+    .plan-badge {
+      padding: 5px 9px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      color: #fff;
+      white-space: nowrap;
+    }
+    .plan-free { background: linear-gradient(135deg, #059669, #10b981); }
+    .plan-tier1 { background: linear-gradient(135deg, #2563eb, #7c3aed); }
+
+    /* Rate Limit Progress Bars */
+    .meter-group {
+      margin-bottom: 8px;
+    }
+    .meter-group:last-child {
+      margin-bottom: 0;
+    }
+    .meter-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      margin-bottom: 3px;
+    }
+    .meter-label { color: var(--text-sub); }
+    .meter-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .progress-track {
+      width: 100%;
+      height: 6px;
+      background: var(--card-inner);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.35s ease, background-color 0.3s ease;
+    }
+    .rpd-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      padding-top: 7px;
+      border-top: 1px dashed var(--card-border);
+      font-size: 11.5px;
+    }
+
+    /* Token Grid */
+    .token-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .token-box {
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      padding: 7px 6px;
+      text-align: center;
+    }
+    .token-box-label {
+      font-size: 10.5px;
+      color: var(--text-sub);
+      margin-bottom: 2px;
+    }
+    .token-box-val {
+      font-size: 13px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cost-strip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-inner);
+      border-radius: 9px;
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+    .hit-pill {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--emerald);
+      background: rgba(16, 185, 129, 0.14);
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      padding: 1px 7px;
+      border-radius: 999px;
+    }
+
+    /* Today Total Grid */
+    .today-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+    .today-item {
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      padding: 8px 10px;
+    }
+    .today-item-label {
+      font-size: 10.5px;
+      color: var(--text-sub);
+      margin-bottom: 2px;
+    }
+    .today-item-val {
+      font-size: 13.5px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Turn History List */
+    .turn-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 210px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .turn-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-size: 11px;
+    }
+    .turn-left {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      max-width: 65%;
+    }
+    .turn-title {
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .turn-meta {
+      color: var(--text-sub);
+      font-size: 10.5px;
+    }
+    .turn-right {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .turn-cost {
+      font-weight: 700;
+      color: var(--amber);
+    }
+    .turn-save {
+      font-size: 10px;
+      color: var(--emerald);
+    }
+
+    .auto-pet-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-sub);
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed var(--card-border);
+      width: 100%;
+    }
+    .auto-pet-row label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="top-bar">
+    <div class="brand">
+      <span>✨ 哈基米记账手账</span>
+    </div>
+    <div class="live-pill" title="实时同步 Antigravity 本地会话日志">
+      <span class="live-dot"></span>
+      <span id="sessionTitle">实时监听中</span>
+    </div>
+  </div>
+
+  <!-- Mascot Interactive Stage -->
+  <div class="card mascot-stage" id="mascotStage">
+    <div class="speech-bubble" id="speechBubble">
+      <span id="speechText">你好呀主人！哈基米今天也元气满满地为你盯住每一颗 Token 喵～✨</span>
+    </div>
+
+    <div class="mascot-wrap" id="mascotWrap" onclick="petHakimi(event)" title="点击摸摸哈基米的头 (Rua) 💕">
+      <div class="mascot-glow"></div>
+      <img id="mascotImg" class="mascot-img" src="/assets/gemini_normal.png" alt="Gemini Hakimi">
+    </div>
+
+    <div class="action-row">
+      <button class="btn primary-pink" onclick="petHakimi(event)">💕 摸摸头</button>
+      <button class="btn" onclick="nextRandomQuote()">💬 换句台词</button>
+      <button class="btn" id="btnSound" onclick="toggleSound()">🔊 音效: 开</button>
+      <button class="btn" id="btnDesktopPet" onclick="toggleDesktopPet()">🐾 弹出桌面悬浮窗</button>
+    </div>
+
+    <div class="config-bar">
+      <select id="modelSelect" class="model-select" onchange="onModelChange()"></select>
+      <button id="planBtn" class="plan-badge plan-free" onclick="togglePlan()">Free Tier</button>
+    </div>
+
+    <div class="auto-pet-row">
+      <span>💡 内置面板已随插件自动常驻</span>
+      <label title="开启后，每次打开 Antigravity 时还会自动弹出独立桌面悬浮桌宠">
+        <input type="checkbox" id="chkAutoDesktopPet" onchange="onToggleAutoDesktopPet()">
+        <span>伴随弹出桌面悬浮宠物</span>
+      </label>
+      <label title="在开启吸附后，当 Antigravity 窗口最小化时桌宠伴随隐藏，关闭时桌宠同步退出" style="margin-left: 14px;">
+        <input type="checkbox" id="chkHideWithHost" onchange="onToggleHideWithHost()">
+        <span>🙈 伴随最小化隐藏与退出</span>
+      </label>
+      <label title="开启后，高命中 Prompt 缓存或轮次计费完成时播放提示音（默认静音免打扰）" style="margin-left: 14px;">
+        <input type="checkbox" id="chkCacheSound" onchange="onToggleCacheSound()">
+        <span>🔔 缓存/轮次提示音</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- 0.5 GPT-Niang Style 5-Hour & Weekly Quota + Per-Model Matrix -->
+  <div class="card">
+    <div class="section-title">
+      <span>🐉 各模型 5 小时 & 每周剩余限额 (点击切换)</span>
+      <span id="txtActiveQuotaReset" style="font-size:10.5px;color:var(--blue)">5h / 每周实时追踪</span>
+    </div>
+    <div id="modelQuotaList" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
+
+  <!-- 1. GPT-Niang Style Rate Limits & Context Meters -->
+  <div class="card">
+    <div class="section-title">
+      <span>⚡ 实时速率与上下文限额 (Rate Limits)</span>
+      <span style="font-size:10.5px;font-weight:500;" id="ctxWindowLabel">1M Context</span>
+    </div>
+
+    <!-- RPM -->
+    <div class="meter-group">
+      <div class="meter-header">
+        <span class="meter-label">RPM (每分钟请求数)</span>
+        <span class="meter-val" id="txtRPM" style="color:var(--blue)">0 / 15</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="barRPM" style="width:0%;background:var(--blue);"></div>
+      </div>
+    </div>
+
+    <!-- TPM -->
+    <div class="meter-group">
+      <div class="meter-header">
+        <span class="meter-label">TPM (每分钟 Token 吞吐)</span>
+        <span class="meter-val" id="txtTPM" style="color:var(--purple)">0k / 1000k</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="barTPM" style="width:0%;background:var(--purple);"></div>
+      </div>
+    </div>
+
+    <!-- Context Window -->
+    <div class="meter-group">
+      <div class="meter-header">
+        <span class="meter-label">Context (当前会话上下文负载)</span>
+        <span class="meter-val" id="txtContext" style="color:var(--emerald)">0k / 1048k (0%)</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="barContext" style="width:0%;background:var(--emerald);"></div>
+      </div>
+    </div>
+
+    <div class="rpd-footer">
+      <div>
+        <span style="color:var(--text-sub)">📅 今日请求 (RPD): </span>
+        <strong id="txtRPD" style="color:var(--amber)">0 / 1500</strong>
+      </div>
+      <div>
+        <span style="color:var(--text-sub)">⏳ 重置倒计时: </span>
+        <strong id="txtReset">00:00:00</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Last Turn & Prompt Cache Hit Card -->
+  <div class="card">
+    <div class="section-title">
+      <span>🎯 最新一轮消耗与缓存审计 (Last Turn)</span>
+      <span class="hit-pill" id="txtLastHitRate">🌟 0% 缓存命中</span>
+    </div>
+
+    <div class="token-grid">
+      <div class="token-box">
+        <div class="token-box-label">新增输入 (Miss)</div>
+        <div class="token-box-val" id="txtLastIn" style="color:var(--blue)">0</div>
+      </div>
+      <div class="token-box">
+        <div class="token-box-label">缓存读取 (Hit)</div>
+        <div class="token-box-val" id="txtLastCache" style="color:var(--emerald)">0</div>
+      </div>
+      <div class="token-box">
+        <div class="token-box-label">模型输出 (Out)</div>
+        <div class="token-box-val" id="txtLastOut" style="color:var(--pink)">0</div>
+      </div>
+    </div>
+
+    <div class="cost-strip">
+      <div>
+        <span style="color:var(--text-sub)">💰 本轮账单: </span>
+        <strong id="txtLastCost" style="color:var(--amber)">¥0.0000</strong>
+      </div>
+      <div>
+        <span style="color:var(--text-sub)">🎉 缓存立省: </span>
+        <strong id="txtLastSavings" style="color:var(--emerald)">¥0.0000</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Today Cumulative Ledger -->
+  <div class="card">
+    <div class="section-title">
+      <span>📈 今日反重力累计手账 (Today Total)</span>
+      <span id="txtTodayTurns" style="color:var(--blue)">共 0 轮交互</span>
+    </div>
+
+    <div class="today-grid">
+      <div class="today-item">
+        <div class="today-item-label">今日总 Token 吞吐</div>
+        <div class="today-item-val" id="txtTodayTokens">0</div>
+      </div>
+      <div class="today-item">
+        <div class="today-item-label">今日总缓存命中率</div>
+        <div class="today-item-val" id="txtTodayHitRate" style="color:var(--emerald)">0.0%</div>
+      </div>
+      <div class="today-item">
+        <div class="today-item-label">今日折算总花费</div>
+        <div class="today-item-val" id="txtTodayCost" style="color:var(--amber)">¥0.0000</div>
+      </div>
+      <div class="today-item">
+        <div class="today-item-label">💎 今日缓存累计省下</div>
+        <div class="today-item-val" id="txtTodaySavings" style="color:var(--emerald)">¥0.0000</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Recent Turn-by-Turn Breakdown -->
+  <div class="card">
+    <div class="section-title">
+      <span>🧾 当前会话最近轮次明细 (Turn Ledger)</span>
+      <span id="txtSessionCost" style="color:var(--amber)">本会话 ¥0.0000</span>
+    </div>
+    <div class="turn-list" id="turnList">
+      <div style="text-align:center;color:var(--text-sub);padding:12px;">正在读取会话账单...</div>
+    </div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const SIDECAR_TOKEN = urlParams.get('token') || '';
+    const URL_CONV_ID = urlParams.get('conversationId') || '';
+
+    function withAuth(path) {
+      if (!SIDECAR_TOKEN) return path;
+      const sep = path.includes('?') ? '&' : '?';
+      return `${path}${sep}token=${encodeURIComponent(SIDECAR_TOKEN)}`;
+    }
+
+    const NORMAL_IMG = withAuth('/assets/gemini_normal.png');
+    const BLUSH_IMG = withAuth('/assets/gemini_blush.png');
+
+    let quotesData = {
+      first_launch: ["你好呀主人！哈基米今天也元气满满地为你盯住每一颗 Token 喵～✨"],
+      idle: [
+        "上下文还有富余，可以再聊会儿",
+        "百万上下文待命中，资料尽管丢过来",
+        "哈基米南北绿豆～今天也在反重力空间里接住你的每次请求喵！"
+      ],
+      turn_finished: ["记下来啦！刚才这轮消耗了 {turn_tokens} Token 喵～"],
+      cache_hit: ["哇！本轮上下文命中率高达 {cache_rate}%，又帮你省下好多金币啦！"],
+      pet: ["喵呜～不要突然戳人家啦！会……会痒的喵！(⁄ ⁄•⁄ω⁄•⁄ ⁄)"]
+    };
+
+    let currentConfig = {
+      active_model: 'gemini-3.8-flash',
+      active_plan: 'free',
+      sound_enabled: true,
+      speech_bubble_enabled: true,
+      auto_launch_desktop_pet: false
+    };
+    let lastSeenStepIndex = null;
+    let blushTimeout = null;
+
+    // Preload images
+    const imgPre1 = new Image(); imgPre1.src = NORMAL_IMG;
+    const imgPre2 = new Image(); imgPre2.src = BLUSH_IMG;
+    document.getElementById('mascotImg').src = NORMAL_IMG;
+
+    function playSound(name) {
+      if (!currentConfig.sound_enabled) return;
+      // 摸头音效为 press / release；轮次与缓存结算音效 (chime, task, cost, coin) 严格受 cache_sound_enabled 开关控制
+      if (['chime', 'task', 'cost', 'coin'].includes(name) && !currentConfig.cache_sound_enabled) return;
+      try {
+        const audio = new Audio(withAuth(`/assets/sounds/${name}.wav`));
+        audio.volume = currentConfig.sound_volume || 0.75;
+        audio.play().catch(() => {});
+      } catch (e) {}
+    }
+
+    function setBubble(text) {
+      const bubble = document.getElementById('speechBubble');
+      const txt = document.getElementById('speechText');
+      txt.innerText = text;
+      bubble.classList.remove('pop-anim');
+      void bubble.offsetWidth;
+      bubble.classList.add('pop-anim');
+      setTimeout(() => bubble.classList.remove('pop-anim'), 300);
+    }
+
+    function triggerBounce() {
+      const img = document.getElementById('mascotImg');
+      img.classList.remove('q-bounce');
+      void img.offsetWidth;
+      img.classList.add('q-bounce');
+    }
+
+    function spawnHeart(e) {
+      const stage = document.getElementById('mascotStage');
+      const rect = stage.getBoundingClientRect();
+      const heart = document.createElement('div');
+      heart.className = 'heart-particle';
+      const icons = ['💕', '✨', '🌸', '🐾', '💖'];
+      heart.innerText = icons[Math.floor(Math.random() * icons.length)];
+      const x = e && e.clientX ? (e.clientX - rect.left - 8) : (rect.width / 2 + (Math.random() * 40 - 20));
+      const y = e && e.clientY ? (e.clientY - rect.top - 12) : 95;
+      heart.style.left = `${x}px`;
+      heart.style.top = `${y}px`;
+      stage.appendChild(heart);
+      setTimeout(() => heart.remove(), 1000);
+    }
+
+    function petHakimi(e) {
+      const wrap = document.getElementById('mascotWrap');
+      const img = document.getElementById('mascotImg');
+      img.src = BLUSH_IMG;
+      wrap.classList.add('blushing');
+      if (blushTimeout) clearTimeout(blushTimeout);
+      blushTimeout = setTimeout(() => {
+        img.src = NORMAL_IMG;
+        wrap.classList.remove('blushing');
+      }, 1600);
+
+      triggerBounce();
+      spawnHeart(e);
+      playSound('press'); setTimeout(() => playSound('release'), 260);
+
+      const pool = [...(quotesData.pet || []), ...(quotesData.idle || [])];
+      if (pool.length > 0) {
+        const q = pool[Math.floor(Math.random() * pool.length)];
+        setBubble(q);
+      }
+    }
+
+    function nextRandomQuote() {
+      const allPools = [
+        ...(quotesData.idle || []),
+        ...(quotesData.first_launch || []),
+        ...(quotesData.pet || [])
+      ];
+      if (allPools.length > 0) {
+        const q = allPools[Math.floor(Math.random() * allPools.length)];
+        setBubble(q);
+        triggerBounce();
+        playSound('pop');
+      }
+    }
+
+    function formatNum(n) {
+      return Number(n || 0).toLocaleString('en-US');
+    }
+
+    function formatK(n) {
+      const v = Number(n || 0);
+      if (v >= 1000000) return (v / 1000000).toFixed(2) + 'M';
+      if (v >= 1000) return (v / 1000).toFixed(1) + 'k';
+      return String(v);
+    }
+
+    async function loadQuotes() {
+      try {
+        const res = await fetch(withAuth('/api/quotes'));
+        const q = await res.json();
+        if (q && q.idle) quotesData = q;
+        if (quotesData.first_launch && quotesData.first_launch.length > 0) {
+          setBubble(quotesData.first_launch[Math.floor(Math.random() * quotesData.first_launch.length)]);
+        }
+      } catch (e) {}
+    }
+
+    async function fetchStats() {
+      try {
+        const q = URL_CONV_ID ? `/api/stats?conversationId=${encodeURIComponent(URL_CONV_ID)}` : '/api/stats';
+        const res = await fetch(withAuth(q));
+        const data = await res.json();
+        if (!data || !data.ok) return;
+        renderStats(data);
+      } catch (e) {}
+    }
+
+    function renderStats(data) {
+      currentConfig = data.config || currentConfig;
+
+      // Populate Model Select
+      const sel = document.getElementById('modelSelect');
+      if (sel.options.length === 0 && Array.isArray(data.models)) {
+        sel.innerHTML = data.models.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+      }
+      if (sel.value !== currentConfig.active_model) {
+        sel.value = currentConfig.active_model;
+      }
+
+      // Plan Badge
+      const planBtn = document.getElementById('planBtn');
+      if (currentConfig.active_plan === 'tier1') {
+        planBtn.innerText = 'Pay-As-You-Go';
+        planBtn.className = 'plan-badge plan-tier1';
+      } else {
+        planBtn.innerText = 'Free Tier';
+        planBtn.className = 'plan-badge plan-free';
+      }
+
+      // Sound & Desktop Pet buttons
+      const btnSound = document.getElementById('btnSound');
+      btnSound.innerText = currentConfig.sound_enabled ? '🔊 音效: 开' : '🔇 音效: 关';
+
+      const btnPet = document.getElementById('btnDesktopPet');
+      if (data.desktop_pet_running) {
+        btnPet.innerText = '🐾 桌面悬浮窗: 运行中';
+        btnPet.classList.add('active-emerald');
+      } else {
+        btnPet.innerText = '🐾 弹出桌面悬浮窗';
+        btnPet.classList.remove('active-emerald');
+      }
+
+      document.getElementById('chkAutoDesktopPet').checked = !!currentConfig.auto_launch_desktop_pet;
+      const chkHide = document.getElementById('chkHideWithHost');
+      if (chkHide && currentConfig.hide_with_antigravity !== undefined) {
+        chkHide.checked = !!currentConfig.hide_with_antigravity;
+      }
+      const chkCache = document.getElementById('chkCacheSound');
+      if (chkCache) chkCache.checked = !!currentConfig.cache_sound_enabled;
+
+      // Session Title
+      const s = data.session || {};
+      document.getElementById('sessionTitle').innerText = s.title ? `会话: ${s.title.slice(0, 14)}` : '实时监听中';
+
+      // GPT-Niang 5h & Weekly Per-Model Quotas
+      const mqList = document.getElementById('modelQuotaList');
+      if (mqList && Array.isArray(data.model_quotas)) {
+        if (data.five_hour && data.weekly) {
+          document.getElementById('txtActiveQuotaReset').innerText = `5h ${data.five_hour.reset_display} · 周 ${data.weekly.reset_display}`;
+        }
+        mqList.innerHTML = data.model_quotas.map(m => {
+          const c5 = m.five_hour_remaining_pct <= 20 ? 'var(--rose)' : (m.five_hour_remaining_pct <= 40 ? 'var(--amber)' : 'var(--emerald)');
+          const c7 = m.weekly_remaining_pct <= 20 ? 'var(--rose)' : (m.weekly_remaining_pct <= 40 ? 'var(--amber)' : 'var(--blue)');
+          const activeBorder = m.is_active ? 'border:1px solid var(--blue);background:rgba(56,189,248,0.10);' : 'border:1px solid var(--card-border);background:var(--card-inner);';
+          return `
+            <div onclick="updateConfig({active_model:'${m.id}'})" style="cursor:pointer;border-radius:9px;padding:7px 9px;${activeBorder}">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="font-weight:700;font-size:11.5px;color:${m.is_active ? 'var(--blue)' : 'var(--text)'}">
+                  ${m.is_active ? '● ' : ''}${m.name}
+                </span>
+                <span style="font-size:10px;color:var(--text-sub)">5h ${m.five_hour_reset} · 周 ${m.weekly_reset}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;">
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:2px;">
+                    <span style="color:var(--text-sub)">5 小时剩余</span>
+                    <strong style="color:${c5}">${m.five_hour_remaining_pct}%</strong>
+                  </div>
+                  <div class="progress-track"><div class="progress-fill" style="width:${m.five_hour_remaining_pct}%;background:${c5};"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:2px;">
+                    <span style="color:var(--text-sub)">每周剩余</span>
+                    <strong style="color:${c7}">${m.weekly_remaining_pct}%</strong>
+                  </div>
+                  <div class="progress-track"><div class="progress-fill" style="width:${m.weekly_remaining_pct}%;background:${c7};"></div></div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Rate Limits
+      const rl = data.rate_limits || {};
+      const rpmPct = Math.min(100, ((rl.current_rpm || 0) / Math.max(1, rl.max_rpm || 15)) * 100);
+      document.getElementById('txtRPM').innerText = `${rl.current_rpm || 0} / ${rl.max_rpm || 15}`;
+      document.getElementById('barRPM').style.width = `${rpmPct}%`;
+
+      const tpmPct = Math.min(100, ((rl.current_tpm || 0) / Math.max(1, rl.max_tpm || 1000000)) * 100);
+      document.getElementById('txtTPM').innerText = `${formatK(rl.current_tpm)} / ${formatK(rl.max_tpm)}`;
+      document.getElementById('barTPM').style.width = `${tpmPct}%`;
+
+      const ctxPct = Math.min(100, s.context_pct || 0);
+      document.getElementById('ctxWindowLabel').innerText = `${formatK(rl.context_window)} 上下文`;
+      document.getElementById('txtContext').innerText = `${formatK(s.current_context)} / ${formatK(rl.context_window)} (${s.context_pct || 0}%)`;
+      document.getElementById('barContext').style.width = `${ctxPct}%`;
+
+      document.getElementById('txtRPD').innerText = `${rl.current_rpd || 0} / ${rl.max_rpd || 1500}`;
+      document.getElementById('txtReset').innerText = rl.reset_countdown || '00:00:00';
+
+      // Last Turn
+      const lt = data.last_turn || {};
+      document.getElementById('txtLastHitRate').innerText = `🌟 ${lt.cache_hit_rate || 0}% 缓存命中`;
+      document.getElementById('txtLastIn').innerText = formatNum(lt.input_tokens);
+      document.getElementById('txtLastCache').innerText = formatNum(lt.cache_read_tokens);
+      document.getElementById('txtLastOut').innerText = formatNum(lt.output_tokens);
+      document.getElementById('txtLastCost').innerText = `¥${Number(lt.cost_cny || 0).toFixed(4)} ($${Number(lt.cost_usd || 0).toFixed(4)})`;
+      document.getElementById('txtLastSavings').innerText = `¥${Number(lt.savings_cny || 0).toFixed(4)}`;
+
+      // Detect new turn for automatic voice/bubble reaction
+      if (lastSeenStepIndex !== null && lt.step_index > lastSeenStepIndex) {
+        triggerBounce();
+        if (currentConfig.cache_sound_enabled) {
+          playSound('chime');
+        }
+        if ((lt.cache_hit_rate || 0) >= 70 && quotesData.cache_hit && quotesData.cache_hit.length > 0) {
+          const tpl = quotesData.cache_hit[Math.floor(Math.random() * quotesData.cache_hit.length)];
+          setBubble(tpl.replace('{cache_rate}', lt.cache_hit_rate));
+        } else if (quotesData.turn_finished && quotesData.turn_finished.length > 0) {
+          const tpl = quotesData.turn_finished[Math.floor(Math.random() * quotesData.turn_finished.length)];
+          setBubble(
+            tpl.replace('{turn_tokens}', formatNum(lt.total_tokens))
+               .replace('{out_tokens}', formatNum(lt.output_tokens))
+               .replace('{turns}', s.turns || 1)
+          );
+        }
+      }
+      lastSeenStepIndex = lt.step_index;
+
+      // Today Total
+      const td = data.today || {};
+      document.getElementById('txtTodayTurns').innerText = `共 ${td.turns || 0} 轮交互`;
+      document.getElementById('txtTodayTokens').innerText = formatNum(td.total_tokens);
+      document.getElementById('txtTodayHitRate').innerText = `${td.cache_hit_rate || 0}%`;
+      document.getElementById('txtTodayCost').innerText = `¥${Number(td.cost_cny || 0).toFixed(4)} ($${Number(td.cost_usd || 0).toFixed(3)})`;
+      document.getElementById('txtTodaySavings').innerText = `¥${Number(td.savings_cny || 0).toFixed(4)} ($${Number(td.savings_usd || 0).toFixed(3)})`;
+
+      // Turn List
+      document.getElementById('txtSessionCost').innerText = `本会话 ¥${Number(s.cost_cny || 0).toFixed(4)} (省 ¥${Number(s.savings_cny || 0).toFixed(4)})`;
+      const listEl = document.getElementById('turnList');
+      const turns = s.recent_turns || [];
+      if (turns.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;color:var(--text-sub);padding:10px;">暂无轮次记录</div>';
+      } else {
+        listEl.innerHTML = turns.map(t => `
+          <div class="turn-row">
+            <div class="turn-left">
+              <div class="turn-title">#${t.turn} ${escapeHtml(t.query || 'Agent 思考与工具调用')}</div>
+              <div class="turn-meta">入 ${formatK(t.input_tokens)} · 缓 ${formatK(t.cache_read_tokens)} (${t.cache_hit_rate}%) · 出 ${formatK(t.output_tokens)}</div>
+            </div>
+            <div class="turn-right">
+              <div class="turn-cost">¥${Number(t.cost_cny || 0).toFixed(4)}</div>
+              <div class="turn-save">省 ¥${Number(t.savings_cny || 0).toFixed(4)}</div>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    async function updateConfig(patch) {
+      try {
+        const res = await fetch(withAuth('/api/config'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...patch, conversationId: URL_CONV_ID })
+        });
+        const data = await res.json();
+        if (data && data.ok) renderStats(data);
+      } catch (e) {}
+    }
+
+    function onModelChange() {
+      const val = document.getElementById('modelSelect').value;
+      playSound('pop');
+      updateConfig({ active_model: val });
+      setBubble(`已切换计费模型为 ${val} 喵～`);
+    }
+
+    function togglePlan() {
+      const nextPlan = currentConfig.active_plan === 'free' ? 'tier1' : 'free';
+      playSound('pop');
+      updateConfig({ active_plan: nextPlan });
+      setBubble(nextPlan === 'tier1' ? '已切换至 Pay-As-You-Go 按量付费档位喵～' : '已切换至 Free Tier 免费计划档位喵～');
+    }
+
+    function toggleSound() {
+      const nextSound = !currentConfig.sound_enabled;
+      currentConfig.sound_enabled = nextSound;
+      if (nextSound) playSound('pop');
+      updateConfig({ sound_enabled: nextSound });
+      setBubble(nextSound ? '音效已开启 🔊 喵～' : '音效已静音 🔇 喵～');
+    }
+
+    function onToggleCacheSound() {
+      const checked = document.getElementById('chkCacheSound').checked;
+      if (checked) playSound('sparkle');
+      currentConfig.cache_sound_enabled = checked;
+      updateConfig({ cache_sound_enabled: checked });
+      setBubble(checked ? '已开启缓存命中提示音 🔔 喵～' : '已关闭缓存命中提示音 🔕，安静免打扰喵～');
+    }
+
+    function onToggleAutoDesktopPet() {
+      const checked = document.getElementById('chkAutoDesktopPet').checked;
+      playSound('pop');
+      updateConfig({ auto_launch_desktop_pet: checked });
+      setBubble(checked ? '已开启伴随启动桌面悬浮桌宠 🚀' : '已关闭伴随启动桌面悬浮桌宠');
+    }
+
+    function onToggleHideWithHost() {
+      const checked = document.getElementById('chkHideWithHost').checked;
+      playSound('pop');
+      currentConfig.hide_with_antigravity = checked;
+      updateConfig({ hide_with_antigravity: checked });
+      setBubble(checked ? '已开启伴随反重力最小化隐藏与关闭联动 🙈' : '已关闭伴随隐藏，桌宠将始终独立常驻桌面 🐾');
+    }
+
+    async function toggleDesktopPet() {
+      playSound('sparkle');
+      try {
+        const res = await fetch(withAuth('/api/desktop-pet'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'toggle' })
+        });
+        const d = await res.json();
+        if (d.desktop_pet_running) {
+          setBubble('桌面悬浮哈基米已召唤到右下角啦！可以去桌面拖拽或摸摸头喵～✨');
+        } else {
+          setBubble('桌面悬浮窗已收起，哈基米继续在侧边栏陪你喵～');
+        }
+        setTimeout(fetchStats, 600);
+      } catch (e) {}
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    // Idle random quote every 45s
+    setInterval(() => {
+      if (quotesData.idle && quotesData.idle.length > 0) {
+        const q = quotesData.idle[Math.floor(Math.random() * quotesData.idle.length)];
+        setBubble(q);
+      }
+    }, 45000);
+
+    // Poll live stats every 1.5s
+    (async () => {
+      await loadQuotes();
+      await fetchStats();
+      setInterval(fetchStats, 1500);
+    })();
+  </script>
+</body>
+</html>
