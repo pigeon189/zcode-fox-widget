@@ -5291,6 +5291,27 @@ try {
       JSON.stringify({ empty: count("ohh: ''"), whale: count("ohh: '哦鲸鲸... '") })
     )
     check(
+      '台词池：嘎啦嘛的免费鸡蛋换词（quotes / pool 各一份，旧句不再出现）',
+      count('免费鸡蛋，刚出炉的免费鸡蛋有人要吗') === 2 && count('你说免费鸡蛋啊...最近卖完了...') === 0,
+      JSON.stringify({
+        next: count('免费鸡蛋，刚出炉的免费鸡蛋有人要吗'),
+        old: count('你说免费鸡蛋啊...最近卖完了...'),
+      })
+    )
+    check(
+      '台词池：kimi 换 K3.1 句并新增两句（只进 quotes，pool 自动派生）',
+      count('科研K3.1中...') === 0 &&
+        count('零地址指令，你的索塔通用语言模型5.5还未释放，英雄联盟') === 1 &&
+        count('我坐好了，谁能告诉我10月24日0时发生了什么') === 1 &&
+        count('正在生成3D建模中...') === 1,
+      JSON.stringify({
+        old: count('科研K3.1中...'),
+        zero: count('零地址指令，你的索塔通用语言模型5.5还未释放，英雄联盟'),
+        sit: count('我坐好了，谁能告诉我10月24日0时发生了什么'),
+        model3d: count('正在生成3D建模中...'),
+      })
+    )
+    check(
       'rua：角色门控只留大肥鱼/小克，出厂队列按角色增删 C 变体',
       /roleId === 'whale' \|\| roleId === 'xiaoke'/.test(src) &&
         /if \(allowRua\) variants\.push\(\{ w: 5, modules: \[\{ type: 'img', img: 'rua', size: 'A' \}\] \}\)/.test(src) &&
