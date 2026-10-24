@@ -10,9 +10,10 @@
 | `dock/` | fox-dock 2.0 通用桌宠（独立程序） | `dock-pre`（同源长分支 `feat/dock`） | 本线主体 |
 | `docs/dock/` | 2.0 方案、决策、测试、UI 规格 | `dock-pre` | 与 `dock/` 同步更新 |
 
-`dock-pre` 上的所有改动只落在 `dock/` 与 `docs/dock/`（`docs/dock/PLAN-pre.2-truth-layer.md` §0）。
+`dock-pre` 上的所有改动只落在 `dock/` 与 `docs/dock/`（`docs/dock/PLAN-pre.2-truth-layer.md` §0）；
+价目是唯一跨线例外（源头 `lib/pricing.mjs`，见下）。
 1.x 的版本号来源是根 `.zcode-plugin/plugin.json`；2.0 的版本号来源是 `dock/package.json`，两者互不影响。
-当前 `dock-pre` 的 pre.2 主体已完成但**未发版**；pre.3（权限接管 / 自定义 agent）尚未完成。发版等人工放行。
+当前状态：pre.2 **已于 2026-10-24 发布**（`dock-v2.0.0-pre.2`）；pre.3（权限接管 / 自定义 agent）尚未开工。
 
 ## 常用命令
 
@@ -56,6 +57,11 @@ npm run bench / npm run soak :: 性能基准 / 长跑稳定性（发版前）
   图表是 `ui/charts/svg.mjs` 手写 SVG。不要引入打包器、Chart.js、React。
 - `dock/console/` 与 `dock/overlay/`：两个 Electron 入口（控制台 / 透明宠物层）。
   `overlay/main.cjs` 里的 `type:'toolbar'` 是宿主冻结事故的守卫，**不得删除**。
+  宠物层渲染层（`overlay/pet.js`）**禁止任何 `fetch`**：daemon 交互一律走 preload IPC
+  （`window.foxOverlay.read/write/hit`，主进程 `daemon-read`/`daemon-write` 处理器持令牌、
+  仅 127.0.0.1:lock 端口）。渲染层 fetch 会被 Mimosa Git 门禁判 SSRR/SSRF 高危**强制拦截提交**，
+  且拖拽期间渲染进程网络被挂起会卡轮询。`test:pet`（纯浏览器、无 preload）靠
+  `window.__pet.setSnapshot/setSettings/debugAttach` 注入数据。
 - `dock/engines/`：厂商模板与计价。`pricing.mjs`、`cmdgo.mjs`、`relays.mjs` 是
   `../lib/` 同名文件的**逐字节副本**，禁止手改；`npm run check:sync` 会失败。
   需要改价目时，源头在 `lib/`（会影响 1.x 线，先与维护者确认），再用
@@ -97,10 +103,12 @@ npm run bench / npm run soak :: 性能基准 / 长跑稳定性（发版前）
   空闲场景不得有无限动画，`prefers-reduced-motion` 下全部关闭。
 - 宠物层交互：隐藏金额时隐藏整个小胶囊（不是把金额改成 `•••`）；快览卡不放
   「打开会话页」页脚；刷新键用控制台同款 SVG 并绝对定位右上角；台词/消耗气泡不得压
-  快览卡或越出视口；宿主最小化/关闭/失前台（约 3 秒防抖，D044）后角色回落到
-  屏幕右下角、回前台自动恢复吸附，不要恢复
-  「宿主不在最上层就整体 opacity 0」的 z-order 隐身；浮层窗口四周留 4 DIP
-  任务栏安全边距（D043），兜底位贴紧工作区角落。
+  快览卡或越出视口；宿主最小化/关闭/失前台（0.5 秒防抖，D044 修订）后角色落到
+  「失焦兜底位置」（`fallbackCorner` 四角可选，默认右下）、**直接贴住工作区角落并面向
+  屏幕内侧**、回前台自动恢复吸附；浮层窗口与工作区精确重合，仅任务栏自动隐藏时留
+  1 DIP 不可见缝防压滑出热区（D043 修订）；不要恢复「宿主不在最上层就整体 opacity 0」
+  的 z-order 隐身。角色名跟 `overlay/roles.js`（嘎啦嘛/大肥鱼/GPT娘/kimi娘/小克/哈基米），
+  文档与提示不要用「狐狸/大鱼」等代称。
 - UI 文案与文档用中文，术语沿用 `docs/dock/UI-SPEC.md`，不要临时造同义词。
 
 ## 测试与基线
@@ -110,8 +118,9 @@ npm run bench / npm run soak :: 性能基准 / 长跑稳定性（发版前）
 - 视觉基线共 128 张，动态内容用 `data-visual-mask` 遮罩；环境不符（`ENV-MISMATCH`）
   时**不得**更新基线。基线只在固定机器 / 固定 Edge 版本生成。
 - 已知偶发失败：`anchor: 绑定后狐狸停在放下的位置`、`pet: 单击角色打开快览卡`、
-  `大浮窗打开时气泡避开浮窗` 受窗口动画/前台焦点影响；`npm run test:all` 首跑也可能
-  命中。用单文件复跑确认，不要据此改交互：
+  `大浮窗打开时气泡避开浮窗` 受窗口动画/前台焦点影响；`npm run test:all` 首跑与
+  机器高负载时的整跑也可能级联命中更多焦点类用例。定责方法：单文件/单用例复跑；
+  仍可疑时用 `git stash push -- <文件>` 做对照实验，不要据此改交互：
 
   ```bat
   node --test --test-concurrency=1 test/integration/overlay.itest.mjs
@@ -135,14 +144,23 @@ npm run bench / npm run soak :: 性能基准 / 长跑稳定性（发版前）
 
 - 未经明确人工批准，**不要**改版本号、打 tag、签名或修改 `docs/dock/update.json`。
 - 2.0 只发 `dock-v*` GitHub prerelease（`dock-pre` 线）；1.x 的 `v*` / `wb-v*` 不在本线。
-- 版本号按 `chore(release)` 独立提交；tag 必须打在版本号已更新的提交上。
+- 版本号按 `chore(release)` 独立提交；tag 打在「版本号已更新」的提交链上（pre.2 实操：
+  tag 最终落在含签名清单的最后一个提交）。
+- 发版实操（在 `dock/` 下）：
+  `node tools/pack-release.mjs --version <ver> --url <release 下载直链> --sign --notes "…"`
+  打出 `dist/dock-<ver>.tar.gz` 并签名 `docs/dock/update.json`（私钥默认
+  `%USERPROFILE%\fox-dock-release-key.pem`），提交清单后 push 分支 + tag，
+  `gh release create` 挂 tar.gz 与图文更新说明 HTML（`docs/dock/release-notes-*.html`）。
+- pack 私钥体检会拦**任何**连续的 `-----BEGIN … PRIVATE KEY-----` 字面量：测试里的
+  假 PEM 必须用字符串拼接构造（`redact.test.mjs` 是范例）。
 - 更新清单必须带 sha256 与 Ed25519 签名；签名后不要再改任何被跟踪文件。
 - 提交信息用 Conventional Commits（见根 `CONTRIBUTING.md`），subject ≤72 显示列。
+  Mimosa Git 门禁在提交前做安全扫描：被拦时先自查渲染层 fetch / 私钥字面量，不要绕过。
 
 ## 动手前建议阅读
 
 - `docs/dock/PLAN-pre.2-truth-layer.md`：当前方案与不可碰清单
-- `docs/dock/DECISIONS.md`：D001–D042，冲突时以决策记录为准
+- `docs/dock/DECISIONS.md`：D001–D049，冲突时以决策记录为准
 - `docs/dock/ADAPTERS.md`：适配器契约与失败语义
 - `docs/dock/TESTING.md`：分层测试、夹具、已知偶发失败
 - `docs/dock/UI-SPEC.md`：页面结构、设计令牌、验收清单
