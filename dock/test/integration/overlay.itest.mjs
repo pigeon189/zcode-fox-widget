@@ -271,14 +271,32 @@ test('pet: 启动后显示角色，胶囊默认隐藏', async () => {
 })
 
 test('pet: 单击角色打开快览卡，再点角色保持打开', async () => {
-  const c = JSON.parse(
-    await cdp.eval("(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()")
-  )
+  const foxCenter = async () =>
+    JSON.parse(
+      await cdp.eval("(function(){var r=document.getElementById('fox').getBoundingClientRect();return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()")
+    )
+  // 等狐狸位置稳定（吸附/兜底重挂 + left/top 140ms 过渡都会让旧坐标落空）
+  let c = await foxCenter()
+  for (let i = 0; i < 20; i++) {
+    await sleep(150)
+    const n = await foxCenter()
+    if (Math.abs(n.x - c.x) < 1 && Math.abs(n.y - c.y) < 1) break
+    c = n
+  }
   await mouse(cdp, c.x, c.y)
   await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 4000, 'quick open')
   assert.equal(await cdp.eval("document.getElementById('quick-console')===null"), true, '快览卡不再重复放「打开控制台」')
   await sleep(300)
-  await mouse(cdp, c.x, c.y)
+  // 第二次点击前重新取位置：测试期间宿主重绑定/兜底会把狐狸挪走，那是
+  // 环境竞态；这里验证的产品行为是「点角色不会把已打开的快览卡关掉」。
+  let c2 = await foxCenter()
+  for (let i = 0; i < 20; i++) {
+    await sleep(150)
+    const n = await foxCenter()
+    if (Math.abs(n.x - c2.x) < 1 && Math.abs(n.y - c2.y) < 1) break
+    c2 = n
+  }
+  await mouse(cdp, c2.x, c2.y)
   await sleep(500)
   assert.equal(await cdp.eval("document.getElementById('quick').hidden"), false, '再次点击角色不应关闭快览卡')
   await cdp.eval('window.__pet.closeQuick()')
@@ -712,9 +730,13 @@ test('pet: 右键菜单收窄到约 196px，文本不截断、贴边不越界', 
   assert.ok(m.right <= m.vw - 7 && m.left >= 7, '菜单不能越出屏幕：' + JSON.stringify(m))
   assert.equal(m.scroll <= m.client + 1, true, '菜单不应出现横向滚动：' + JSON.stringify(m))
   assert.deepEqual(m.clipped, [], '菜单项文本不能被截断：' + JSON.stringify(m.clipped))
-  // 6 个内置角色按 4+2 换行：前 4 个在同一行；4 个大小档也在同一行。
+  // 6 个内置角色按 4+2 换行：前 4 个在同一行；4 个大小档在同一行；
+  // 音效集行（pre.3）也是独立一行，三个内置档 + 当前导入集不拆行。
   assert.equal(new Set(m.roleTops.slice(0, 4)).size, 1, '角色第一行应放 4 个：' + JSON.stringify(m.roleTops))
-  assert.equal(new Set(m.sizeTops).size, 1, '大小 4 档应在同一行：' + JSON.stringify(m.sizeTops))
+  assert.equal(new Set(m.sizeTops.slice(0, 4)).size, 1, '大小 4 档应在同一行：' + JSON.stringify(m.sizeTops))
+  if (m.sizeTops.length > 4) {
+    assert.equal(new Set(m.sizeTops.slice(4)).size, 1, '音效档应在同一行：' + JSON.stringify(m.sizeTops))
+  }
   // 贴左边打开也不能为负。
   await cdp.eval('window.__pet.openMenu(4, 200)')
   await sleep(150)

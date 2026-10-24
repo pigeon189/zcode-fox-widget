@@ -1,7 +1,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, nativeImage } = require('electron')
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, nativeImage, Notification } = require('electron')
 const { overlayWorkAreaBounds } = require('./window-bounds.cjs')
 
 function arg(name, fallback = '') {
@@ -367,6 +367,96 @@ function setupHotkeys() {
   }, '隐藏金额')
 }
 
+// ---------- M5 权限待办：动态热键 + 桌面通知 + 推送权限卡（D036） ----------
+// 热键只在存在 pending 时注册、pending 清空即注销；高风险 pending 不注册
+// 「允许」（D036：高风险不支持热键允许）。通知文案 ≤60 字且已脱敏。
+
+const permHotkeys = new Map() // accelerator -> true
+const notifiedActions = new Set()
+
+function resolveAction(id, decision, via) {
+  return daemonApi('/v1/actions/' + encodeURIComponent(id) + '/resolve', 'POST', { decision, via }).catch(() => null)
+}
+
+function focusHostWindow(sessionKey) {
+  return daemonApi('/v1/sessions/' + encodeURIComponent(sessionKey) + '/focus', 'POST').catch(() => null)
+}
+
+function syncPermHotkeys(pending) {
+  const s = readSettings()
+  const hot = (s.permission && s.permission.hotkeys) || {}
+  const first = pending[0] || null
+  const allowAcc = first && first.risk !== 'high' ? String(hot.allow || '') : ''
+  const denyAcc = first ? String(hot.deny || '') : ''
+  for (const acc of [...permHotkeys.keys()]) {
+    if (acc !== allowAcc && acc !== denyAcc) {
+      try {
+        globalShortcut.unregister(acc)
+      } catch (err) {}
+      permHotkeys.delete(acc)
+    }
+  }
+  const bind = (acc, fn, label) => {
+    if (!acc || permHotkeys.has(acc)) return
+    try {
+      if (globalShortcut.register(acc, fn)) permHotkeys.set(acc, true)
+      else console.warn('[fox-dock] 权限热键被占用：' + acc + '（' + label + '）')
+    } catch (err) {
+      console.warn('[fox-dock] 权限热键注册失败：' + acc + ' ' + (err && err.message ? err.message : err))
+    }
+  }
+  bind(allowAcc, () => first && resolveAction(first.id, 'allow', 'hotkey'), '允许一次')
+  bind(denyAcc, () => first && resolveAction(first.id, 'deny', 'hotkey'), '拒绝')
+}
+
+function maybeNotify(pending) {
+  const s = readSettings()
+  const mode = (s.permission && s.permission.notify) || 'whenHidden'
+  if (mode === 'off' || !pending.length) return
+  const petHidden = !overlayShown || !win || win.isDestroyed() || !win.isVisible()
+  if (mode === 'whenHidden' && !petHidden) return
+  for (const a of pending) {
+    if (notifiedActions.has(a.id)) continue
+    notifiedActions.add(a.id)
+    if (notifiedActions.size > 100) {
+      const firstKey = notifiedActions.values().next().value
+      notifiedActions.delete(firstKey)
+    }
+    const tool = String(a.tool || '工具').slice(0, 24)
+    const body = String(a.preview || '').slice(0, 60) || tool
+    try {
+      if (Notification.isSupported()) {
+        const n = new Notification({ title: tool + ' · 正在等待确认（' + String(a.agentId || 'agent') + '）', body, silent: false })
+        n.on('click', () => focusHostWindow(a.sessionKey))
+        n.show()
+      }
+    } catch (err) {
+      console.warn('[fox-dock] 权限通知失败: ' + (err && err.message ? err.message : err))
+    }
+  }
+}
+
+function setupPermissionWatch() {
+  if (!daemonPort) return
+  const tick = async () => {
+    let pending = []
+    try {
+      const s = readSettings()
+      if (s.permission && s.permission.takeover === true) {
+        const r = await daemonApi('/v1/actions')
+        if (r && r.ok && Array.isArray(r.actions)) pending = r.actions
+      }
+    } catch (err) {}
+    try {
+      if (win && !win.isDestroyed()) win.webContents.send('perm-actions', pending)
+    } catch (err) {}
+    syncPermHotkeys(pending)
+    maybeNotify(pending)
+  }
+  const timer = setInterval(tick, 2000)
+  if (timer.unref) timer.unref()
+}
+
 app.whenReady().then(() => {
   const primary = screen.getPrimaryDisplay()
   const chosen = displayMode === 'primary' ? primary : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
@@ -522,6 +612,27 @@ app.whenReady().then(() => {
       return null
     }
   })
+  // 音效集音频（M-S）：只允许 /v1/sounds/<id>/file/<slot> 的只读回放；
+  // setId/slot 服务端白名单校验，字节经主进程转发，渲染层不持令牌不直连。
+  ipcMain.handle('read-sound', async (_e, payload) => {
+    const setId = String((payload && payload.setId) || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 44)
+    const slot = payload && payload.slot === 'release' ? 'release' : 'press'
+    if (!setId) return null
+    const lock = lockInfo()
+    if (!lock || !lock.port) return null
+    try {
+      const res = await fetch('http://127.0.0.1:' + lock.port + '/v1/sounds/' + encodeURIComponent(setId) + '/file/' + slot, {
+        headers: { 'x-fox-token': lock.token || '' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
+      })
+      if (!res.ok) return null
+      const mime = String(res.headers.get('content-type') || 'audio/mpeg').split(';')[0]
+      return { mime, bytes: await res.arrayBuffer() }
+    } catch (err) {
+      return null
+    }
+  })
   ipcMain.handle('alpha-mask', (_e, roleId) => alphaMask(roleId))
   ipcMain.handle('role-image', (_e, roleId) => roleImageData(roleId))
 
@@ -563,6 +674,7 @@ app.whenReady().then(() => {
 
   setupTray()
   setupHotkeys()
+  setupPermissionWatch()
 })
 
 app.on('window-all-closed', () => app.quit())

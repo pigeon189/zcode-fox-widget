@@ -4,6 +4,7 @@ import { render } from './vendor/preact.module.js'
 import htm from './vendor/htm.module.js'
 import { Icon } from './components/icons.mjs'
 import { Badge, IconButton, Segmented, Skeleton, Toasts } from './components/base.mjs'
+import { Wizard } from './components/wizard.mjs'
 import { fmtPct, fmtReset, fmtTime, agentName, reasonText, pctTone, setHideMoney } from './lib/format.mjs'
 import { OverviewPage } from './pages/overview.mjs'
 import { SessionsPage } from './pages/sessions.mjs'
@@ -175,6 +176,8 @@ function App() {
   const [lastDataAt, setLastDataAt] = useState(0)
   const [events, setEvents] = useState([])
   const [liveTick, setLiveTick] = useState(0)
+  const [permActions, setPermActions] = useState([])
+  const [showWizard, setShowWizard] = useState(false)
   const refreshRef = useRef(refreshAt)
   refreshRef.current = refreshAt
 
@@ -189,6 +192,22 @@ function App() {
     setState(d)
     setConnected(true)
     return d
+  }
+  // M5 权限待办：/v1/actions 不缓存；SSE action 事件与 15s 兜底轮询都会刷新。
+  async function reloadActions() {
+    try {
+      const d = await api('/v1/actions', { force: true })
+      setPermActions(d && Array.isArray(d.actions) ? d.actions : [])
+    } catch (err) {}
+  }
+  async function resolveAction(id, decision) {
+    try {
+      const r = await api('/v1/actions/' + encodeURIComponent(id) + '/resolve', { method: 'POST', body: { decision, via: 'console' } })
+      if (r && r.ok) toast(decision === 'allow' ? '已允许本次执行' : '已拒绝，交回宿主处理', '')
+    } catch (err) {
+      toast('处理失败：' + (err && err.message ? err.message : err), 'bad')
+    }
+    reloadActions()
   }
   async function loadSettings() {
     const d = await api('/v1/settings')
@@ -225,6 +244,15 @@ function App() {
         const st = await reloadState()
         const r = await api('/v1/roles')
         setRoles(r.roles || [])
+        // 首次接入向导：仅当未完成 onboarding 且发现至少 1 个宿主时弹（M6）。
+        if (s.onboarded !== true) {
+          try {
+            const ob = await api('/v1/onboarding')
+            if (ob && ob.ok && ((ob.hosts || []).some((x) => x.running) || (ob.legacy && ob.legacy.found))) {
+              if (alive) setShowWizard(true)
+            }
+          } catch (err) {}
+        }
       } catch (err) {
         if (alive) toast('连接 daemon 失败：' + String(err.message || err), 'bad')
       }
@@ -338,6 +366,8 @@ function App() {
             const cur = settings || {}
             if (cur.confirmAlert !== false) toast('ZCode 正在等待确认', '')
           }
+        } else if (event === 'action') {
+          reloadActions()
         }
       })
     } else if (BASE) {
@@ -354,6 +384,7 @@ function App() {
         } catch (err) {}
       })
       es.addEventListener('session', () => setLiveTick((n) => n + 1))
+      es.addEventListener('action', () => reloadActions())
       es.addEventListener('sessions', (e) => {
         try {
           setState((prev) => (prev ? { ...prev, live: JSON.parse(e.data) } : prev))
@@ -385,9 +416,14 @@ function App() {
   useEffect(() => {
     const timer = setInterval(() => {
       reloadState().catch(() => setConnected(false))
+      reloadActions()
       setRefreshAt(Date.now())
     }, 15000)
     return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    reloadActions()
   }, [])
 
   useEffect(() => {
@@ -544,6 +580,9 @@ function App() {
     refresh,
     navigate,
     reloadState,
+    reloadActions,
+    resolveAction,
+    permActions,
     reloadRoles,
     reloadVendors,
     saveSettings,
@@ -612,6 +651,7 @@ function App() {
       </main>
     </div>
     <${Toasts} items=${toasts} />
+    ${showWizard ? html`<${Wizard} app=${app} onClose=${() => setShowWizard(false)} />` : null}
   </${Fragment}>`
 }
 

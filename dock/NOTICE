@@ -21,3 +21,12 @@ fox-dock 的第三方前端组件
 
 测试依赖（不随运行时包分发）：@playwright/test（Apache-2.0）、
 @axe-core/playwright（MPL-2.0）、pngjs（MIT）。
+
+4. 猫娘按压音效（CC0 1.0）
+   Catgirl sound effects derived from `Meow/002_meow.wav` in *Free Catgirl
+   Fighting Voice Pack* by Cici Fyre. Original asset:
+   https://cicifyre.itch.io/free-catgirl-fighting-voice-pack .
+   License: CC0 1.0 Universal. `Nya1.wav` is the 0–0.810s onset segment
+   (unchanged after level normalization); `Nya2.wav` is 100ms of digital
+   silence used as a silent release. 出处与加工记录另见
+   zcode-fox-widget 工作区 docs/CATGIRL-SOUND-NOTES.md。

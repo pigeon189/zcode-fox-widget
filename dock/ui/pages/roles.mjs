@@ -26,6 +26,12 @@ export function RolesPage({ app }) {
   const [roleId, setRoleId] = useState('')
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
+  // 按压音效（M-S 语音库）：列表 / 音量 / 导入 / 两步删除
+  const [sounds, setSounds] = useState(null)
+  const [soundVolume, setSoundVolume] = useState(null)
+  const [soundSet, setSoundSet] = useState('duck')
+  const [soundDelId, setSoundDelId] = useState('')
+  const soundFileRef = useRef(null)
 
   useEffect(() => {
     let alive = true
@@ -40,6 +46,18 @@ export function RolesPage({ app }) {
     app
       .api('/v1/bubbles/queue')
       .then((d) => alive && setQueue(d.queue || []))
+      .catch(() => {})
+    app
+      .api('/v1/sounds')
+      .then((d) => alive && setSounds(d.sets || []))
+      .catch(() => {})
+    app
+      .api('/v1/settings')
+      .then((d) => {
+        if (!alive) return
+        setSoundVolume(Math.round((Number(d.settings && d.settings.soundVolume) || 0.5) * 100) / 100)
+        setSoundSet(String((d.settings && d.settings.soundSet) || 'duck'))
+      })
       .catch(() => {})
     return () => {
       alive = false
@@ -69,6 +87,80 @@ export function RolesPage({ app }) {
     }
     await app.reloadState()
     app.refresh()
+  }
+
+  // ---- 按压音效（M-S 语音库） ----
+  async function reloadSounds() {
+    try {
+      const d = await app.api('/v1/sounds', { force: true })
+      setSounds(d.sets || [])
+      setSoundSet(String(d.selected || 'duck'))
+    } catch (e) {}
+  }
+  async function pickSound(id) {
+    try {
+      await app.api('/v1/settings', { method: 'PUT', body: { soundSet: id } })
+      setSoundSet(id)
+      app.toast('音效已切换')
+    } catch (e) {
+      app.toast('切换失败：' + String(e.message || e), 'bad')
+    }
+  }
+  async function pickVolume(v) {
+    setSoundVolume(Number(v))
+    try {
+      await app.api('/v1/settings', { method: 'PUT', body: { soundVolume: Number(v) } })
+    } catch (e) {
+      app.toast('保存失败：' + String(e.message || e), 'bad')
+    }
+  }
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(String(r.result || ''))
+      r.onerror = () => reject(new Error('读取失败'))
+      r.readAsDataURL(file)
+    })
+  }
+  async function onSoundFiles(e) {
+    const files = Array.from((e.currentTarget.files || [])).slice(0, 2)
+    e.currentTarget.value = ''
+    if (!files.length) return
+    if (files.length > 2) app.toast('最多选 2 个文件（第 1 个按压音，第 2 个松手音）', 'bad')
+    try {
+      const body = { press: { name: files[0].name, dataUrl: await fileToDataUrl(files[0]) } }
+      if (files[1]) body.release = { name: files[1].name, dataUrl: await fileToDataUrl(files[1]) }
+      const d = await app.api('/v1/sounds/import', { method: 'POST', body })
+      if (d && d.ok) {
+        setSounds(d.sets || [])
+        setSoundSet(String(d.selected || d.id))
+        app.toast('音效已导入并切换')
+      } else {
+        app.toast(String((d && d.error) || '导入失败'), 'bad')
+      }
+    } catch (err) {
+      app.toast('导入失败：' + String(err.message || err), 'bad')
+    }
+  }
+  async function deleteSound(id) {
+    if (soundDelId !== id) {
+      setSoundDelId(id)
+      setTimeout(() => setSoundDelId((cur) => (cur === id ? '' : cur)), 4000)
+      return
+    }
+    setSoundDelId('')
+    try {
+      const d = await app.api('/v1/sounds/' + encodeURIComponent(id), { method: 'DELETE' })
+      if (d && d.ok) {
+        setSounds(d.sets || [])
+        setSoundSet(String(d.selected || 'duck'))
+        app.toast('音效已删除')
+      } else {
+        app.toast(String((d && d.error) || '删除失败'), 'bad')
+      }
+    } catch (err) {
+      app.toast('删除失败：' + String(err.message || err), 'bad')
+    }
   }
 
   async function saveTemplates() {
@@ -240,6 +332,35 @@ export function RolesPage({ app }) {
                 </div>
                 <div class="row"><span>勿扰</span><span class="spacer"></span><${Toggle} ariaLabel="勿扰" checked=${profile.dnd} onChange=${(v) => save({ dnd: v })} /></div>
               </div>`}
+        </${Card}>
+        <${Card} title="按压音效" class="group" testid="sounds.card">
+          <div style=${{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div class="row"><span>音效集</span><span class="spacer"></span>
+              <${Select} aria-label="音效集" data-testid="sounds.select" value=${soundSet}
+                options=${(sounds || [{ id: 'duck', name: '小黄鸭' }, { id: 'fx1', name: '嘀嘟' }, { id: 'nya', name: '猫娘' }]).map((s) => ({ value: s.id, label: s.name }))}
+                onChange=${pickSound} />
+            </div>
+            <div class="row"><span>音量</span><span class="spacer"></span>
+              <${Select} aria-label="音量" data-testid="sounds.volume" value=${soundVolume == null ? 0.5 : soundVolume}
+                options=${[0, 0.25, 0.5, 0.75, 1].map((v) => ({ value: v, label: v === 0 ? '静音' : Math.round(v * 100) + '%' }))}
+                onChange=${pickVolume} />
+            </div>
+            <div class="row">
+              <span class="small muted" style=${{ flex: 1, minWidth: 0 }}>
+                导入 1～2 个音频文件（第 1 个按压音、第 2 个松手音；单文件 ≤2MB，支持 mp3/wav/ogg/m4a/aac），文件名即音效名。
+              </span>
+              <${Button} data-testid="sounds.import" onClick=${() => soundFileRef.current && soundFileRef.current.click()}>导入…</${Button}>
+            </div>
+            ${(sounds || []).filter((s) => !s.builtin).map((s) => html`
+              <div class="row" key=${s.id} data-testid="sounds.row">
+                <span style=${{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${s.name}</span>
+                <${Button} variant="ghost" onClick=${() => pickSound(s.id)}>${soundSet === s.id ? '使用中' : '使用'}</${Button}>
+                <${Button} variant=${soundDelId === s.id ? 'danger' : 'secondary'} onClick=${() => deleteSound(s.id)} data-testid="sounds.delete">
+                  ${soundDelId === s.id ? '确认删除' : '删除'}
+                </${Button}>
+              </div>`)}
+          </div>
+          <input ref=${soundFileRef} type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" multiple hidden onChange=${onSoundFiles} aria-label="选择音效音频文件（最多 2 个）" />
         </${Card}>
         <${Card} title="气泡模板" class="group">
           <div class="row">

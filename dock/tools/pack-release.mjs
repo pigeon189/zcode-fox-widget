@@ -70,14 +70,41 @@ if (!files.size) {
   process.exit(1)
 }
 
+// ---------- 便携包（M6 / PLAN §10.2） ----------
+// --portable：解压即用包。校验 launch/ 启动件齐全（含 Node 运行时检测——
+// 缺 Node 给明确提示与官方下载链接，绝不静默下载二进制），并附便携说明。
+const portable = process.argv.includes('--portable')
+const LAUNCH_REQUIRED = ['launch/启动 fox-dock.vbs', 'launch/start.cmd']
+if (portable) {
+  for (const rel of LAUNCH_REQUIRED) {
+    if (![...files.keys()].some((k) => k.endsWith(rel))) {
+      console.error('❌ 便携包缺少启动件：' + rel)
+      process.exit(1)
+    }
+  }
+  const portableReadme = [
+    'fox-dock ' + version + ' 便携版',
+    '',
+    '用法：解压到任意目录，双击 launch/启动 fox-dock.vbs（或 launch/start.cmd）。',
+    '',
+    '运行时要求：Node.js ≥ 22.5（https://nodejs.org/ ）。启动脚本会自动在 PATH 与',
+    '常见安装路径里找 node.exe；找不到时会给出明确提示，fox-dock 不会静默下载',
+    '任何二进制。Electron 浮层运行时由 fox-dock 自管（首次启动自动安装到用户目录）。',
+    '',
+    '数据目录：%LOCALAPPDATA%\\fox-dock（可用环境变量 FOX_DOCK_DATA 覆盖）。',
+    '卸载：删除解压目录与数据目录即可，无注册表项、无服务。',
+  ].join('\r\n')
+  files.set('dock-' + version + '/PORTABLE-README.txt', Buffer.from(portableReadme, 'utf8'))
+}
+
 const tar = writeTar(files)
 const gz = gzipSync(tar, { level: 9 })
 fs.mkdirSync(DIST, { recursive: true })
-const outFile = path.join(DIST, 'dock-' + version + '.tar.gz')
+const outFile = path.join(DIST, 'dock-' + version + (portable ? '-portable' : '') + '.tar.gz')
 fs.writeFileSync(outFile, gz)
 const sha = crypto.createHash('sha256').update(gz).digest('hex')
 
-console.log('包：' + outFile)
+console.log('包：' + outFile + (portable ? '（便携版：解压即用，Node 22+ 检测见 PORTABLE-README.txt）' : ''))
 console.log('文件数：' + files.size + '，大小：' + (gz.length / 1024).toFixed(1) + ' KB')
 console.log('sha256：' + sha)
 

@@ -262,6 +262,12 @@ UI 四标签：official / local / estimate / unavailable，映射规则在
 > 探针脚本：`tools/probe-zcode-db.mjs`、`probe-zcode-hook.mjs`、
 > `probe-kimi-status.mjs`、`probe-win32-focus.mjs`（只读、不入 CI）。
 > 2026-10-22 在本机 ZCode 库实测结论列在表后。
+>
+> **P-2 补充（pre.3）**：探针已升级为模式切换式（`node tools/probe-zcode-hook.mjs`
+> 生成探针插件，allow 四种候选 schema / exit 2 deny / silent / slow 阻塞判定）。
+> 本地链路已实测；**「stdout 能否表达 allow」仍待真机安装探针插件确认**。确认前
+> dock-hook.mjs 走分支 B（allow 一律 exit 0 交回宿主弹窗），`settings.permission.allowOnce`
+> 保持 false；两条分支代码均已实现并有测试。
 
 | 宿主 | working | waiting_permission | waiting_input | error | done | 信号来源 | 延迟 | 可信度 |
 |---|---|---|---|---|---|---|---|---|

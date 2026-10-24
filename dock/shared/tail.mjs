@@ -37,11 +37,23 @@ export function createTailReader(file, { maxChunk = DEFAULT_MAX_CHUNK } = {}) {
     ino = 0
   }
 
+  // 从持久化索引恢复水位（M6）。offset 非法或越过当前文件大小都会在下一次
+  // poll 里自然 reset（st.size < offset 分支），这里只做形态校验。
+  function restore(state) {
+    const off = Number(state && state.offset)
+    if (!Number.isFinite(off) || off < 0) return reset()
+    offset = Math.floor(off)
+    ino = Number(state && state.ino) || 0
+    partial = Buffer.alloc(0)
+    lastLineTooLong = 0
+  }
+
   return {
     get state() {
       return { offset, size: safeStat(file)?.size || 0, ino, droppedLongLines: lastLineTooLong }
     },
     reset,
+    restore,
     poll() {
       const st = safeStat(file)
       if (!st) return { ok: false, reason: 'missing', lines: [], reset: false }
@@ -157,11 +169,21 @@ export function createZstdFrameTail(file, { maxChunk = 32 * 1024 * 1024 } = {}) 
     partialLine = ''
   }
 
+  // 从持久化索引恢复水位（M6）；非法输入一律从头重读。
+  function restore(state) {
+    const off = Number(state && state.offset)
+    if (!Number.isFinite(off) || off < 0) return reset()
+    offset = Math.floor(off)
+    ino = Number(state && state.ino) || 0
+    partialLine = ''
+  }
+
   return {
     get state() {
       return { offset, size: safeStat(file)?.size || 0, ino, badFrames }
     },
     reset,
+    restore,
     poll() {
       const st = safeStat(file)
       if (!st) return { ok: false, reason: 'missing', lines: [], reset: false, frames: 0 }

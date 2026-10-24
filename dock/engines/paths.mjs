@@ -134,6 +134,20 @@ export function roleIdForModel(model) {
 
 export const IMAGE_CANDIDATES = [path.join(ASSETS_DIR, 'roles', 'whale.png')]
 export const GIF_CANDIDATES = []
-export const SOUND_SETS = { duck: { press: [], release: [] }, fx1: { press: [], release: [] } }
-export const BUILTIN_SOUND_NAMES = { duck: '小黄鸭', fx1: '音效1' }
+export const SOUND_SETS = {
+  duck: {
+    press: [path.join(ASSETS_DIR, 'sounds', 'Ya1.mp3')],
+    release: [path.join(ASSETS_DIR, 'sounds', 'Ya2.mp3')],
+  },
+  fx1: {
+    press: [path.join(ASSETS_DIR, 'sounds', 'D1.mp3')],
+    release: [path.join(ASSETS_DIR, 'sounds', 'D2.mp3')],
+  },
+  nya: {
+    // 一声制（2026-10-22 定稿，见 NOTICE 第 4 条）：按压喵声，松手静音占位。
+    press: [path.join(ASSETS_DIR, 'sounds', 'Nya1.wav')],
+    release: [path.join(ASSETS_DIR, 'sounds', 'Nya2.wav')],
+  },
+}
+export const BUILTIN_SOUND_NAMES = { duck: '小黄鸭', fx1: '嘀嘟', nya: '猫娘' }
 export const DEFAULT_PORT = Number(process.env.FOX_DOCK_PORT) || 39401

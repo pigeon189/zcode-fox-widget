@@ -2,6 +2,7 @@ import { h } from '../vendor/preact.module.js'
 import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Badge, Card, EmptyState, ProgressBar, SourceTag } from '../components/base.mjs'
+import { PermBanner } from '../components/perm-banner.mjs'
 import { ColumnChart, Sparkline } from '../charts/svg.mjs'
 import { Icon } from '../components/icons.mjs'
 import {
@@ -300,6 +301,7 @@ export function OverviewPage({ app }) {
   }
 
   return html`<div class="grid" data-testid="page.overview">
+    ${app.permActions && app.permActions.length ? html`<${PermBanner} app=${app} />` : null}
     ${alerts.slice(0, 3).map((a) => html`<div class="col-12"><div class=${'alert-bar ' + (a.tone === 'bad' ? 'bad' : '')} onClick=${() => app.navigate(a.go)} style=${{ cursor: 'pointer' }}>${a.text}</div></div>`)}
 
     <div class="col-3 task-card">

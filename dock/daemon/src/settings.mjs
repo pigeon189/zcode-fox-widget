@@ -105,6 +105,8 @@ export const DEFAULTS = {
   dnd: false,
   // 音效不再单独开关：随「勿扰」静音（D031）；音量保留默认 0.5
   soundVolume: 0.5,
+  // 音效集：内置 duck/fx1/nya + 导入集 s+hex（语音库迁移，1.x v1.16.3）
+  soundSet: 'duck',
   confirmAlert: true,
   autoStart: true,
   language: 'zh-CN',
@@ -128,6 +130,9 @@ export const DEFAULTS = {
     // 超时后交回宿主原生弹窗。
     waitMs: 15000,
     notify: 'whenHidden',
+    // P-2 探针确认 stdout 可表达 allow（分支 A）后才允许打开；打开前权限卡
+    // 只提供「拒绝」「去宿主处理」。
+    allowOnce: false,
     hotkeys: {
       allow: 'Ctrl+Alt+Y',
       deny: 'Ctrl+Alt+N',
@@ -338,6 +343,7 @@ export function normalizeSettings(raw) {
     hideMoney: bool(r.hideMoney, DEFAULTS.hideMoney),
     dnd: bool(r.dnd, DEFAULTS.dnd),
     soundVolume: Math.round(clampNum(r.soundVolume, 0, 1, DEFAULTS.soundVolume) * 100) / 100,
+    soundSet: normalizeSoundSet(r.soundSet),
     confirmAlert: bool(r.confirmAlert, DEFAULTS.confirmAlert),
     autoStart: bool(r.autoStart, DEFAULTS.autoStart),
     language: String(r.language || DEFAULTS.language) === 'en' ? 'en' : 'zh-CN',
@@ -372,6 +378,7 @@ function normalizePermission(raw) {
     takeover: bool(r.takeover, DEFAULTS.permission.takeover) === true,
     waitMs: pickNumber(r.waitMs, PERMISSION_WAIT_MS, DEFAULTS.permission.waitMs),
     notify: pickEnum(r.notify, PERMISSION_NOTIFY, DEFAULTS.permission.notify),
+    allowOnce: bool(r.allowOnce, DEFAULTS.permission.allowOnce) === true,
     hotkeys: {
       allow: normalizeHotkey(hot.allow, DEFAULTS.permission.hotkeys.allow),
       deny: normalizeHotkey(hot.deny, DEFAULTS.permission.hotkeys.deny),
@@ -379,8 +386,16 @@ function normalizePermission(raw) {
   }
 }
 
-function normalizeHotkey(v, fallback) {
-  // 缺省（字段不存在）用默认键；显式空串表示用户关闭了这个热键。
+// 音效集：内置三套 + 导入集（id 形如 s+hex，由 daemon 音效库生成）。
+// 这里只做形态校验（存在性由 /v1/sounds 的 selected 兜底回落 duck）。
+function normalizeSoundSet(v) {
+  const s = String(v == null ? '' : v).trim()
+  if (['duck', 'fx1', 'nya'].includes(s)) return s
+  if (/^s[0-9a-f]{4,38}$/.test(s)) return s
+  return DEFAULTS.soundSet
+}
+
+function normalizeHotkey(v, fallback) {  // 缺省（字段不存在）用默认键；显式空串表示用户关闭了这个热键。
   if (v == null) return fallback
   const s = String(v).trim().replace(/\bWin\b/gi, 'Super')
   if (!s) return ''

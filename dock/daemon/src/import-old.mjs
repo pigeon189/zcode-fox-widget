@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { inspectPng } from './roles.mjs'
+import { importLegacySounds } from './sounds.mjs'
 
 export const CATEGORIES = [
   { id: 'roles', label: '角色立绘与名字' },
@@ -174,7 +175,7 @@ function importWidgetState(srcDir) {
   const state = readJson(path.join(srcDir, 'widget-state.json'), null)
   if (!state) return { patch: null, count: 0 }
   const patch = {}
-  for (const key of ['scale', 'sound', 'soundEnabled', 'vol', 'soundVolume', 'petMode', 'scrollGapOn', 'scrollGapPx']) {
+  for (const key of ['scale', 'sound', 'soundEnabled', 'vol', 'soundVolume', 'petMode', 'scrollGapOn', 'scrollGapPx', 'soundSet']) {
     if (state[key] !== undefined) patch[key] = state[key]
   }
   if (state.alerts && typeof state.alerts === 'object') {
@@ -205,6 +206,12 @@ export function importCategories({ source, categories, paths, env = process.env 
     const r = importWidgetState(dir)
     settingsPatch = r.patch
     summary.widgetState = { count: r.count, skipped: r.count ? 0 : 1 }
+    // 旧自定义音效集：复制进 dock 音效库（1.x v1.16.3 语音库迁移，只复制不动源）。
+    try {
+      summary.sounds = importLegacySounds(paths.settings, path.join(dir, 'sounds'))
+    } catch (err) {
+      summary.sounds = { copied: 0 }
+    }
   }
   return { summary, settingsPatch }
 }

@@ -2,6 +2,7 @@ import { h } from '../vendor/preact.module.js'
 import { useEffect, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Badge, Button, Card, EmptyState } from '../components/base.mjs'
+import { Wizard } from '../components/wizard.mjs'
 import { fmtDateTime, fmtNum, fmtRelativeShort } from '../lib/format.mjs'
 
 const html = htm.bind(h)
@@ -10,6 +11,7 @@ export function AboutPage({ app }) {
   const [diag, setDiag] = useState(null)
   const [update, setUpdate] = useState(null)
   const [checking, setChecking] = useState(false)
+  const [wizard, setWizard] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -46,6 +48,7 @@ export function AboutPage({ app }) {
         <div class="row wrap" style=${{ alignItems: 'baseline', gap: 10 }}>
           <span class="num nowrap" style=${{ fontSize: 24, fontWeight: 700 }}>fox-dock ${boot.version || ''}</span>
           <${Badge} tone="info">pre-release</${Badge}>
+          <${Button} onClick=${() => setWizard(true)} data-testid="about.wizard">接入向导</${Button}>
           <${Button} onClick=${checkUpdate} loading=${checking} icon="refresh" style=${{ marginLeft: 'auto' }}>检查更新</${Button}>
         </div>
         <div class="small muted" style=${{ marginTop: 8 }}>
@@ -142,5 +145,6 @@ export function AboutPage({ app }) {
         <div class="small muted" data-visual-mask style=${{ marginTop: 8 }}>不含密钥；用户目录已替换为 ~。生成于 ${diag ? fmtDateTime(Date.parse(diag.generatedAt)) : '—'}</div>
       </${Card}>
     </div>
+    ${wizard ? html`<${Wizard} app=${app} onClose=${() => setWizard(false)} />` : null}
   </div>`
 }

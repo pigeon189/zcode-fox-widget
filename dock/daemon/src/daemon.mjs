@@ -34,6 +34,7 @@ import { createContextHistory } from './context-history.mjs'
 import { createContextService } from './context-service.mjs'
 import { createContextScheduler } from './scheduler.mjs'
 import { createLiveTracker } from './live-tracker.mjs'
+import { createActionBroker } from './actions.mjs'
 import { createUsageBreakdown } from './usage-breakdown.mjs'
 import { createVault } from './vault.mjs'
 import { installLauncher, uninstallLauncher, launcherPaths, startupDir } from './install.mjs'
@@ -275,6 +276,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     log,
   })
   const usageBreakdown = createUsageBreakdown({ adapters })
+  const broker = createActionBroker({ sse, log })
   let actualPort = 0
   const v1 = createV1Router({
     paths,
@@ -293,6 +295,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
     engines,
     vault,
     liveTracker,
+    broker,
     usageBreakdown,
     setAutoStart: (enabled) => {
       if (enabled) {

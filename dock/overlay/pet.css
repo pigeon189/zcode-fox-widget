@@ -642,3 +642,83 @@ body[data-corner-h="right"] #chip {
 .quick-session-row .status-dot.done { background: var(--st-done); }
 .quick-session-row .status-dot.idle,
 .quick-session-row .status-dot.unknown { background: var(--st-idle); }
+
+/* ---------- 权限卡（M5 权限接管，D036） ---------- */
+#perm {
+  position: absolute;
+  z-index: 40;
+  width: 300px;
+  padding: 12px 16px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+#perm[hidden] { display: none; }
+#perm.high { border-left-color: var(--bad); }
+.perm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.perm-agent {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.perm-risk {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bad);
+  border: 1px solid var(--bad);
+  border-radius: 999px;
+  padding: 0 8px;
+  line-height: 18px;
+}
+.perm-tool {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.perm-preview {
+  margin-top: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font: 12px/1.5 var(--font-num);
+  color: var(--text-2);
+  word-break: break-all;
+  max-height: 96px;
+  overflow: auto;
+}
+.perm-expired {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--warn);
+}
+.perm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.perm-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font: 500 13px var(--font-ui);
+  cursor: pointer;
+}
+.perm-btn:hover { border-color: var(--text-3); }
+.perm-btn.perm-danger { color: var(--bad); border-color: var(--bad); background: none; }
+.perm-btn.perm-danger:hover { background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.perm-btn.perm-primary {
+  color: var(--surface);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.perm-btn.perm-primary:hover { filter: brightness(1.05); }

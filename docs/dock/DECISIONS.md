@@ -453,3 +453,34 @@
   单源不一致的数字不收录。
 - 代价：已下架未公告的条目仍参与计价；DeepSeek 法定节假日全天谷价为官方
   口径，现实现仅覆盖周末（无节假日表），属多算方向的已知简化，是否补表待定。
+
+## D050 权限接管实现与分支开关（2026-10-25）
+
+- 背景：P-2 探针只验证了本地链路（stdin 字段、exit 0/2、stdout 可写），
+  「stdout 能否表达 allow」的严格 schema 还没在真机确认。
+- 选择：两条分支都实现。钩子侧 `SUPPORTS_ALLOW` 默认 false（分支 B：allow
+  一律静默 exit 0 交回宿主弹窗），探针确认后改常量并同步 `settings.permission.
+  allowOnce`（默认 false）——权限卡的「允许一次」按钮只在两者都为真时出现，
+  高风险永远不出现。daemon 侧不做能力探测，结论以 ADAPTERS.md 实时信号矩阵为准。
+- 审计只记 id/tool/decision/via（via ∈ pet/console/hotkey/notification/timeout/
+  host），绝不记预览原文；pending 不持久化，daemon 重启即全部 fail-open。
+
+## D051 语音库迁移：三套内置 + 自定义导入（2026-10-25）
+
+- 背景：1.x v1.16.3 的猫娘音效集与语音库（切换/导入/删除）未随 pre.1–pre.2
+  迁移；dock 播放骨架（双音轨、100ms 衔接、勿扰静音）已在。
+- 选择：内置三套 duck/fx1/nya（fx1 显示名对齐 1.x 更名「嘀嘟」）；猫娘用
+  定稿素材（CC0，一声制：Nya1.wav 按压 + Nya2.wav 100ms 静音松手，出处留档
+  dock/NOTICE 第 4 条）；按压时序不改（定稿听感依赖现有时序）。自定义集走
+  daemon `/v1/sounds`（dataURL + base64、魔数校验、单文件 ≤2MB、≤20 套），
+  宠物层播放导入集经主进程二进制 IPC 转 Blob——渲染层仍零 fetch（Mimosa 红线）。
+  `soundSet` 进 daemon settings（非 widget-state），旧集由 import-old 复制迁移。
+
+## D052 接入向导、增量索引持久化与便携包（2026-10-25）
+
+- 向导只做「发现 + 导入入口 + 复制集成目录路径」，不自动写宿主配置；
+  `onboarded` 标志已有，向导仅在未完成且发现宿主/旧数据时首启。
+- 增量索引只持久化「可删除重建」的派生状态（WB 尾随水位 + 已解析事件），
+  版本不符/损坏/超 8MB 一律丢弃；「删除缓存后结果不变」由等价性测试守卫，
+  不做增量与全量漂移的自动校准（漂移风险由等价性测试 + 缓存可删兜底）。
+- 便携包 = 现有 tar.gz + 启动件校验 + PORTABLE-README.txt；签名机制不变。

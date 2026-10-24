@@ -1,0 +1,33 @@
+{
+  "description": "fox-dock 2.0：只挂四个低频事件（D035 钩子纪律——不挂 PreToolUse/PostToolUse，钩子永不阻塞宿主）。权限事件等待用户在 fox-dock 上决策，超时或任何失败都交回宿主原生弹窗。",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/hooks/dock-hook.mjs"], "timeoutMs": 5000 }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/hooks/dock-hook.mjs"], "timeoutMs": 30000 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/hooks/dock-hook.mjs"], "timeoutMs": 5000 }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/hooks/dock-hook.mjs"], "timeoutMs": 5000 }
+        ]
+      }
+    ]
+  }
+}

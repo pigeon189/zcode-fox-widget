@@ -151,11 +151,48 @@ let budgetMemorySeen = new Set()
 // 与旧挂件一致：按下和松开各用一条音轨。短按松手时，松开音等到按下音
 // 播到只剩 100ms 再起播（几乎无缝，又不会两个音从头叠在一起）；长按则在
 // 松手时立刻补播。单音轨切 src 会把按下音截断，快按就只剩一半声音。
-const SOUND_SRC = { press: '../assets/sounds/Ya1.mp3', release: '../assets/sounds/Ya2.mp3' }
+// 音效集（M-S）：内置三套走包内相对路径；导入集走 preload IPC 读字节转
+// Blob 播放——渲染层禁 fetch，二进制一律经主进程（Mimosa 门禁红线）。
+const BUILTIN_SOUND_FILES = {
+  duck: { press: 'Ya1.mp3', release: 'Ya2.mp3' },
+  fx1: { press: 'D1.mp3', release: 'D2.mp3' },
+  nya: { press: 'Nya1.wav', release: 'Nya2.wav' },
+}
+const SOUND_SET_NAMES = { duck: '小黄鸭', fx1: '嘀嘟', nya: '猫娘' }
+let soundSetId = ''
+let pressAudio = null
+let releaseAudio = null
+const soundBlobCache = new Map()
+
+async function soundSrc(setId, slot) {
+  const b = BUILTIN_SOUND_FILES[setId]
+  if (b) return '../assets/sounds/' + b[slot]
+  const key = setId + ':' + slot
+  if (soundBlobCache.has(key)) return soundBlobCache.get(key)
+  const api = window.foxOverlay
+  if (!api || typeof api.readSound !== 'function') return null
+  try {
+    const r = await api.readSound(setId, slot)
+    if (!r || !r.bytes) return null
+    const url = URL.createObjectURL(new Blob([r.bytes], { type: r.mime || 'audio/mpeg' }))
+    soundBlobCache.set(key, url)
+    return url
+  } catch (err) {
+    return null
+  }
+}
+
+async function ensureSoundSet() {
+  const id = String(settings.soundSet || 'duck')
+  if (id === soundSetId && pressAudio) return
+  soundSetId = id
+  const [p, r] = await Promise.all([soundSrc(id, 'press'), soundSrc(id, 'release')])
+  pressAudio = p ? new Audio(p) : null
+  releaseAudio = r ? new Audio(r) : null
+}
+
 // 与旧挂件一致：按下时整体压扁一点，松手弹回；以底边为原点，脚不离地。
 const SQUISH = 'scaleY(0.88) scaleX(1.05)'
-const pressAudio = new Audio(SOUND_SRC.press)
-const releaseAudio = new Audio(SOUND_SRC.release)
 let pressEnded = false
 let releasePlayed = false
 let releaseTimer = null
@@ -164,15 +201,17 @@ function soundVolume() {
   return Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
 }
 
-function playPress() {
+async function playPress() {
   if (settings.dnd) return
   try {
+    await ensureSoundSet()
+    if (!pressAudio) return
     if (releaseTimer) {
       clearTimeout(releaseTimer)
       releaseTimer = null
     }
-    releaseAudio.pause()
-    releaseAudio.currentTime = 0
+    if (releaseAudio) releaseAudio.pause()
+    if (releaseAudio) releaseAudio.currentTime = 0
     pressEnded = false
     releasePlayed = false
     pressAudio.onended = () => {
@@ -194,6 +233,7 @@ function playRelease() {
     releaseTimer = null
   }
   try {
+    if (!releaseAudio) return
     releaseAudio.currentTime = 0
     releaseAudio.volume = soundVolume()
     releaseAudio.play().catch(() => {})
@@ -209,9 +249,9 @@ function releaseAfterPress() {
   }
   let dur = 0
   try {
-    dur = pressAudio.duration
+    dur = pressAudio && pressAudio.duration
   } catch (err) {}
-  if (Number.isFinite(dur) && dur > 0) {
+  if (Number.isFinite(dur) && dur > 0 && pressAudio) {
     const remainMs = (dur - pressAudio.currentTime) * 1000
     releaseTimer = setTimeout(playRelease, Math.max(0, remainMs - 100))
   }
@@ -1352,6 +1392,120 @@ function positionBubble() {
   positionPopover(bubble)
 }
 
+// ---------- 权限卡（M5，D036） ----------
+// 数据来自主进程 2s 轮询 /v1/actions 后的 perm-actions IPC 推送；渲染层不持令牌。
+// takeover 关闭时不显示（fail-open，宿主原生弹窗兜底）。「允许一次」只在探针
+// 确认分支 A（settings.permission.allowOnce）时出现；高风险永远没有热键允许。
+
+const permEl = document.getElementById('perm')
+const permAgent = document.getElementById('perm-agent')
+const permRisk = document.getElementById('perm-risk')
+const permTool = document.getElementById('perm-tool')
+const permPreview = document.getElementById('perm-preview')
+const permExpired = document.getElementById('perm-expired')
+const permFocusBtn = document.getElementById('perm-focus')
+const permDenyBtn = document.getElementById('perm-deny')
+const permAllowBtn = document.getElementById('perm-allow')
+
+let permActions = []
+let permShownId = ''
+let permExpiredTimer = null
+
+function permAllowable() {
+  return !!(settings.permission && settings.permission.takeover === true && settings.permission.allowOnce === true)
+}
+
+function renderPerm() {
+  const current = permActions.find((a) => a && a.id) || null
+  const expired = permEl.dataset.expiredId || ''
+  if (!current && !expired) {
+    if (permOpenCard()) {
+      permEl.hidden = true
+      permShownId = ''
+      delete permEl.dataset.expiredId
+      if (!quickOpen && !menuOpen && !dragging && !pressing) setInteractive(false)
+    }
+    return
+  }
+  const wasHidden = permEl.hidden
+  if (expired) {
+    // 上一条已终结：显示「已超时」4 秒后收起，期间不重复触发。
+    permEl.classList.remove('high')
+    permAgent.textContent = permEl.dataset.expiredAgent || ''
+    permRisk.hidden = true
+    permTool.textContent = ''
+    permPreview.hidden = true
+    permExpired.hidden = false
+    permFocusBtn.hidden = true
+    permDenyBtn.hidden = true
+    permAllowBtn.hidden = true
+  } else {
+    if (permExpiredTimer) {
+      clearTimeout(permExpiredTimer)
+      permExpiredTimer = null
+    }
+    delete permEl.dataset.expiredId
+    permShownId = current.id
+    permEl.classList.toggle('high', current.risk === 'high')
+    permAgent.textContent = ADAPTER_NAMES[current.agentId] || current.agentId || ''
+    permRisk.hidden = current.risk !== 'high'
+    permTool.textContent = current.tool || '工具'
+    permPreview.hidden = false
+    permPreview.textContent = current.preview || '（无预览）'
+    permExpired.hidden = true
+    permFocusBtn.hidden = false
+    permDenyBtn.hidden = false
+    // 高风险 / 未确认分支 A：没有「允许一次」，只有「拒绝」和「去宿主处理」。
+    permAllowBtn.hidden = !(permAllowable() && current.risk !== 'high')
+  }
+  permEl.hidden = false
+  positionPopover(permEl)
+  if (wasHidden) setInteractive(true)
+}
+
+function permOpenCard() {
+  return !permEl.hidden
+}
+
+function resolvePerm(id, decision) {
+  permActions = permActions.filter((a) => a.id !== id)
+  renderPerm()
+  write('/v1/actions/' + encodeURIComponent(id) + '/resolve', 'POST', { decision, via: 'pet' })
+}
+
+permFocusBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  const a = permActions.find((x) => x.id === permShownId)
+  if (a) write('/v1/sessions/' + encodeURIComponent(a.sessionKey) + '/focus', 'POST')
+})
+permDenyBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (permShownId) resolvePerm(permShownId, 'deny')
+})
+permAllowBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (permShownId) resolvePerm(permShownId, 'allow')
+})
+permEl.addEventListener('pointerdown', (e) => e.stopPropagation())
+
+// 主进程轮询推送：pending 变化 → 重渲染；当前展示的 id 消失 → 「已超时」提示。
+function onPermActions(list) {
+  const prevId = permShownId
+  permActions = Array.isArray(list) ? list : []
+  if (prevId && !permActions.some((a) => a.id === prevId) && permOpenCard() && !permEl.dataset.expiredId) {
+    const prev = prevId
+    permEl.dataset.expiredId = prev
+    permEl.dataset.expiredAgent = permAgent.textContent || ''
+    if (permExpiredTimer) clearTimeout(permExpiredTimer)
+    permExpiredTimer = setTimeout(() => {
+      delete permEl.dataset.expiredId
+      permExpiredTimer = null
+      renderPerm()
+    }, 4000)
+  }
+  renderPerm()
+}
+
 function showSay(text) {
   if (!text || settings.dnd) return
   if (sayTimer) clearTimeout(sayTimer)
@@ -1594,6 +1748,27 @@ function openMenu(x, y) {
     sizes.appendChild(b)
   }
   menu.appendChild(sizes)
+  // 音效集快捷切换（M-S）：内置三套 + 当前选中的导入集；完整管理（导入/删除）
+  // 在控制台「角色与气泡」。
+  const soundChoices = ['duck', 'fx1', 'nya']
+  const curSound = String(settings.soundSet || 'duck')
+  if (curSound && !soundChoices.includes(curSound)) soundChoices.push(curSound)
+  menu.appendChild(menuTitle('音效'))
+  const soundRow = document.createElement('div')
+  soundRow.className = 'menu-sub'
+  for (const id of soundChoices) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'menu-size' + (curSound === id ? ' active' : '')
+    b.textContent = SOUND_SET_NAMES[id] || '自定义音效'
+    b.addEventListener('click', (e) => {
+      e.stopPropagation()
+      patchSettings({ soundSet: id })
+      closeMenu()
+    })
+    soundRow.appendChild(b)
+  }
+  menu.appendChild(soundRow)
   const sep3 = document.createElement('div')
   sep3.className = 'menu-sep'
   menu.appendChild(sep3)
@@ -2044,7 +2219,7 @@ setInterval(async () => {
   try {
     const p = await api.getCursor()
     const o = await ensureOrigin()
-    setInteractive(quickOpen || menuOpen || isOverUI(p.x - o.x, p.y - o.y))
+    setInteractive(quickOpen || menuOpen || permOpenCard() || isOverUI(p.x - o.x, p.y - o.y))
   } catch (err) {}
 }, 50)
 
@@ -2064,6 +2239,12 @@ async function boot() {
   } catch (err) {}
   const s = await read('/v1/settings')
   if (s && s.ok && s.settings) settings = { ...settings, ...s.settings }
+  // 权限待办推送（主进程 2s 轮询 /v1/actions 转发）
+  try {
+    if (window.foxOverlay && typeof window.foxOverlay.onPermActions === 'function') {
+      window.foxOverlay.onPermActions(onPermActions)
+    }
+  } catch (err) {}
   // 先应用尺寸/主题，再等角色库（导入角色可能稍慢），避免首帧用旧尺寸。
   applySettings()
   await loadRoleCatalog()

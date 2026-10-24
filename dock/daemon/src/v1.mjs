@@ -22,6 +22,9 @@ import { deleteRole, importRole, listRoleLibrary, renameRole, suggestRoleId } fr
 import { addAdjustment, adjustmentSummary, applyAdjustments, listAdjustments, removeAdjustment } from './balance-adjustments.mjs'
 import { CATEGORIES, importCategories, inspectSources } from './import-old.mjs'
 import { MAX_BODY_BYTES, mapLegacyEvent, rateAllowed, validateIngest } from './ingest.mjs'
+import { assessRisk } from './risk.mjs'
+import { RESOLVE_VIAS } from './actions.mjs'
+import { deleteSoundSet, listSounds, resolveSoundBytes, saveSoundSet } from './sounds.mjs'
 import { prov } from '../../shared/provenance.mjs'
 
 const DOCK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -168,6 +171,7 @@ export function createV1Router(deps) {
     setAutoStart,
     getAutoStart,
     liveTracker = null,
+    broker = null,
     usageBreakdown = null,
     log = () => {},
   } = deps
@@ -485,11 +489,21 @@ export function createV1Router(deps) {
           sendJson(res, 404, { ok: false, error: 'host-window-not-found' })
           return true
         }
-        // ① 标题包含 cwd 末级目录者优先 ② 否则该 agent 的任意窗口。
+        // ① 标题包含 cwd 末级目录者优先 ② 绑定中的该 agent 窗口 ③ 该 agent 任一窗口。
         const tail = String(cwd || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || ''
-        const pick =
+        let pick =
           (tail && windows.find((w) => String(w.title || '').toLowerCase().includes(tail.toLowerCase()))) ||
-          windows[0]
+          null
+        if (!pick) {
+          try {
+            const hwndSet = new Set(windows.map((w) => String(w.hwnd)))
+            const bound = readBindings(paths.bindings)
+              .filter((b) => b && b.window && String(b.window.hwnd || '') && hwndSet.has(String(b.window.hwnd)))
+              .map((b) => String(b.window.hwnd))
+            if (bound.length) pick = windows.find((w) => String(w.hwnd) === bound[0]) || null
+          } catch (err) {}
+        }
+        pick = pick || windows[0]
         const r = await bridge.focus(pick.hwnd)
         if (!r.ok) {
           sendJson(res, 404, { ok: false, error: r.error || 'host-window-not-found' })
@@ -819,17 +833,151 @@ export function createV1Router(deps) {
         }
         const event = v.event
         const r = liveTracker.ingest(event)
-        // 权限决定：M2 只登记，不阻塞宿主；M5 才做长轮询（fail-open to host）。
+        // permission_resolved（宿主自己已处理）：联动 broker 收起对应卡片。
+        if (event.event === 'permission_resolved' && event.requestId && broker) {
+          broker.noteExternalResolved(event.requestId, event.decision)
+        }
+        // 权限请求：takeover 开启时一律登记进 ActionBroker（权限卡可见）；
+        // 带 wait 的客户端再长轮询等决策。takeover 关闭只登记会话状态、不阻塞
+        // 宿主（fail-open to host）。任何一条路都不阻塞宿主超过 wait 上限。
+        if (event.event === 'permission_request' && broker && settings.permission && settings.permission.takeover === true) {
+          const perm = settings.permission || {}
+          const waitMs = Math.max(1000, Math.min(30000, Number(event.timeoutMs) || 15000))
+          const risk = assessRisk({ tool: event.tool, preview: event.preview, cwd: event.cwd })
+          const created = broker.create({
+            requestId: event.requestId,
+            agentId: event.agentId,
+            sessionId: event.sessionId,
+            tool: event.tool,
+            preview: event.preview,
+            risk: risk.level,
+            ttlMs: Math.max(Number(perm.waitMs) || 15000, waitMs),
+          })
+          if (created.ignored && body && body.wait) {
+            sendJson(res, 200, { ok: true, eventId: event.requestId || null, decision: 'ignored', requestId: event.requestId, reason: created.reason })
+            return true
+          }
+        }
         const waitDecision = event.event === 'permission_request' && body && body.wait
         if (waitDecision && (!settings.permission || settings.permission.takeover !== true)) {
           sendJson(res, 200, { ok: true, eventId: event.requestId || null, decision: 'ignored', requestId: event.requestId })
           return true
         }
         if (waitDecision) {
-          sendJson(res, 200, { ok: true, eventId: event.requestId || null, decision: 'timeout', requestId: event.requestId })
+          if (!broker || !broker.get(event.requestId)) {
+            sendJson(res, 200, { ok: true, eventId: event.requestId || null, decision: 'timeout', requestId: event.requestId })
+            return true
+          }
+          const waitMs = Math.max(1000, Math.min(30000, Number(event.timeoutMs) || 15000))
+          const decision = await broker.wait(event.requestId, waitMs)
+          sendJson(res, 200, { ok: true, eventId: event.requestId || null, decision, requestId: event.requestId })
           return true
         }
         sendJson(res, 200, { ok: true, eventId: event.requestId || null, changed: r.changed !== false })
+        return true
+      }
+
+      // ---------- 首次接入向导（M6） ----------
+      if (p === '/v1/onboarding' && method === 'GET') {
+        const settings = readSettings(paths.settings)
+        const windows = await windowsNow()
+        const hosts = (adapters || [])
+          .filter((a) => a && a.id !== 'generic' && a.capabilities && a.capabilities.billing)
+          .map((a) => ({
+            id: a.id,
+            name: a.name,
+            running: (windows || []).some((w) => resolveAdapter(w, adapters).id === a.id),
+          }))
+        // 旧挂件数据（只读探测，不导入）
+        let legacy = { found: false, sources: [] }
+        try {
+          const inspected = inspectSources()
+          legacy.sources = (inspected || []).map((s) => ({ id: s.id, label: s.label, dir: s.dir, categories: s.categories || {} }))
+          legacy.found = legacy.sources.length > 0
+        } catch (err) {}
+        const integrationDir = path.join(DOCK_ROOT, 'integrations', 'zcode-plugin')
+        sendJson(res, 200, {
+          ok: true,
+          onboarded: settings.onboarded === true,
+          hosts,
+          legacy,
+          integrationDir: fs.existsSync(integrationDir) ? integrationDir : '',
+        })
+        return true
+      }
+      if (p === '/v1/onboarding/complete' && method === 'POST') {
+        const body = await readBody(req)
+        const patch = { onboarded: true }
+        if (body && body.autoStart !== undefined) patch.autoStart = body.autoStart === true
+        const s = writeSettings(paths.settings, patch)
+        sendJson(res, 200, { ok: true, settings: { onboarded: s.onboarded, autoStart: s.autoStart } })
+        return true
+      }
+
+      // ---------- 音效库（1.x v1.16.3 语音库迁移） ----------
+      if (p === '/v1/sounds' && method === 'GET') {
+        sendJson(res, 200, listSounds(paths.settings))
+        return true
+      }
+      if (p === '/v1/sounds/import' && method === 'POST') {
+        let body = null
+        try {
+          body = await readBody(req, 9 * 1024 * 1024)
+        } catch (err) {
+          sendJson(res, err && err.code === 'too-large' ? 413 : 400, {
+            ok: false,
+            error: err && err.code === 'too-large' ? 'body-too-large' : 'bad-json',
+          })
+          return true
+        }
+        const r = saveSoundSet(paths.settings, body)
+        sendJson(res, r.ok ? 200 : 400, r)
+        return true
+      }
+      const soundDeleteMatch = p.match(/^\/v1\/sounds\/([^/]+)$/)
+      if (soundDeleteMatch && method === 'DELETE') {
+        const r = deleteSoundSet(paths.settings, decodeURIComponent(soundDeleteMatch[1]).slice(0, 44))
+        sendJson(res, r.ok ? 200 : 400, r)
+        return true
+      }
+      const soundFileMatch = p.match(/^\/v1\/sounds\/([^/]+)\/file\/(press|release)$/)
+      if (soundFileMatch && method === 'GET') {
+        const hit = resolveSoundBytes(decodeURIComponent(soundFileMatch[1]).slice(0, 44), soundFileMatch[2])
+        if (!hit) {
+          sendJson(res, 404, { ok: false, error: 'sound-not-found' })
+          return true
+        }
+        res.writeHead(200, { 'Content-Type': hit.type, 'Cache-Control': 'no-store' })
+        res.end(hit.bytes)
+        return true
+      }
+
+      // ---------- 待处理权限动作（M5） ----------
+      if (p === '/v1/actions' && method === 'GET') {
+        sendJson(res, 200, { ok: true, actions: broker ? broker.listPending() : [] })
+        return true
+      }
+      const actionResolveMatch = p.match(/^\/v1\/actions\/([^/]+)\/resolve$/)
+      if (actionResolveMatch && method === 'POST') {
+        const body = await readBody(req)
+        const id = decodeURIComponent(actionResolveMatch[1]).slice(0, 40)
+        const decision = text(body.decision, 16)
+        const via = text(body.via, 16) || 'console'
+        if (!broker) {
+          sendJson(res, 503, { ok: false, error: 'actions-unavailable' })
+          return true
+        }
+        if (!RESOLVE_VIAS.includes(via) || via === 'timeout') {
+          sendJson(res, 400, { ok: false, error: 'bad-via' })
+          return true
+        }
+        const r = broker.resolve(id, decision, via)
+        if (!r.ok) {
+          sendJson(res, r.error === 'not-found' ? 404 : r.error === 'conflict' ? 409 : 400, { ok: false, error: r.error })
+          return true
+        }
+        await broadcastState()
+        sendJson(res, 200, { ok: true, action: r.action })
         return true
       }
 
@@ -875,7 +1023,7 @@ export function createV1Router(deps) {
       if (p === '/v1/import' && method === 'POST') {
         const body = await readBody(req)
         try {
-          const r = importCategories({
+          const r = await importCategories({
             source: body.source,
             categories: body.categories,
             paths,

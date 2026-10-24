@@ -25,6 +25,18 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   read(path) {
     return ipcRenderer.invoke('daemon-read', { path: String(path) })
   },
+  // 音效集音频字节（M-S）：主进程持令牌取回，渲染层转 Blob 播放（禁 fetch）。
+  readSound(setId, slot) {
+    return ipcRenderer.invoke('read-sound', { setId: String(setId), slot: String(slot) })
+  },
+  // 权限待办推送（M5）：主进程 2s 轮询 /v1/actions 后转发给宠物权限卡。
+  onPermActions(cb) {
+    ipcRenderer.on('perm-actions', (_e, actions) => {
+      try {
+        cb(Array.isArray(actions) ? actions : [])
+      } catch (err) {}
+    })
+  },
   openConsole(page) {
     ipcRenderer.send('open-console', String(page || ''))
   },

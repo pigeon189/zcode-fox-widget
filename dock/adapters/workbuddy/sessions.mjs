@@ -14,6 +14,8 @@ import { defaultDbFile, defaultProjectsDir } from './context.mjs'
 import { listTranscripts } from './transcripts.mjs'
 import { normalizeSession, summarizeSession, compareSessionToCursor, compareSessions, cursorOf, parseCursor } from '../../shared/session-model.mjs'
 import { createTailReader } from '../../shared/tail.mjs'
+import { createCacheIndex } from '../../shared/cache-index.mjs'
+import { DATA_DIR, pluginVersion } from '../../engines/paths.mjs'
 import { prov, unavailable } from '../../shared/provenance.mjs'
 
 const require = createRequire(import.meta.url)
@@ -129,7 +131,28 @@ function parseLine(line, fallback) {
 }
 
 // 增量尾随：每个 transcript 只读追加部分（20MB 首次全读，之后 1 行 <1ms）。
+// 水位 + 已解析事件持久化到 cache/workbuddy-index-v1.json（M6）：daemon 重启
+// 后接着读，不用重放整个 transcript。缓存只存可重建状态——删除缓存文件后
+// 全量重算的结果必须与带缓存一致（incremental-equivalence 测试守卫）。
 const tails = new Map()
+let cacheIndex = null
+const MAX_PERSIST_EVENTS = 4000
+
+function cacheIndexOf() {
+  if (!cacheIndex) {
+    cacheIndex = createCacheIndex({
+      file: path.join(DATA_DIR, 'cache', 'workbuddy-index-v1.json'),
+      appVersion: pluginVersion(),
+      debounceMs: 2000,
+    })
+  }
+  return cacheIndex
+}
+
+export function _resetWorkbuddyCache() {
+  if (cacheIndex) cacheIndex.reset()
+  cacheIndex = null
+}
 
 export function _resetWorkbuddyLive() {
   tails.clear()
@@ -141,6 +164,11 @@ function eventsOf(file) {
     let entry = tails.get(file)
     if (!entry) {
       entry = { tail: createTailReader(file, { maxChunk: MAX_TAIL }), events: [] }
+      const saved = cacheIndexOf().get('tail:' + file)
+      if (saved) {
+        entry.tail.restore(saved)
+        entry.events = Array.isArray(saved.events) ? saved.events.slice(-MAX_PERSIST_EVENTS) : []
+      }
       if (tails.size > 32) tails.delete(tails.keys().next().value)
       tails.set(file, entry)
     }
@@ -151,13 +179,22 @@ function eventsOf(file) {
       const fallback = path.basename(file, '.jsonl')
       for (const line of p.lines) for (const e of parseLine(line, fallback)) entry.events.push(e)
     }
+    if (p.lines.length || p.reset) {
+      const st = entry.tail.state
+      cacheIndexOf().set('tail:' + file, {
+        offset: st.offset,
+        ino: st.ino,
+        events: entry.events.slice(-MAX_PERSIST_EVENTS),
+      })
+      cacheIndexOf().schedule()
+    }
     return entry.events
   } catch (err) {
     return []
   }
 }
 
-function collectEvents(opts = {}) {
+export function collectEvents(opts = {}) {
   const listed = listTranscripts(opts.projectsDir || defaultProjectsDir(opts.env || process.env), 0)
   if (listed.reason) return { ok: false, reason: listed.reason, events: [] }
   const files = listed.files.slice(0, 64)

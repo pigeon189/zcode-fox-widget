@@ -1,0 +1,8 @@
+{
+  "name": "fox-dock-integration",
+  "version": "2.0.0-pre.3",
+  "description": "fox-dock 2.0 集成插件：把 ZCode 的会话开始/结束与权限请求通知给本地 fox-dock daemon（可在宠物与控制台上处理）。默认不接管权限；接管关闭时只通知、绝不阻塞宿主。权限等待期间由宿主原生弹窗兜底（fail-open）。",
+  "author": { "name": "fox-dock" },
+  "license": "MIT",
+  "hooks": "hooks/hooks.json"
+}

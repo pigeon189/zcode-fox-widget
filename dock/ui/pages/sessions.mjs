@@ -2,6 +2,7 @@ import { h } from '../vendor/preact.module.js'
 import { useEffect, useRef, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Badge, Button, Card, EmptyState, IconButton, SearchBox, Segmented, Select, SourceTag } from '../components/base.mjs'
+import { PermBanner } from '../components/perm-banner.mjs'
 import { Sparkline, StatusTimeline } from '../charts/svg.mjs'
 import { Icon } from '../components/icons.mjs'
 import {
@@ -421,7 +422,9 @@ export function SessionsPage({ app }) {
   }
 
   return html`<div data-testid="page.sessions">
-    ${pendingCount > 0
+    ${app.permActions && app.permActions.length
+      ? html`<div style=${{ marginBottom: 16 }}><${PermBanner} app=${app} /></div>`
+      : pendingCount > 0
       ? html`<div class="banner-warn" style=${{ marginBottom: 16 }}>
           <${Icon} name="alert" size=${18} />
           <div>

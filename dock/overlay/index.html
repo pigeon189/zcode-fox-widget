@@ -66,6 +66,21 @@
       </div>
     </div>
 
+    <div id="perm" role="alertdialog" aria-label="权限请求" data-testid="perm.card" hidden>
+      <div class="perm-head">
+        <span id="perm-agent" class="perm-agent"></span>
+        <span id="perm-risk" class="perm-risk" data-testid="perm.risk" hidden>高风险</span>
+      </div>
+      <div id="perm-tool" class="perm-tool" data-testid="perm.tool"></div>
+      <div id="perm-preview" class="perm-preview" data-testid="perm.preview"></div>
+      <div id="perm-expired" class="perm-expired" data-testid="perm.expired" hidden>已超时，请在宿主窗口处理</div>
+      <div class="perm-actions">
+        <button id="perm-focus" type="button" class="perm-btn" data-testid="perm.focus">去宿主处理</button>
+        <button id="perm-deny" type="button" class="perm-btn perm-danger" data-testid="perm.deny">拒绝</button>
+        <button id="perm-allow" type="button" class="perm-btn perm-primary" data-testid="perm.allow">允许一次</button>
+      </div>
+    </div>
+
     <div id="menu" role="group" aria-label="宠物菜单" hidden></div>
     <div id="drag-hint" hidden></div>
 
