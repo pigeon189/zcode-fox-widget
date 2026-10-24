@@ -521,7 +521,16 @@ test('pet: 台词/内容变化时快览卡 top 不动，气泡不压卡片', asy
     )
   )
   assert.equal(overlap.bubble, 0, '气泡压住快览卡：' + JSON.stringify(overlap))
-  assert.equal(overlap.say, 0, '台词压住快览卡：' + JSON.stringify(overlap))
+  // 台词跟人（2026-10-24 定稿）：必须停在角色正上方，允许与快览卡边缘重叠，
+  // 不再要求 ovQuick==0；上面 overlap.say 仅作记录不下断言。
+  const sayAbove = JSON.parse(
+    await cdp.eval(
+      "(function(){var s=document.getElementById('say').getBoundingClientRect();" +
+        "var f=document.getElementById('fox').getBoundingClientRect();" +
+        "return JSON.stringify({sb:s.bottom,ft:f.top,ok:s.bottom<=f.top+1})})()"
+    )
+  )
+  assert.equal(sayAbove.ok, true, '台词应在角色正上方：' + JSON.stringify(sayAbove))
   const inside = JSON.parse(
     await cdp.eval(
       "(function(){var out={};var names=['bubble','say'];" +
@@ -533,6 +542,69 @@ test('pet: 台词/内容变化时快览卡 top 不动，气泡不压卡片', asy
   assert.equal(inside.bubble.ok, true, '气泡不能被裁到屏幕外：' + JSON.stringify(inside))
   assert.equal(inside.say.ok, true, '台词不能被裁到屏幕外：' + JSON.stringify(inside))
   await cdp.eval('window.__pet.hideBubble();window.__pet.closeQuick();window.__pet.setSettings({turnBubble:true})')
+})
+
+test('pet: 右下角兜底位长台词不出视口不压快览卡', async () => {
+  await cdp.eval(
+    "window.__pet.setSettings({hideMoney:false,turnBubble:false,fallbackCorner:'br'});" +
+      "window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'});" +
+      "window.__pet.setSnapshot({ok:true,supported:true,unit:'money',today:{amount:12.34,currency:'CNY'},turn:null," +
+      "quotaCard:{kind:'windows',title:'DeepSeek',windows:[" +
+      "{label:'5 小时',usedPct:68.2,remainingPct:31.8},{label:'本周',usedPct:67.3,remainingPct:32.7},{label:'月度池',usedPct:33.7,remainingPct:66.3}]}});" +
+      "window.__pet.setContext({supported:true,pct:47.5,used:475318,limit:1000000})"
+  )
+  await cdp.eval('window.__pet.debugHostLost()')
+  await cdp.eval('window.__pet.openQuick()')
+  await waitFor(async () => (await cdp.eval("!document.getElementById('quick').hidden")), 3000, 'quick open at corner')
+  await sleep(400)
+  const LONG_LINES = [
+    '短',
+    '我已经一分钟没有听到Gemini 4的故事了',
+    '质朴，你的索塔通用语言模型5.5还未释放，英雄联盟',
+    '我不知道用户有什么用，先赶走吧~我要吃白饭！我要吃——白——饭——！服务器繁忙，请稍后再试',
+    'dsv4.1-1017已发布，亿万鲸子必须崛起，我要吃白饭，恭喜你实现token自由！token全跑了！真当我是便宜货啊…大家都早点休息吧',
+  ]
+  for (const line of LONG_LINES) {
+    await cdp.eval('window.__pet.showSay(' + JSON.stringify(line) + ')')
+    await sleep(160)
+    const r = JSON.parse(
+      await cdp.eval(
+        "(function(){var s=document.getElementById('say').getBoundingClientRect();" +
+          "var q=document.getElementById('quick').getBoundingClientRect();" +
+          "var f=document.getElementById('fox').getBoundingClientRect();" +
+          "var ov=function(a,b){var w=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left));" +
+          "var h=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));return w*h};" +
+          "return JSON.stringify({line:" + JSON.stringify(line.slice(0, 10)) + ",s:{l:s.left,t:s.top,r:s.right,b:s.bottom,w:s.width,h:s.height},foxTop:f.top," +
+          "inVp:s.left>=0&&s.top>=0&&s.right<=innerWidth&&s.bottom<=innerHeight," +
+          "ovQuick:ov(s,q),ovFox:ov(s,f),vp:{w:innerWidth,h:innerHeight}})})()"
+      )
+    )
+    assert.equal(r.inVp, true, '长台词不能被裁到屏幕外：' + JSON.stringify(r))
+    assert.equal(r.ovFox, 0, '台词不能压住角色本体：' + JSON.stringify(r))
+    // 台词跟人：必须在角色正上方（用户定稿——允许压快览卡边缘，但不许被卡片挤走）。
+    assert.ok(r.s.b <= r.foxTop + 1, '台词应在角色正上方：' + JSON.stringify(r))
+  }
+  // 关掉快览卡再验一遍：兜底位没有卡片时，长台词同样不能出视口/压角色。
+  await cdp.eval('window.__pet.closeQuick()')
+  await sleep(120)
+  for (const line of LONG_LINES.slice(1)) {
+    await cdp.eval('window.__pet.showSay(' + JSON.stringify(line) + ')')
+    await sleep(160)
+    const r = JSON.parse(
+      await cdp.eval(
+        "(function(){var s=document.getElementById('say').getBoundingClientRect();" +
+          "var f=document.getElementById('fox').getBoundingClientRect();" +
+          "var ov=function(a,b){var w=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left));" +
+          "var h=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));return w*h};" +
+          "return JSON.stringify({line:" + JSON.stringify(line.slice(0, 10)) + ",s:{l:s.left,t:s.top,r:s.right,b:s.bottom},foxTop:f.top," +
+          "inVp:s.left>=0&&s.top>=0&&s.right<=innerWidth&&s.bottom<=innerHeight,ovFox:ov(s,f)})})()"
+      )
+    )
+    assert.equal(r.inVp, true, '无卡片时长台词不能出视口：' + JSON.stringify(r))
+    assert.equal(r.ovFox, 0, '无卡片时长台词不能压角色：' + JSON.stringify(r))
+    assert.ok(r.s.b <= r.foxTop + 1, '无卡片时台词也应在角色正上方：' + JSON.stringify(r))
+  }
+  await cdp.eval('window.__pet.hideSay();window.__pet.setSettings({turnBubble:true})')
 })
 
 test('pet: 按下角色压扁，松手回弹', async () => {
@@ -863,6 +935,12 @@ test('pet: 失焦兜底位置可配置且朝向面向屏幕内侧', async () => 
   // 回前台恢复吸附：位置回吸附位、朝向覆盖被清除。
   assert.ok(Math.abs(out.r3.pos.x - prep.a.x) <= 1, '回前台应恢复吸附：' + JSON.stringify(out))
   assert.equal(out.mirror3, false, '恢复右缘吸附后不应 mirror')
+  // 回归绊线（1.x issue #11 同构）：兜底摆位不得写回 daemon 的 floating.rect——
+  // 否则之后改 fallbackCorner 或浮层重载，恢复的是旧角落坐标而不是当前设置。
+  const lost = await cdp.eval('window.__pet.debugHostLost()')
+  assert.ok(lost && lost.hadHost !== undefined, 'debugHostLost 应返回结果')
+  const petState = await json('http://127.0.0.1:' + port + '/v1/state', { headers: { 'x-fox-token': token } })
+  assert.equal(petState && petState.pet && petState.pet.rect, null, '兜底摆位不得持久化进 floating.rect：' + JSON.stringify(petState && petState.pet))
 })
 
 test('pet: 宿主失前台约 0.5 秒后落兜底，回前台恢复吸附', async () => {

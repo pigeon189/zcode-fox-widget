@@ -641,28 +641,19 @@ function placeFallbackCorner() {
   return target
 }
 
-let floatingDefaultPending = false
-let floatingDefaultAt = 0
 let floatingRectApplied = false
 let lastServerMode = ''
 let localFloatingAt = 0
-// 宿主最小化/消失后的兜底位置：settings.fallbackCorner 指定的角落，并写回 floating.rect。
-// 不写回的话下一次 /v1/state 轮询会拿旧 rect 把角色再挪走。
-async function placeFloatingDefault() {
+// 宿主最小化/消失后的兜底位置：settings.fallbackCorner 指定的角落。
+// 只影响渲染层显示，**不写回 floating.rect**（1.x issue #11 同构修复）：
+// 机器摆的兜底角一旦落盘，之后改 fallbackCorner 或浮层重载都会把角色
+// 恢复到旧角落坐标而不是当前设置。daemon 的 floating.rect 只属于用户
+// 亲手拖出的位置；兜底是瞬时显示状态，重载后按当时设置重新落角
+// （agent-window-gone 会把 rect 清空，恢复路径自然走 placeFloatingDefault）。
+function placeFloatingDefault() {
   const target = placeFallbackCorner()
-  if (state.pet.mode !== 'floating') return target
-  state.pet = { ...state.pet, rect: { x: target.x, y: target.y, width: foxSize(), height: foxSize() } }
-  if (floatingDefaultPending || Date.now() - floatingDefaultAt < 2000) return target
-  floatingDefaultPending = true
-  try {
-    const r = await write('/v1/pet/move', 'POST', {
-      rect: { x: target.x, y: target.y, width: foxSize(), height: foxSize() },
-    })
-    if (r && r.ok && r.pet) state.pet = r.pet
-  } catch (err) {}
-  finally {
-    floatingDefaultPending = false
-    floatingDefaultAt = Date.now()
+  if (state.pet.mode === 'floating') {
+    state.pet = { ...state.pet, rect: null }
   }
   return target
 }
@@ -852,7 +843,7 @@ async function refreshState() {
     const lostAttachedHost = !localFloatRecent && prevServerMode === 'attached'
     if (lostAttachedHost) {
       // 吸附 → 悬浮只处理一次：宿主最小化/关闭，兜底右下角并写回位置。
-      await placeFloatingDefault()
+      placeFloatingDefault()
       floatingRectApplied = true
     } else if (!floatingRectApplied) {
       // 首次进入悬浮（启动恢复 / 其它客户端切换）才应用持久化位置；
@@ -861,7 +852,7 @@ async function refreshState() {
         fallbackFacing = null
         place(p.rect.x, p.rect.y)
       } else {
-        await placeFloatingDefault()
+        placeFloatingDefault()
       }
       floatingRectApplied = true
     }
@@ -1270,7 +1261,7 @@ function speak() {
 
 // 气泡定位：先算可用空间，一次性放到「优先上方、放不下就下方」的最终位置，
 // 再在视口内夹住；箭头单独指向角色中心。不做「先居中、发现撞边再跳到另一侧」
-// 的二次移动，所以第一帧就是最终位置。
+// 的二次移动，所以第一帧就是最终位置。（台词气泡不走这里，见 positionSay。）
 function positionPopover(el) {
   if (!el || el.hidden) return
   const s = foxSize()
@@ -1332,7 +1323,29 @@ function positionPopover(el) {
 }
 
 function positionSay() {
-  positionPopover(sayEl)
+  // 台词跟人（2026-10-24 定稿）：永远停在角色正上方，箭头指向角色，只做视口
+  // 内夹取；允许与快览卡边缘重叠。不走 positionPopover 的候选打分——它的
+  // overflow 启发式会把「贴右缘夹取」误判成溢出（x+w≥innerWidth-9 对钳制后的
+  // 候选恒真），右下角场景里正上方候选被 +500 罚分稳输，台词被挤到卡片外侧。
+  // 只有上方确实放不下（气泡比角色到顶边还高）才退到正下方。
+  const el = sayEl
+  if (!el || el.hidden) return
+  const s = foxSize()
+  const margin = 8
+  const w = el.offsetWidth || 200
+  const h = el.offsetHeight || 50
+  const center = pos.x + s / 2
+  const clampX = (x) => Math.max(margin, Math.min(window.innerWidth - w - margin, x))
+  const aboveFits = pos.y - h - 10 >= margin
+  const y = aboveFits
+    ? pos.y - h - 10
+    : Math.min(window.innerHeight - h - margin, pos.y + s + 10)
+  const x = clampX(center - w / 2)
+  const arrow = Math.max(18, Math.min(w - 18, center - x))
+  el.style.left = Math.round(x) + 'px'
+  el.style.top = Math.round(Math.max(margin, y)) + 'px'
+  el.classList.toggle('below', !aboveFits)
+  el.style.setProperty('--arrow-left', Math.round(arrow) + 'px')
 }
 
 function positionBubble() {
@@ -1527,7 +1540,6 @@ function openMenu(x, y) {
   quick.hidden = true
   menu.replaceChildren()
   menu.appendChild(menuItem('打开控制台', () => window.foxOverlay && window.foxOverlay.openConsole && window.foxOverlay.openConsole()))
-  menu.appendChild(menuItem('说一句', speak))
   const sep = document.createElement('div')
   sep.className = 'menu-sep'
   menu.appendChild(sep)
@@ -2168,7 +2180,7 @@ window.__pet = {
     const hadHost = !!bound.hwnd
     bound = { ...bound, agentId: '', hwnd: '' }
     state.pet = { ...state.pet, mode: 'floating', agentId: '', rect: null }
-    const target = await placeFloatingDefault()
+    const target = placeFloatingDefault()
     floatingRectApplied = true
     renderChip()
     return { hadHost, pos, target, size: foxSize(), viewport: { w: window.innerWidth, h: window.innerHeight } }
@@ -2199,6 +2211,7 @@ window.__pet = {
   reloadQueue: loadQueue,
   say: speak,
   showSay: (text) => showSay(text),
+  hideSay,
   setSettings(patch) { settings = { ...settings, ...patch }; applySettings() },
   setSnapshot(s) { snapshot = s; renderChip(); if (quickOpen) renderQuick() },
   setContext(c) { context = c; renderChip(); if (quickOpen) renderQuick() },
