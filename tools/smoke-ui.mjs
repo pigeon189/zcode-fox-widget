@@ -1236,19 +1236,22 @@ try {
     JSON.stringify(menuStruct)
   )
   // 位置与行为二级菜单（issue #11）：默认位置 / 避让滚动条 / 隐藏菜单按钮 /
-  // 每轮消耗提示四项从一级菜单收进二级页，一级只留一个入口。
+  // 每轮消耗提示四项从一级菜单收进二级页，一级只留一个入口；入口紧挨在
+  // 「用量记录…」上方（浮层里还要求排在跟随延迟下方，见 selftest 源码断言）。
   const mergedMenu = JSON.parse(
     await cdp.eval(
       "(function(){var rows=document.querySelectorAll('.zcwv-menu-row');" +
         "var has=function(t){for(var i=0;i<rows.length;i++){if(rows[i].textContent.indexOf(t)!==-1)return true}return false};" +
-        "var more=0;for(var i=0;i<rows.length;i++){var b=rows[i].querySelector('button');" +
-        "if(b&&b.textContent==='位置与行为…')more++}" +
-        "return JSON.stringify({more:more,gap:has('避让滚动条'),hide:has('隐藏菜单按钮'),cost:has('每轮消耗提示')})})()"
+        "var more=0,moreIdx=-1,usageIdx=-1;for(var i=0;i<rows.length;i++){var b=rows[i].querySelector('button');" +
+        "if(b&&b.textContent==='位置与行为…'){more++;moreIdx=i}" +
+        "if(b&&b.textContent==='用量记录…')usageIdx=i}" +
+        "return JSON.stringify({more:more,moreIdx:moreIdx,usageIdx:usageIdx,gap:has('避让滚动条'),hide:has('隐藏菜单按钮'),cost:has('每轮消耗提示')})})()"
     )
   )
   check(
-    '位置与行为：四项已从一级菜单收起，一级只留一个入口',
-    !!mergedMenu && mergedMenu.more === 1 && mergedMenu.gap === false && mergedMenu.hide === false && mergedMenu.cost === false,
+    '位置与行为：四项已从一级菜单收起，一级只留一个入口且紧挨用量记录上方',
+    !!mergedMenu && mergedMenu.more === 1 && mergedMenu.gap === false && mergedMenu.hide === false && mergedMenu.cost === false &&
+      mergedMenu.moreIdx >= 0 && mergedMenu.usageIdx === mergedMenu.moreIdx + 1,
     JSON.stringify(mergedMenu)
   )
   const moreOpened = await openMorePanel(cdp)

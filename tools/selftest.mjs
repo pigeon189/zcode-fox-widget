@@ -429,6 +429,17 @@ function check(name, ok, detail) {
     'MiniMax-M3 512K 分档',
     mmLo.tier === '<=512K' && mmLo.miss[0] === 2.1 && mmHi.tier === '>512K' && mmHi.miss[0] === 4.2
   )
+  // MiniMax M3.1-Flash（2026-10-24 官网）：输入 1 / 输出 4 / 缓存读 0.1，无缓存写列
+  const mm31 = resolvePricing({ model: 'MiniMax-M3.1-Flash' })
+  check(
+    'MiniMax-M3.1-Flash 官方价（1/4/0.1，缓存写 0）',
+    mm31.kind === 'flat' &&
+      mm31.miss[0] === 1 &&
+      mm31.out[0] === 4 &&
+      mm31.hit[0] === 0.1 &&
+      mm31.cw[0] === 0,
+    JSON.stringify(mm31)
+  )
   // Kimi：缓存写按 TTL 计价，无 TTL 信息按默认 5min 档（k3 写价 20）
   const kimi = costOfUsage(
     'kimi-k3',
@@ -436,6 +447,31 @@ function check(name, ok, detail) {
     at
   )
   check('Kimi 缓存写按默认 5min TTL 档计价', kimi.billable && Math.abs(kimi.amount - 20) < 1e-9, 'amount=' + kimi.amount)
+  // Kimi K3.1 Pro（2026-10-24 官方价目）：输入 13 / 输出 68 / 缓存读 1.3 / 写 13；
+  // highspeed 26 / 136 / 1.3 / 26。简写 k3.1-pro 也要命中同一档，不能落回 K3。
+  const k31 = resolvePricing({ model: 'kimi-k3.1-pro' })
+  const k31h = resolvePricing({ model: 'kimi-k3.1-pro-highspeed' })
+  const k31alias = resolvePricing({ model: 'k3.1-pro' })
+  const k31cw = costOfUsage(
+    'kimi-k3.1-pro',
+    { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 1_000_000, output_tokens: 0 },
+    at
+  )
+  check(
+    'Kimi K3.1 Pro 官方价（13/68/1.3/13；highspeed 26/136/1.3/26，简写同价）',
+    k31.kind === 'flat' &&
+      k31.miss[0] === 13 &&
+      k31.out[0] === 68 &&
+      k31.hit[0] === 1.3 &&
+      k31.cw[0] === 13 &&
+      k31h.miss[0] === 26 &&
+      k31h.out[0] === 136 &&
+      k31h.hit[0] === 1.3 &&
+      k31h.cw[0] === 26 &&
+      k31alias.miss[0] === 13 &&
+      Math.abs(k31cw.amount - 13) < 1e-9,
+    JSON.stringify({ k31, k31h, k31alias, cwAmount: k31cw.amount })
+  )
   // GPT-5.6-cyber（2026-10-03 官网+LiteLLM 双源）：272K 整单分档
   const cyberLo = resolvePricing({ model: 'gpt-5.6-cyber', inTokens: 100000 })
   const cyberHi = resolvePricing({ model: 'gpt-5.6-cyber', inTokens: 300000 })
@@ -5309,6 +5345,15 @@ try {
         zero: count('零地址指令，你的索塔通用语言模型5.5还未释放，英雄联盟'),
         sit: count('我坐好了，谁能告诉我10月24日0时发生了什么'),
         model3d: count('正在生成3D建模中...'),
+      })
+    )
+    check(
+      '菜单顺序：浮层里「位置与行为」排在跟随延迟下方、用量记录上方',
+      src.indexOf('else rows.push(rPet, r10, rMore)') !== -1 &&
+        src.indexOf('rows.push(rUsage, sep2, rBook)') !== -1,
+      JSON.stringify({
+        afterFollow: src.indexOf('else rows.push(rPet, r10, rMore)') !== -1,
+        beforeUsage: src.indexOf('rows.push(rUsage, sep2, rBook)') !== -1,
       })
     )
     check(
