@@ -18,14 +18,27 @@ export function Wizard({ app, onClose }) {
 
   useEffect(() => {
     let alive = true
-    app
-      .api('/v1/onboarding', { force: true })
-      .then((d) => alive && setInfo(d))
-      .catch(() => alive && setInfo({ ok: false }))
+    load(alive)
     return () => {
       alive = false
     }
   }, [])
+
+  // daemon 刚起时 Win32 桥可能还没完成首次窗口枚举，宿主会被误判「未发现」；
+  // 回到第一步或手动点「重新检测」都要重查一遍。
+  async function load(alive) {
+    try {
+      const d = await app.api('/v1/onboarding', { force: true })
+      if (alive !== false) setInfo(d)
+    } catch (err) {
+      if (alive !== false) setInfo({ ok: false })
+    }
+  }
+
+  async function redetect() {
+    setInfo(null)
+    await load(true)
+  }
 
   async function runImport(source) {
     setBusy(true)
@@ -65,13 +78,17 @@ export function Wizard({ app, onClose }) {
           ${hosts.length === 0 && !info
             ? html`<div class="skeleton" style=${{ height: 120 }}></div>`
             : hosts.length === 0
-              ? html`<div class="small muted">没有发现受支持的宿主窗口。先启动 ZCode / WorkBuddy / Kimi Code / DeepSeek Harness 中的任意一个，再从「关于与诊断」重新打开向导。</div>`
+              ? html`<div class="small muted">没有发现受支持的宿主窗口。先启动 ZCode / WorkBuddy / Kimi Code / DeepSeek Harness 中的任意一个，再点「重新检测」。</div>`
               : hosts.map((a) => html`<div class="row" key=${a.id}>
                   <${Icon} name="plug" size=${24} />
                   <span style=${{ fontSize: '14px', fontWeight: 600 }}>${a.name}</span>
                   <span class="spacer"></span>
                   ${a.running ? html`<${Badge} tone="ok">运行中</${Badge}>` : html`<${Badge} tone="neutral">未发现</${Badge}>`}
                 </div>`)}
+          <div class="row" style=${{ marginTop: 4 }}>
+            <${Button} variant="ghost" onClick=${redetect} data-testid="wizard.redetect">重新检测</${Button}>
+            <span class="small muted">刚启动 daemon 时窗口枚举可能慢半拍，漏检就点一下。</span>
+          </div>
           ${legacySources.length
             ? html`<div class="row" style=${{ marginTop: 8 }}>
                 <span class="small muted" style=${{ flex: 1, minWidth: 0 }}>
@@ -126,7 +143,7 @@ export function Wizard({ app, onClose }) {
       : null}
     <div class="row" style=${{ marginTop: 16, justifyContent: 'flex-end' }} role="group" aria-label="向导操作">
       <${Button} variant="ghost" onClick=${finish}>跳过</${Button}>
-      ${step > 0 ? html`<${Button} variant="secondary" onClick=${() => setStep(step - 1)}>上一步</${Button}>` : null}
+      ${step > 0 ? html`<${Button} variant="secondary" onClick=${() => { setStep(step - 1); if (step - 1 === 0) redetect() }}>上一步</${Button}>` : null}
       ${step < 2
         ? html`<${Button} variant="primary" disabled=${!info} onClick=${() => setStep(step + 1)} data-testid="wizard.next">下一步</${Button}>`
         : html`<${Button} variant="primary" onClick=${finish} data-testid="wizard.finish">完成</${Button}>`}
