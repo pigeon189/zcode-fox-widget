@@ -100,7 +100,9 @@ process.stdin.resume()
 `
 
 fs.mkdirSync(path.join(outDir, 'hooks'), { recursive: true })
-fs.writeFileSync(path.join(outDir, 'plugin.json'), JSON.stringify(plugin, null, 2))
+// ZCode 本地市场要求清单在 .zcode-plugin/plugin.json（与 dock/integrations 同构）
+fs.mkdirSync(path.join(outDir, '.zcode-plugin'), { recursive: true })
+fs.writeFileSync(path.join(outDir, '.zcode-plugin', 'plugin.json'), JSON.stringify(plugin, null, 2))
 fs.writeFileSync(path.join(outDir, 'hooks', 'hooks.json'), JSON.stringify(hooks, null, 2))
 fs.writeFileSync(path.join(outDir, 'hooks', 'probe-hook.mjs'), hookScript)
 fs.writeFileSync(path.join(outDir, 'hooks', 'mode.txt'), 'echo\n')
