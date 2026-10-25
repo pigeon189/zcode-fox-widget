@@ -3,6 +3,9 @@
 node_modules/
 *.log
 
+# 市场分发包（node tools/build-marketplace.mjs 生成，可随时重建）
+dist/
+
 # 宿主 AI 的工作记忆目录（会话状态，不是项目资料）
 .workbuddy/
 

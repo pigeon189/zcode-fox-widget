@@ -14,17 +14,25 @@
 
 **前置**：WorkBuddy 客户端；`node -v` 可用（自带 v22.22.2）；Windows（浮层依赖 Win32，macOS / Linux 只能用本地页面）。
 
-1. **加市场源（二选一）**
+1. **加市场源（三选一）**
 
-   **A. GitHub 源（推荐）**：左栏「专家·技能·连接器」→「技能」→「插件」→ 右上角 `＋` → 市场源填**分支 ZIP 地址**：
+   **A. 独立市场仓库（推荐）**：左栏「专家·技能·连接器」→「技能」→「套件」→「新增市场」→ 市场源填：
+
+   ```text
+   pigeon189/fox-widget-marketplace
+   ```
+
+   专供 WorkBuddy 版的市场仓库（默认分支 `main`，只含市场清单与插件副本）。装、升级、回退都在这一个源里完成，不受源码仓库 `main`（ZCode 线）影响。
+
+   **B. 分支 ZIP（不想加仓库时）**：同一入口填分支 ZIP 地址：
 
    ```text
    https://github.com/pigeon189/zcode-fox-widget/archive/refs/heads/workbuddy.zip
    ```
 
-   宿主**不认 `owner/repo#分支`**：填仓库名会拉默认分支 `main`（ZCode 线，没有 `.codebuddy-plugin/`），市场里不会出现 `fox-widget`。
+   宿主**不认 `owner/repo#分支`**：直接填源码仓库名会拉默认分支 `main`（ZCode 线，没有 `.codebuddy-plugin/`），市场里不会出现 `fox-widget`。
 
-   **B. 本地目录（要改代码时用）**：`git clone -b workbuddy …` 后，在同一入口把**仓库绝对路径**填进市场源（该对话框只有一个文本框；路径要指向含 `.codebuddy-plugin/marketplace.json` 的仓库根）。
+   **C. 本地目录（要改代码时用）**：`git clone -b workbuddy …` 后，在同一入口把**仓库绝对路径**填进市场源（该对话框只有一个文本框；路径要指向含 `.codebuddy-plugin/marketplace.json` 的仓库根）。
 
    > 同时装 ZCode 版时，两边各克隆一份——两个宿主盯同一个工作区，任一端重抓都会覆盖另一端。
 

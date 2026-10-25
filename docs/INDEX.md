@@ -9,6 +9,7 @@
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [`MAINTAINING.md`](./MAINTAINING.md) | 维护手册：责任表、架构、宿主契约、别改清单、测试与发布、已知限制 | 常青 |
+| [`MARKETPLACE.md`](./MARKETPLACE.md) | 市场发布：套件/插件市场的两条线（自建仓库 / 官方 PR）、打包口径与发版检查 | 常青 |
 | [`DECISIONS.md`](./DECISIONS.md) | 决策日志：按主题回答「为什么这么写」，每条含依据与别踩的坑 | 常青 |
 | [`CHANGELOG-ARCHIVE.md`](./CHANGELOG-ARCHIVE.md) | ZCode 线 v1.1.0–v1.11.1 的变更史（原样归档） | 已归档 |
 | [`CATGIRL-SOUND-NOTES.md`](./CATGIRL-SOUND-NOTES.md) | 猫娘按压音效的来源、授权与加工史 | 已内置（2026-10-22 定稿） |
