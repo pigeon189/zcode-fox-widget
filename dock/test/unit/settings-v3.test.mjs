@@ -14,7 +14,7 @@ test('settings v3: 默认值（接管关闭、等待 15s、通知 whenHidden、�
     takeover: false,
     waitMs: 15000,
     notify: 'whenHidden',
-    allowOnce: false,
+    allowOnce: true,
     hotkeys: { allow: 'Ctrl+Alt+Y', deny: 'Ctrl+Alt+N' },
   })
   assert.deepEqual(s.ingest, { enabled: true })

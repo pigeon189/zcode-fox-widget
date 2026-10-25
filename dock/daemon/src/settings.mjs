@@ -130,9 +130,9 @@ export const DEFAULTS = {
     // 超时后交回宿主原生弹窗。
     waitMs: 15000,
     notify: 'whenHidden',
-    // P-2 探针确认 stdout 可表达 allow（分支 A）后才允许打开；打开前权限卡
-    // 只提供「拒绝」「去宿主处理」。
-    allowOnce: false,
+    // P-2 探针已真机确认 stdout 可表达 allow（分支 A，2026-10-25），默认放开；
+    // 高风险在卡片侧单独降级（无热键允许、不设默认焦点）。
+    allowOnce: true,
     hotkeys: {
       allow: 'Ctrl+Alt+Y',
       deny: 'Ctrl+Alt+N',

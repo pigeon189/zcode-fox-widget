@@ -6,7 +6,7 @@
 
 ### 新增
 
-- **权限接管（M5，D036）**：`settings.permission.takeover` 打开后，宿主的权限请求会在宠物权限卡与控制台横幅上等待决策；只有「允许一次 / 拒绝」，永不提供 always-allow；超时或任何失败都 fail-open 交回宿主原生弹窗。高风险命令（`rm -rf`、`git push --force`、`curl | sh` 等 15 类规则）不提供热键允许、「允许一次」不设默认焦点。有 pending 时动态注册 `Ctrl+Alt+Y/N`，清空即注销；桌面通知文案脱敏 ≤60 字、点击聚焦宿主窗口。随包集成插件 `dock/integrations/zcode-plugin/`（只挂 4 个低频钩子）+ 零依赖 `dock/hooks/dock-hook.mjs`。
+- **权限接管（M5，D036）**：`settings.permission.takeover` 打开后，宿主的权限请求会在宠物权限卡与控制台横幅上等待决策；只有「允许一次 / 拒绝」，永不提供 always-allow；超时或任何失败都 fail-open 交回宿主原生弹窗。高风险命令（`rm -rf`、`git push --force`、`curl | sh` 等 15 类规则）不提供热键允许、「允许一次」不设默认焦点。有 pending 时动态注册 `Ctrl+Alt+Y/N`，清空即注销；桌面通知文案脱敏 ≤60 字、点击聚焦宿主窗口。随包集成插件 `dock/integrations/zcode-plugin/`（只挂 4 个低频钩子）+ 零依赖 `dock/hooks/dock-hook.mjs`。P-2 已真机探针确认（2026-10-25）：stdout `{"continue":true,"decision":"approve"}` = 允许、exit 2 = 拒绝、原生卡片阻塞等待——「允许一次」默认可用，高风险仍无热键允许。
 - **自定义 agent 接入公开化（D037）**：`POST /v1/ingest` 的 `permission_request + wait` 现在会真实长轮询等决策（此前只登记/忽略）；新增 `GET /v1/actions`、`POST /v1/actions/:id/resolve`（🔒）与 SSE `action` 事件。
 - **猫娘语音库（1.x v1.16.3 迁移）**：内置三套音效——小黄鸭 / 嘀嘟（原「音效1」更名）/ 猫娘（CC0，一声制：按压喵声 + 松手静音，出处见 NOTICE 第 4 条）；支持自定义音效集导入（1～2 个文件、单文件 ≤2MB、mp3/wav/ogg/m4a/aac 魔数校验）、删除与切换。设置页「角色与气泡」新增按压音效卡片，宠物菜单可直接切换。旧挂件 `~/.zcode/whale/sounds/` 自定义集随导入流程一并迁移。
 - **首次接入向导（M6）**：检测宿主 → 接入方式 → 完成，一键导入旧挂件数据（含音效集）；可在「关于与诊断」重新打开。

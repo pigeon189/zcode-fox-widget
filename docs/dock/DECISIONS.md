@@ -484,3 +484,8 @@
   版本不符/损坏/超 8MB 一律丢弃；「删除缓存后结果不变」由等价性测试守卫，
   不做增量与全量漂移的自动校准（漂移风险由等价性测试 + 缓存可删兜底）。
 - 便携包 = 现有 tar.gz + 启动件校验 + PORTABLE-README.txt；签名机制不变。
+- **修订（2026-10-25，探针真机实测后）**：分支 A 成立——stdout 只有
+  `{"continue":true,"decision":"approve"}` 被采信；deny 走 exit 2（stderr 文案透传
+  给 agent）；stdout 的 deny 不被采信。dock-hook `SUPPORTS_ALLOW` 默认 true、
+  `allowOnce` 默认 true（takeover 仍默认关）；原生确认卡片阻塞等待钩子，等待上限
+  维持 30s。探针插件测完即从宿主卸载，不入任何发布物。

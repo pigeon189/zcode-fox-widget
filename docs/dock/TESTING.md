@@ -196,4 +196,4 @@
 
 - 单元：`risk.test.mjs`（73 条正反例 + 规则覆盖审计）、`actions.test.mjs`（幂等/上限/一次性 resolve/超时/断连/审计）、`hook-script.test.mjs`（子进程六断言：daemon 不在、坏 JSON、deny exit 2、分支 B 静默、分支 A 严格 JSON、takeover 关闭不等待）、`hook-sync.test.mjs`（集成插件副本逐字节同步 + 只挂 4 个低频钩子）、`sounds.test.mjs`（内置三套、导入/魔数/2MB/删除回落 duck/旧集复制去重）、`cache-index.test.mjs`（版本失配丢弃、LRU、原子写、tail restore、WB 删缓存等价性守卫）。
 - 集成：`actions.itest.mjs`（takeover 开关两态、pending 登记 + 高风险标注、resolve 403/400/409、wait 超时、permission_resolved 联动）。注意：同一测试进程并发两个 wait 长轮询会触发 undici 响应配对错乱（daemon 侧逐条核实过发送正确），测试与钩子都按「一次只挂一个长轮询」使用。
-- 已知不稳定性：权限横幅/权限卡用例依赖焦点与窗口时序，按 §5 定责方法单文件复跑。
+- 已知不稳定性：权限横幅/权限卡用例依赖焦点与窗口时序，按 §5 定责方法单文件复跑。- 真机 P-2 探针（2026-10-25）已定分支 A：stdout `{"continue":true,"decision":"approve"}` 允许、exit 2 拒绝、原生卡片阻塞等待。已知客户端坑：本地市场安装 directory 插件时「复制进插件缓存」一步可能静默失败（安装记录在、缓存目录空、界面回弹无提示）——补齐缓存文件后重启客户端即恢复；本地目录型插件必须带根级 `marketplace.json`（自引用 source "."），否则市场识别不到。

@@ -18,12 +18,16 @@ import crypto from 'node:crypto'
 const HOOK_TIMEOUT_MS = 30000
 const NON_PERMISSION_BUDGET_MS = 300
 
-// ── P-2 探针结论回填处 ─────────────────────────────────────────────
-// 真机探针确认「stdout JSON 能表达 allow」后把 SUPPORTS_ALLOW 改为 true，
-// 并按探针接受的形状调整 ALLOW_OUTPUT（严格 schema，多余键即校验失败）。
-// 结论与依据记录在 docs/dock/ADAPTERS.md 实时信号矩阵。
-const SUPPORTS_ALLOW = process.env.FOX_DOCK_HOOK_ALLOW === '1'
-const ALLOW_OUTPUT = JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', permissionDecision: 'allow' } })
+// ── P-2 探针结论（2026-10-25 真机实测，详见 docs/dock/ADAPTERS.md）──
+// ① stdin 双别名：tool_name/toolName、tool_input/toolInput、session_id/sessionId；
+// ② stdout 允许：只有 {"continue":true,"decision":"approve"} 被采信
+//    （hookSpecificOutput / 扁平 permissionDecision / decision.behavior 均无效）；
+// ③ 拒绝走 exit 2 + stderr（文案透传给 agent）；stdout 的 deny 不被采信；
+// ④ 原生确认卡片阻塞等待钩子（非并行）——等待时长可以放宽；
+// ⑤ exit 0 无输出 → 原生弹窗照常出现（fail-open 兜底成立）。
+// 分支开关：探针已确认支持 allow；FOX_DOCK_HOOK_ALLOW=0 可显式降级回分支 B。
+const SUPPORTS_ALLOW = process.env.FOX_DOCK_HOOK_ALLOW !== '0'
+const ALLOW_OUTPUT = JSON.stringify({ continue: true, decision: 'approve' })
 const DENY_MESSAGE = '已由 fox-dock 拒绝'
 
 function dataDir() {

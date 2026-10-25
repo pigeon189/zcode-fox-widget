@@ -124,20 +124,20 @@ test('hook: 权限事件 + daemon 回 deny → exit 2 且 stderr 含固定文案
   assert.ok(lastIngest.wait.timeoutMs <= 27000, '等待不得超过钩子超时-3s')
 })
 
-test('hook: 权限事件 allow → 分支 B 默认静默 exit 0（交回宿主）', async () => {
+test('hook: 权限事件 allow → 分支 A 输出探针采信的严格 JSON', async () => {
   decision = 'allow'
   const r = await runHook({ hook_event_name: 'PermissionRequest', session_id: 's1', tool_name: 'Bash', tool_input: 'ls' })
   assert.equal(r.code, 0)
-  assert.equal(r.stdout, '')
+  // P-2 真机结论（2026-10-25）：只有这个形状被 ZCode 采信（严格 schema，多余键作废）。
+  const parsed = JSON.parse(r.stdout.trim())
+  assert.deepEqual(parsed, { continue: true, decision: 'approve' })
 })
 
-test('hook: 权限事件 allow → 分支 A（FOX_DOCK_HOOK_ALLOW=1）输出严格 JSON', async () => {
+test('hook: 分支 A 覆盖开关（FOX_DOCK_HOOK_ALLOW=0 关闭 → 静默交回宿主）', async () => {
   decision = 'allow'
-  const r = await runHook({ hook_event_name: 'PermissionRequest', session_id: 's1', tool_name: 'Bash', tool_input: 'ls' }, { FOX_DOCK_HOOK_ALLOW: '1' })
+  const r = await runHook({ hook_event_name: 'PermissionRequest', session_id: 's1', tool_name: 'Bash', tool_input: 'ls' }, { FOX_DOCK_HOOK_ALLOW: '0' })
   assert.equal(r.code, 0)
-  const parsed = JSON.parse(r.stdout.trim())
-  assert.deepEqual(Object.keys(parsed), ['hookSpecificOutput'])
-  assert.equal(parsed.hookSpecificOutput.permissionDecision, 'allow')
+  assert.equal(r.stdout, '')
 })
 
 test('hook: takeover 关闭 → 权限事件不等待，直接 exit 0', async () => {

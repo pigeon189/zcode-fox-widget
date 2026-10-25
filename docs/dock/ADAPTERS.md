@@ -263,11 +263,15 @@ UI 四标签：official / local / estimate / unavailable，映射规则在
 > `probe-kimi-status.mjs`、`probe-win32-focus.mjs`（只读、不入 CI）。
 > 2026-10-22 在本机 ZCode 库实测结论列在表后。
 >
-> **P-2 补充（pre.3）**：探针已升级为模式切换式（`node tools/probe-zcode-hook.mjs`
-> 生成探针插件，allow 四种候选 schema / exit 2 deny / silent / slow 阻塞判定）。
-> 本地链路已实测；**「stdout 能否表达 allow」仍待真机安装探针插件确认**。确认前
-> dock-hook.mjs 走分支 B（allow 一律 exit 0 交回宿主弹窗），`settings.permission.allowOnce`
-> 保持 false；两条分支代码均已实现并有测试。
+> **P-2 真机结论（2026-10-25，模式切换探针 + 用户真机实测）**：
+> ① stdin 双别名（tool_name/toolName、tool_input/toolInput、session_id/sessionId、
+> hook_event_name/hookEventName），另带 requestId/riskLevel/permission_mode/turnId/
+> traceId/toolCallId/cwd/reason；② stdout 表达 allow 只有 `{"continue":true,"decision":"approve"}`
+> 被采信（hookSpecificOutput / 扁平 permissionDecision / decision.behavior 均无效，
+> 严格 schema 多余键作废）；③ deny 走 exit 2 + stderr（文案透传给 agent），
+> stdout deny 不被采信；④ 原生确认卡片阻塞等待钩子（非并行）；⑤ exit 0 无输出
+> → 原生弹窗照常出现（fail-open 兜底成立）。dock-hook.mjs 已按此实现（分支 A
+> 为默认，FOX_DOCK_HOOK_ALLOW=0 可降级），`settings.permission.allowOnce` 默认 true。
 
 | 宿主 | working | waiting_permission | waiting_input | error | done | 信号来源 | 延迟 | 可信度 |
 |---|---|---|---|---|---|---|---|---|
