@@ -4,7 +4,7 @@
 //   node tools/prepare-official-pr.mjs --repo https://cnb.cool/codebuddy/marketplace.git --dry-run
 //       在临时克隆里完整演练一遍（不改远端），打印 diff 统计
 //
-//   node tools/prepare-official-pr.mjs --repo git@cnb.cool:<你的账号>/marketplace.git
+//   CNB_TOKEN=<令牌> node tools/prepare-official-pr.mjs --repo https://cnb.cool/<你的账号>/marketplace
 //       往自己的 fork 推一个分支，然后在 CNB 网页上点「新建合并请求」
 //
 // 做三件事（与官方仓库现有约定对齐）：
@@ -31,16 +31,59 @@ const branch = getArg('--branch') || 'feat/fox-widget'
 const dryRun = argv.includes('--dry-run')
 const keepTemp = argv.includes('--keep-temp')
 if (!repo) {
-  console.error('用法：node tools/prepare-official-pr.mjs --repo <官方仓库或你的 fork 地址> [--dry-run]')
+  console.error('用法：node tools/prepare-official-pr.mjs --repo https://cnb.cool/<你的账号>/marketplace [--dry-run]')
+  process.exit(2)
+}
+if (/^git@/i.test(repo)) {
+  console.error(
+    'CNB 不支持 SSH（官方文档明确只支持 HTTPS + 访问令牌）。\n' +
+      '请改用：--repo https://cnb.cool/<你的账号>/marketplace'
+  )
   process.exit(2)
 }
 
+// CNB 的认证是「用户名固定 cnb + 访问令牌」，与 GitHub CLI 的 gh token 完全无关。
+// 令牌来源优先级：CNB_TOKEN > --token-file > 已登录的 cnb CLI。
+const tokenFile = getArg('--token-file')
+const cnbToken = (process.env.CNB_TOKEN || (tokenFile ? fs.readFileSync(tokenFile, 'utf8') : '')).trim()
+let hasCnbCli = false
+try {
+  execFileSync('cnb', ['--version'], { stdio: 'ignore' })
+  hasCnbCli = true
+} catch {}
+
+if (!dryRun && !cnbToken && !hasCnbCli) {
+  console.error(
+    [
+      '需要 CNB 访问令牌（gh 的 GitHub 登录在这里用不上，CNB 是独立账号体系）：',
+      '  1) 微信扫码登录 https://cnb.cool，按提示完成实名认证',
+      '  2) 打开 https://cnb.cool/profile/token → 添加访问令牌（勾上仓库写权限）',
+      '  3) 设进环境变量后重跑：',
+      '     CNB_TOKEN=<令牌> node tools/prepare-official-pr.mjs --repo https://cnb.cool/<你的账号>/marketplace',
+      '',
+      '  令牌不会写进任何文件；脚本只在 git 子进程的环境里用它。',
+    ].join('\n')
+  )
+  process.exit(2)
+}
+
+// 用 credential helper 从环境变量取令牌，避免令牌出现在命令行参数里
+const AUTH_ARGS = cnbToken
+  ? ['-c', 'credential.helper=', '-c', 'credential.helper=!f() { echo username=cnb; echo "password=$CNB_TOKEN"; }; f']
+  : ['-c', 'credential.helper=', '-c', 'credential.helper=!cnb git-credential']
+const CHILD_ENV = { ...process.env, ...(cnbToken ? { CNB_TOKEN: cnbToken } : {}) }
+
 function git(cwd, ...args) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim()
+  return execFileSync('git', [...AUTH_ARGS, ...args], {
+    cwd,
+    env: CHILD_ENV,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  }).trim()
 }
 
 function run(cmd, args, cwd) {
-  execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: 'pipe' })
+  execFileSync(cmd, args, { cwd, env: CHILD_ENV, encoding: 'utf8', stdio: 'pipe' })
 }
 
 // 0) 素材不存在就先构建
@@ -55,7 +98,7 @@ const payloadDir = path.join(SUBMISSION, 'external_plugins', PLUGIN_NAME)
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-official-pr-'))
 const clone = path.join(tmp, 'repo')
 console.log(`· 克隆 ${repo} …`)
-run('git', ['clone', '--depth', '1', repo, clone], tmp)
+run('git', [...AUTH_ARGS, 'clone', '--depth', '1', repo, clone], tmp)
 
 // 1) 确认目标确实是官方市场仓库
 const manifestPath = path.join(clone, '.codebuddy-plugin', 'marketplace.json')

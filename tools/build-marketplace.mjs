@@ -221,7 +221,7 @@ function officialPr() {
 本目录由 \`node tools/build-marketplace.mjs --only=b\` 生成。推荐直接落到自己的 fork（登录 CNB 后）：
 
 \`\`\`bash
-node tools/prepare-official-pr.mjs --repo git@cnb.cool:<你的账号>/marketplace.git
+CNB_TOKEN=<令牌> node tools/prepare-official-pr.mjs --repo https://cnb.cool/<你的账号>/marketplace
 \`\`\`
 
 脚本会克隆 fork、放插件、只在清单末尾追加一条、提交并推送分支；下面是想手动操作时的步骤与 PR 文案。

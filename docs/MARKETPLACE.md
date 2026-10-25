@@ -70,22 +70,27 @@ node tools/publish-marketplace.mjs           # 浅克隆远端 → 覆盖 → �
 
 官方仓库：`https://cnb.cool/codebuddy/marketplace`（README 写明「欢迎提交 PR」，现有 207 条里 150 条是 `external_plugins/` 第三方插件）。
 
+**账号体系**：CNB 是独立平台，微信扫码登录并实名认证；`gh` 的 GitHub 登录只对 github.com 有效，拿不到 CNB 的权限。
+**协议**：CNB 不支持 SSH，只支持 `HTTPS + 访问令牌`（用户名固定 `cnb`，密码填令牌）。
+
 流程：
 
-1. 登录 CNB，fork `codebuddy/marketplace`
-2. 在本仓库跑：
+1. 微信扫码登录 <https://cnb.cool> 并完成实名认证；fork `codebuddy/marketplace`
+2. 打开 <https://cnb.cool/profile/token> 新建访问令牌（勾上仓库写权限）
+3. 在本仓库跑：
 
    ```bash
-   node tools/prepare-official-pr.mjs --repo git@cnb.cool:<你的账号>/marketplace.git
+   CNB_TOKEN=<令牌> node tools/prepare-official-pr.mjs --repo https://cnb.cool/<你的账号>/marketplace
    ```
 
    它会：克隆 fork → 校验目标确为官方市场 → 放 `external_plugins/fox-widget/` → 只往 `marketplace.json` 数组末尾追加一条（保留原文件的 CRLF 与无末尾换行）→ 提交 → 推送分支。
-3. 打开 fork 页面新建合并请求（源分支 `feat/fox-widget` → 目标 `main`），正文用 `dist/official-submission/PR.md`。
+   令牌只通过子进程环境变量传给 git，不写文件、不进命令行参数。
+4. 打开 fork 页面新建合并请求（源分支 `feat/fox-widget` → 目标 `main`），正文用 `dist/official-submission/PR.md`。
 
-不推远端时可以演练：
+不推远端时可以演练（公开仓库匿名可克隆，不需要令牌）：
 
 ```bash
-node tools/prepare-official-pr.mjs --repo https://cnb.cool/codebuddy/marketplace.git --dry-run
+node tools/prepare-official-pr.mjs --repo https://cnb.cool/codebuddy/marketplace --dry-run
 ```
 
 ### 官方仓库约定（照抄，别自创）
