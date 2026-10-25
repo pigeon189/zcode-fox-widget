@@ -881,6 +881,18 @@ export function planVendorStatus(base, plan) {
     nextResetAt: ok ? plan.nextResetAt : undefined,
     stale: ok ? plan.stale : undefined,
     source: ok ? plan.source : undefined,
+    // 逐模型配额桶（日志源才有）：GLM 赠送池按模型分开记账（如 GLM-5.3 2 亿 +
+    // GLM-5.3-Flash 3 亿），汇总数会掩盖单模型的告急，原样透出给额度页分行展示。
+    byModel:
+      ok && Array.isArray(plan.byModel) && plan.byModel.length
+        ? plan.byModel.map((b) => ({
+            model: b.model,
+            showName: b.showName || b.model,
+            remainingUnits: b.remainingUnits,
+            totalUnits: b.totalUnits,
+            usedUnits: b.usedUnits,
+          }))
+        : undefined,
   }
 }
 

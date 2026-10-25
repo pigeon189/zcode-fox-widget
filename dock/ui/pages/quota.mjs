@@ -2,7 +2,7 @@ import { h } from '../vendor/preact.module.js'
 import { useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, ProgressBar, Segmented, Select, SourceTag } from '../components/base.mjs'
-import { agentName, fmtDateTime, fmtMoney, fmtPct, pctTone, fmtReset, remainText, usedPctOf } from '../lib/format.mjs'
+import { agentName, fmtDateTime, fmtMoney, fmtPct, fmtTokens, pctTone, fmtReset, remainText, usedPctOf } from '../lib/format.mjs'
 
 const html = htm.bind(h)
 
@@ -177,6 +177,19 @@ function VendorCard({ v, onCorrect }) {
       ${v.kind === 'cmdgo' && v.pool ? html`<span class="small muted">池 ${v.pool.available}/${v.pool.total} 可用</span>` : null}
     </div>
     ${split ? html`<div class="balance-split" data-testid=${'quota.balanceSplit.' + v.id}>${split}</div>` : null}
+    ${Array.isArray(v.byModel) && v.byModel.length
+      ? html`<div style=${{ marginTop: 8 }} data-testid=${'quota.byModel.' + v.id}>
+          ${v.byModel.map((b) => {
+            const pct = Number(b.totalUnits) > 0 ? (Number(b.remainingUnits) / Number(b.totalUnits)) * 100 : null
+            return html`<div class="row small" key=${b.model} style=${{ gap: 8 }}>
+              <span>${b.showName || b.model}</span>
+              <span class="spacer"></span>
+              <span class="num">${pct != null ? fmtPct(pct) + ' 剩余' : '—'}</span>
+              <span class="small muted num">${fmtTokens(b.remainingUnits)} / ${fmtTokens(b.totalUnits)}</span>
+            </div>`
+          })}
+        </div>`
+      : null}
     ${windows.map((w) => html`<div style=${{ marginTop: 6 }}>
       <div class="row small">
         <span>${w.label}</span>
