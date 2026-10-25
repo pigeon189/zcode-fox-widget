@@ -92,7 +92,14 @@ export function shapeQuotaPayload(data) {
       const remaining = num(nested.remaining)
       const total = num(nested.total) !== null ? num(nested.total) : num(nested.limit)
       windows.push({
-        label: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : '套餐',
+        // 赠送池与订阅窗口并存时行名要能分清：接口给了 name 用 name，
+        // 没给就如实标注条目类型（如 TOKENS_LIMIT），不编造「赠送/订阅」字样。
+        label:
+          typeof item.name === 'string' && item.name.trim()
+            ? item.name.trim()
+            : typeof item.type === 'string' && item.type.trim()
+              ? item.type.trim()
+              : 'Token 池',
         percentUsed: clampPct(pct),
         remaining,
         total,

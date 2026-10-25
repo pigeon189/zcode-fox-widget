@@ -345,10 +345,10 @@ export function RolesPage({ app }) {
                 options=${[0, 0.25, 0.5, 0.75, 1].map((v) => ({ value: v, label: v === 0 ? '静音' : Math.round(v * 100) + '%' }))}
                 onChange=${pickVolume} />
             </div>
-            <div class="row">
-              <span class="small muted" style=${{ flex: 1, minWidth: 0 }}>
-                导入 1～2 个音频文件（第 1 个按压音、第 2 个松手音；单文件 ≤2MB，支持 mp3/wav/ogg/m4a/aac），文件名即音效名。
-              </span>
+            <div class="small muted" style=${{ lineHeight: 1.6 }}>
+              导入 1～2 个音频文件：第 1 个是按压音，第 2 个是松手音（可只选 1 个）。单文件不超过 2MB，支持 mp3 / wav / ogg / m4a / aac；文件名会用作音效集名称。
+            </div>
+            <div class="row" style=${{ justifyContent: 'flex-end' }}>
               <${Button} data-testid="sounds.import" onClick=${() => soundFileRef.current && soundFileRef.current.click()}>导入…</${Button}>
             </div>
             ${(sounds || []).filter((s) => !s.builtin).map((s) => html`
