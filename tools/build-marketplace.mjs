@@ -218,7 +218,15 @@ function officialPr() {
 
 目标仓库：\`https://cnb.cool/codebuddy/marketplace\`（CodeBuddy 官方插件市场，README 写明「欢迎提交 PR」）
 
-## 一、要改的两处
+本目录由 \`node tools/build-marketplace.mjs --only=b\` 生成。推荐直接落到自己的 fork（登录 CNB 后）：
+
+\`\`\`bash
+node tools/prepare-official-pr.mjs --repo git@cnb.cool:<你的账号>/marketplace.git
+\`\`\`
+
+脚本会克隆 fork、放插件、只在清单末尾追加一条、提交并推送分支；下面是想手动操作时的步骤与 PR 文案。
+
+## 一、要改的两处（手动做法）
 
 1. 把 \`external_plugins/fox-widget/\` 整个目录拷进官方仓库的 \`external_plugins/fox-widget/\`
 2. 在官方仓库根的 \`.codebuddy-plugin/marketplace.json\` 的 \`plugins\` 数组里追加一条
