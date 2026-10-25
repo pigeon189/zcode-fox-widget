@@ -1,6 +1,6 @@
 # 市场发布（套件 / 插件市场）
 
-> 状态：常青。A 线已上线，B 线材料就绪、等账号提 PR。
+> 状态：常青。A 线已上线；B 线已提交 PR [#45](https://cnb.cool/codebuddy/marketplace/-/pulls/45)（待审核）。
 > 相关脚本：`tools/build-marketplace.mjs`、`tools/verify-marketplace.mjs`、`tools/publish-marketplace.mjs`、`tools/prepare-official-pr.mjs`。
 
 ## 一、两条线是什么
@@ -67,6 +67,9 @@ node tools/publish-marketplace.mjs           # 浅克隆远端 → 覆盖 → �
 > 所以**默认分支必须是 `main`，且 marketplace.json 在仓库根**。仓库名后面不能带分支。
 
 ## 四、B 线：官方市场
+
+已提交：<https://cnb.cool/codebuddy/marketplace/-/pulls/45>（`feat/fox-widget` → `main`，73 个文件，只改 `marketplace.json` 一处 +23 行）。
+提 PR 的 fork 是 `PigeonWorkspace/marketplace`，后续更新直接往这个 fork 推同一条分支即可，PR 会自动带上新提交。
 
 官方仓库：`https://cnb.cool/codebuddy/marketplace`（README 写明「欢迎提交 PR」，现有 207 条里 150 条是 `external_plugins/` 第三方插件）。
 
