@@ -1,0 +1,27 @@
+{
+  "name": "fox-dock-integration-market",
+  "description": "fox-dock 2.0 集成插件本地市场（把本目录添加到 ZCode「插件管理 → 本地市场」即可安装）。",
+  "owner": {
+    "name": "fox-dock"
+  },
+  "plugins": [
+    {
+      "name": "fox-dock-integration",
+      "source": {
+        "source": "directory",
+        "path": "."
+      },
+      "description": "fox-dock 2.0 集成插件：把 ZCode 的会话开始/结束与权限请求通知给本地 fox-dock daemon（可在宠物与控制台上处理）。默认不接管权限；接管关闭时只通知、绝不阻塞宿主。",
+      "version": "2.0.0-pre.3",
+      "author": {
+        "name": "fox-dock"
+      },
+      "category": "productivity",
+      "keywords": [
+        "fox-dock",
+        "hooks",
+        "permission"
+      ]
+    }
+  ]
+}

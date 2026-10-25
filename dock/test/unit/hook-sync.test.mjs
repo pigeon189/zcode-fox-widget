@@ -29,6 +29,10 @@ test('hook-sync: plugin.json 与 hooks.json 形态', () => {
   for (const name of ['UserPromptSubmit', 'Stop', 'PostToolUseFailure']) {
     assert.equal(hooks.hooks[name][0].hooks[0].timeoutMs, 5000)
   }
+  // 本地市场入口：ZCode「添加本地目录」找的是根目录 marketplace.json
+  const market = JSON.parse(fs.readFileSync(path.join(ROOT, 'integrations', 'zcode-plugin', 'marketplace.json'), 'utf8'))
+  assert.equal(market.plugins[0].source.path, '.')
+  assert.equal(market.plugins[0].name, 'fox-dock-integration')
   // 钩子脚本自身声明的超时常量必须与 hooks.json 一致
   const src = fs.readFileSync(CANONICAL, 'utf8')
   assert.ok(src.includes('const HOOK_TIMEOUT_MS = 30000'))
