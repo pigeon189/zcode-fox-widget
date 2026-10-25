@@ -74,7 +74,8 @@ fs.writeFileSync(
 )
 
 // WorkBuddy 会话库：sessions（当前会话/模型）+ session_usage（上下文 + 每请求积分）
-const db = new DatabaseSync(path.join(tmpHome, 'workbuddy.db'))
+// 同 selftest：写连接给 busy timeout，避免与服务的只读连接抢锁时报 database is locked
+const db = new DatabaseSync(path.join(tmpHome, 'workbuddy.db'), { timeout: 5000 })
 db.exec(`
   CREATE TABLE sessions (
     id text primary key, cwd text, model text, title text, custom_title text,

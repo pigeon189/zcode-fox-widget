@@ -22,7 +22,7 @@ const port = Number(process.argv[2]) || 39500 + Math.floor(Math.random() * 400)
 fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port }), 'utf8')
 
 // WorkBuddy 会话库：sessions + session_usage（credit_json 记每请求积分）
-const db = new DatabaseSync(path.join(tmpHome, 'workbuddy.db'))
+const db = new DatabaseSync(path.join(tmpHome, 'workbuddy.db'), { timeout: 5000 })
 db.exec(`
   CREATE TABLE sessions (
     id text primary key, cwd text, model text, title text, custom_title text,

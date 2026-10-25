@@ -109,7 +109,9 @@ fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port: PORT 
 
 // ---------- WorkBuddy 会话库 fixture ----------
 // workbuddy.db：sessions（当前会话/模型）+ session_usage（上下文占用 + 每请求积分）。
-const db = new DatabaseSync(path.join(tmpHome, 'workbuddy.db'))
+// 写连接要和挂件服务的只读连接抢锁：不给 busy timeout 时，CI 慢盘上偶发
+// SQLITE_BUSY（database is locked），会把一次时序抖动放大成整轮自检失败。
+const db = new DatabaseSync(path.join(tmpHome, 'workbuddy.db'), { timeout: 5000 })
 db.exec(`
   CREATE TABLE sessions (
     id text primary key,
