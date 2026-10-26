@@ -995,6 +995,29 @@ ipcMain.on('whale:pet-mode', (_event, value) => setPetMode(value))
 ipcMain.on('whale:quit', () => app.quit())
 ipcMain.handle('whale:workarea', () => screen.getPrimaryDisplay().workArea)
 
+// 迁移说明页外开（lib/widget.js 的「查看说明后升级」）。白名单与 lib/migrate.mjs
+// 的 validateMigrationUrl 同口径（main 进程是 CJS，引不了 ESM，这里按同一份清单
+// 硬编码；改白名单两处必须同步）：https + 本仓库 GitHub Releases 域 + 路径前缀。
+// 页面拿到的 URL 虽然来自服务端校验过的 offer，这里仍按纵深防御再校验一遍——
+// 主进程 openExternal 一旦放开就是任意协议/任意域，不能只靠渲染层把关。
+ipcMain.handle('whale:open-external', async (_event, url) => {
+  try {
+    const u = new URL(String(url || ''))
+    if (u.protocol !== 'https:') return false
+    if (u.username || u.password) return false
+    const host = u.hostname.toLowerCase()
+    const okHost =
+      host === 'github.com' || host === 'objects.githubusercontent.com' || host === 'release-assets.githubusercontent.com'
+    if (!okHost) return false
+    if (u.port && u.port !== '443') return false
+    if (!u.pathname.startsWith('/pigeon189/zcode-fox-widget/releases/')) return false
+    await shell.openExternal(u.toString())
+    return true
+  } catch (err) {
+    return false
+  }
+})
+
 // 不可激活的窗口拿不到键盘输入。页面在指针按到菜单里的文本框/下拉时才请求
 // 临时恢复可激活并主动取一次焦点，浮层 UI 全部关闭时再交还前台（回到不可
 // 激活），这样「点鲸鱼 / 拖拽 / 开菜单 / 点气泡」都不会打断 ZCode 的前台状态。
