@@ -784,7 +784,7 @@ x-fox-token: &lt;daemon.lock 里的 token&gt;
   <section id="fixes" aria-labelledby="fixes-h">
     <div class="sec-head">
       <h2 id="fixes-h"><span class="no" aria-hidden="true">7</span>pre.3 修复精选</h2>
-      <p class="lead">以下 30 项按「用户能感知」挑选，覆盖安全、权限、成本口径、状态、输入与布局；完整清单见 <code>dock/CHANGELOG.md</code> 的 2.0.0-pre.3 修复节。</p>
+      <p class="lead">以下 34 项按「用户能感知」挑选，覆盖安全、权限、成本口径、状态、输入与布局；完整清单见 <code>dock/CHANGELOG.md</code> 的 2.0.0-pre.3 修复节。</p>
     </div>
     <div class="fix-grid">
       <div class="fix"><b>「已完成」不再一闪而过</b><span>回合结束后的 5 分钟内，会话列表、胶囊与快览卡继续显示「已完成」；workflow 还在跑时父会话显示「工作中」，并从 run 结束时刻起算；工具结束到首字之间不再闪成空闲。状态计数、筛选与展示同源。</span></div>
@@ -817,6 +817,11 @@ x-fox-token: &lt;daemon.lock 里的 token&gt;
       <div class="fix"><b>渲染层不再自己连 SSE，输入卡死能自愈</b><span>宠物层 SSE 改由主进程持令牌代理，daemon 重启自动重连，拖拽时不再被渲染进程网络挂起；每 30 秒用光标位置做一次 DOM 命中探测，输入穿透状态卡死时自动纠正。页面 <code>executeJavaScript</code> 永久挂起也按失败计，连续两拍超时/异常才重载渲染进程，不会因为超时被当成「页面还没准备好」而永远不重启。</span></div>
       <div class="fix"><b>托盘菜单按文字收紧</b><span>系统托盘菜单此前给 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd> / <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> 单独留了一列，菜单宽度被撑到文字的两倍；现在不再显示快捷键列，菜单按标签长度自然收紧。快捷键仍按设置注册并可用。</span></div>
       <div class="fix"><b>宿主强调色对齐官方图标</b><span>WorkBuddy 改为图标主色青绿 <code>#0CC8A4</code>，Kimi Code 改为图标蓝色 <code>#3490F8</code>，DeepSeek Harness 改为官网左上角 logo 的 <code>#4176E6</code>；ZCode 保持橙色。强调色用于胶囊边框与上下文环、快览卡进度条、菜单选中边框和拖拽落点提示。</span></div>
+      <div class="fix"><b>复合凭据选项也脱敏</b><span>权限预览此前只认 <code>--password hunter2</code> 这类裸名，<code>--access-token X</code>、<code>--auth-token X</code>、<code>--client-secret X</code> 等空格分隔的复合长选项会整段原样进入权限卡预览。现在带 <code>token</code> / <code>secret</code> / <code>password</code> / <code>key</code> 后缀的长选项统一遮蔽，且不吞 shell 语法。</span></div>
+      <div class="fix"><b>匿名页面不再泄漏标题与路径</b><span>窗口标题常含文件路径与用户名。<code>/v1/agents/:id/sessions</code> 的原始标题、绑定 key（完整 exe 路径）与窗口标题、SSE 上下文与宿主出现/消失事件的标题，现在统一过主目录脱敏；诊断包对正斜杠 / 混合大小写主目录也不再漏替。</span></div>
+      <div class="fix"><b>全局热键输入框能录入了</b><span>「显示或隐藏角色 / 打开控制台 / 隐藏金额」三个输入框逐键保存，敲到一半就被服务端弹回默认组合，实际录不进自定义热键。现在与权限热键同款：点击后按下完整组合键录入，<kbd>Esc</kbd> 清除（留空 = 关闭）。</span></div>
+      <div class="fix"><b>切换会话时详情不再串台</b><span>从会话 A 切到 B 的瞬间，详情面板曾继续显示 A 的数据，此刻点「跳转到宿主窗口」或「复制会话 ID」会作用于旧会话。现在详情面板始终与选中行同源：新详情回来前显示 B 的列表行数据。</span></div>
+      <div class="fix"><b>角色点不动的又一处修复</b><span>30 秒一次的输入探针发现指针压在角色上时直接纠正穿透状态，但 300ms 轮询会用旧状态把它滚回去，最坏情况狐狸每 30 秒只有 0.3 秒可点。现在纠正写入同一份权威状态，轮询只重放不回滚；显示缩放变化后即使桥重启失败也会重读窗口原点，角色不再按旧坐标偏移。</span></div>
     </div>
 
     <figure class="shot" id="fig-overview">

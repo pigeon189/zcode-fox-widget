@@ -57,6 +57,12 @@
   ```
 
 - `pet: 单击角色打开快览卡` 偶发受前台窗口/焦点影响（真 Electron 命中测试）；单文件复跑即可，不要据此改交互。
+- 测试脚手架的 `node:sqlite` 写连接与 daemon 侧只读连接抢 Windows 文件锁时，CI 慢盘上
+  会偶发 `SQLITE_BUSY`/`EPERM`。所有测试写连接统一带 `{ timeout: 5000 }` busy timeout
+  （1.x workbuddy 线同类修复 18bcf51 的移植）；`test/unit/test-db-busy-timeout.test.mjs`
+  守卫测试目录内新增连接必须带 timeout——按 `DatabaseSync(` 锚点扫描，直写
+  `new DatabaseSync(` 与别名 `new sqlite.DatabaseSync(` 等形式都入扫（确实不需要等待的
+  可显式写 `{ timeout: 0 }`）。再见此类抖动先确认连接带 timeout，不要往测试里加重试循环。
 - 服务端口被占时 daemon 会自动 +1；测试认 lock 文件里的实际端口，不要硬编码 39401。
 - 角色/音效列表一次性拉取不自愈的问题已由 `fetchListRetry` 与 bind 探针处理，不要再引入
   「只拉一次」的新调用。
@@ -205,3 +211,5 @@
 - 输入自愈：`input-probe.test.mjs` 覆盖正常返回、`executeJavaScript` 永久 pending 超时、异常透传、连续两拍触发 reload 且成功会清零。
 - 静态：`check-syntax` 覆盖 `.cjs`；`lint` 仍检查渲染层 `fetch`、危险 DOM、Electron 安全配置；`check:sync` / `parity:engines` 不受本轮改动影响。
 - 测试卫生：`lock` / `bindings` / `cache-index` 增加 `after()` 递归清理临时目录，`npm test` 不再向 `%TEMP%` 累积 `fox-dock-lock-*` / `fox-dock-bind-*`。
+- 1.x 迁移（2026-10-27）：测试写连接统一补 `{ timeout: 5000 }` busy timeout——直写 `new DatabaseSync(` 7 处（`billing.itest` / `v1.itest` / `sessions-live.itest` / `context-zcode` / `context-workbuddy` / `zcode-adapter` ×2）+ 复审发现的别名 `new sqlite.DatabaseSync(` 16 处（`zcode-sessions` ×5、`zcode-workflow-status` ×3、`context-zcode-compaction` ×2、`engines-unpriced`、`incremental-equivalence`、`provenance-adapters`、`zcode-live-status`、`zcode-cancelled-status`、`zcode-display-status-fuzz`），共 23 处，消除与 daemon 只读连接抢锁的偶发 `SQLITE_BUSY`/`EPERM`；新增 `test-db-busy-timeout.test.mjs` 守卫（扫描 `test/{unit,integration,e2e}`，按 `DatabaseSync(` 锚点匹配，别名形式同样入扫，必须带 `timeout`，解析坏/漏扫按失败处理），迁移留档 `docs/dock/reviews/2026-10-27-1x-migration.md`。
+- 复审修复增量（2026-10-27 第二轮）：`test-db-busy-timeout` 守卫锚点放宽为 `DatabaseSync(`（别名 `new sqlite.DatabaseSync(` 不再逃过扫描，负向用例验证别名形式会失败）；`redact.test.mjs` 补复合长选项（`--access-token X` 等 5 形态）与 `redactHome` 直测（混合大小写/HOME 来源），并加「daemon/src 不允许本地 redactHome 漂移实现」守卫；`input-probe.test.mjs` 补 `createMousePolicy` 三断言（探针纠正写回权威状态、300ms 轮询重放不回滚、隐藏时穿透）；`session-display-status.test.mjs` 补「turn_end(done) → db cancelled merge → 立即 idle」与正常完成对照两用例；`live-reduce-turn-active-fuzz` 的 pending 过期逃逸用例由 skip 转正（expire 已在 turnActive 时置 working）；`v1.itest` 补匿名读面（agents/:id/sessions 标题、/v1/state 与 /v1/bindings 的 key/title）主目录脱敏断言；`provenance-adapters.test.mjs` 补 normalizeContext 标题脱敏；`ui-regressions` 补「切换会话详情与选中行同源」、`pet-status` 的失焦兜底用例追加「落角后改 scrollGapOn 位置不动」。已知留档：`live-reduce#reduce` 对同毫秒重复投递不去重（真实钩子时间戳单调、无重放来源），见源码注释。
