@@ -2933,6 +2933,117 @@ try {
   })
   check('更新路由：未知动作 400（不误触发任何流程）', badAction.status === 400, 'status=' + badAction.status)
 
+  // fox-dock 迁移入口路由：offer 由服务端探测落盘（migrationProbe），这里直接种
+  // 状态文件驱动各分支。GET 会触发节流探测，但 WHALE_DISABLE_UPDATE_CHECK=1 时
+  // maybeProbeMigration 直接短路，不会发真实网络请求。
+  const GOOD_MIGRATION_OFFER = {
+    product: 'fox-dock',
+    version: '2.0.0',
+    channel: 'stable',
+    notesUrl: 'https://github.com/pigeon189/zcode-fox-widget/releases/download/dock-v2.0.0/release-notes-2.0.0.html',
+    downloadUrl: 'https://github.com/pigeon189/zcode-fox-widget/releases/tag/dock-v2.0.0',
+    summary: 'fox-dock 2.0 正式版：独立桌宠 + 权限接管 + 旧数据导入',
+    highlights: ['独立程序，不再依赖宿主插件运行'],
+    costs: ['自定义气泡图片/模板不自动迁移'],
+  }
+  const migGet0 = await getJson(port, '/whale/update.json')
+  check(
+    '迁移路由：无 migrationProbe 时 migration.available=false（默认无入口）',
+    migGet0 && migGet0.migration && migGet0.migration.available === false,
+    JSON.stringify(migGet0 && migGet0.migration)
+  )
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ latest: null, available: false, busy: false, phase: null, checkedAt: Date.now(), source: 'test', migrationProbe: { at: Date.now(), manifestVersion: pluginJson.version, eol: false, offer: GOOD_MIGRATION_OFFER } }),
+    'utf8'
+  )
+  const migGet1 = await getJson(port, '/whale/update.json')
+  check(
+    '迁移路由：合法 stable offer 且清单版本=当前版本 → available=true 且带 costs',
+    migGet1 && migGet1.migration && migGet1.migration.available === true && migGet1.migration.version === '2.0.0' &&
+      Array.isArray(migGet1.migration.costs) && migGet1.migration.costs.length === 1 && !!migGet1.migration.notesUrl,
+    JSON.stringify(migGet1 && migGet1.migration)
+  )
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ latest: null, available: false, busy: false, phase: null, migrationProbe: { at: Date.now(), manifestVersion: '0.0.9', eol: false, offer: GOOD_MIGRATION_OFFER } }),
+    'utf8'
+  )
+  const migGet2 = await getJson(port, '/whale/update.json')
+  check(
+    '迁移路由：清单版本比当前旧（镜像滞后）→ 不回放旧 offer',
+    migGet2 && migGet2.migration && migGet2.migration.available === false && migGet2.migration.manifestVersion === '0.0.9'
+  )
+  // 恢复合法 offer，测跳过与预检
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ latest: null, available: false, busy: false, phase: null, migrationProbe: { at: Date.now(), manifestVersion: pluginJson.version, eol: false, offer: GOOD_MIGRATION_OFFER } }),
+    'utf8'
+  )
+  const migSkipRes = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'migrate-skip' }),
+  })
+  const migSkipBody = await migSkipRes.json()
+  const migSkipState = JSON.parse(fs.readFileSync(path.join(dataDir, 'widget-state.json'), 'utf8'))
+  check(
+    '迁移路由：migrate-skip → 写 widget-state.migrationSkip（与 updateSkip 独立）且入口隐藏',
+    migSkipRes.ok && migSkipBody.migration.available === false && migSkipState.migrationSkip === '2.0.0' && migSkipState.updateSkip === null,
+    JSON.stringify({ migrationSkip: migSkipState.migrationSkip, updateSkip: migSkipState.updateSkip })
+  )
+  const migUnskipRes = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'migrate-unskip' }),
+  })
+  const migUnskipBody = await migUnskipRes.json()
+  const migUnskipState = JSON.parse(fs.readFileSync(path.join(dataDir, 'widget-state.json'), 'utf8'))
+  check(
+    '迁移路由：migrate-unskip → migrationSkip 清空、入口恢复',
+    migUnskipRes.ok && migUnskipBody.migration.available === true && migUnskipState.migrationSkip === null
+  )
+  // 409 分支：先把 offer 摘掉（远端撤掉 migration 块后的下一次探测就是这个形状）
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ latest: null, available: false, busy: false, phase: null, migrationProbe: { at: Date.now(), manifestVersion: pluginJson.version, eol: false, offer: null, reason: '缺 migration 块' } }),
+    'utf8'
+  )
+  const migNoOffer = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'migrate' }),
+  })
+  check('迁移路由：无有效 offer 时 migrate 409（不进入预检）', migNoOffer.status === 409, 'status=' + migNoOffer.status)
+  // 恢复合法 offer 后预检：本机可能真装着 fox-dock（含 pre 版本），断言只盯结构
+  // 而不盯「dock 未装」——预检必须给出一组可照做的步骤，且不写任何 1.x 状态
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ latest: null, available: false, busy: false, phase: null, migrationProbe: { at: Date.now(), manifestVersion: pluginJson.version, eol: false, offer: GOOD_MIGRATION_OFFER } }),
+    'utf8'
+  )
+  const migRes = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'migrate' }),
+  })
+  const migBody = await migRes.json()
+  check(
+    '迁移路由：migrate → 只做只读预检（返回 preflight + guide 步骤）',
+    migRes.ok && migBody.ok === true && migBody.preflight && migBody.preflight.checks && migBody.guide &&
+      Array.isArray(migBody.guide.steps) && migBody.guide.steps.length > 0 && typeof migBody.guide.dockReady === 'boolean',
+    JSON.stringify(migBody.guide)
+  )
+  check(
+    '迁移路由：preflight 只报 config 键名与数量（不泄值）；结构完整',
+    typeof migBody.preflight.ok === 'boolean' && Array.isArray(migBody.preflight.config.keys) &&
+      typeof migBody.preflight.dock.online === 'boolean' && typeof migBody.preflight.data.bytes === 'number',
+    JSON.stringify(migBody.preflight.checks)
+  )
+  // 注意：watchdog-uninstall 动作不在这里 POST——测试机的 APPDATA 是真实启动文件夹、
+  // 看门狗可能正在跑，该动作会删真机 VBS 并 taskkill 看门进程；
+  // 行为由 selftest-migrate 的源码钉覆盖。
+
   // 版本更新内核单测：独立子进程（隔离 CODEBUDDY_HOME，避免写到真实数据目录）
   {
     const run = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, 'tools', 'selftest-update.mjs')], {
@@ -2943,6 +3054,20 @@ try {
     check(
       '版本更新内核单测全绿（版本比较 / 出站守卫 / tar 解包 / 落盘清理 / 检查回退 / 整包更新 / 防重入）',
       run.status === 0 && !!m && m[1] === m[2] && Number(m[2]) >= 28,
+      m ? m[0] + '（共 ' + m[2] + ' 项）' : (((run.stderr || '') + (run.stdout || '')).slice(-260) || '无输出')
+    )
+  }
+
+  // 迁移引导单测：独立子进程（同上；kill switch 只在用例内显式传 env）
+  {
+    const run = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, 'tools', 'selftest-migrate.mjs')], {
+      encoding: 'utf8',
+      env: { ...process.env, CODEBUDDY_HOME: tmpHome, FOX_WIDGET_DATA_DIR: dataDir, WHALE_DISABLE_UPDATE_CHECK: '1' },
+    })
+    const m = /迁移引导自检：(\d+)\/(\d+) 通过/.exec(String(run.stdout || ''))
+    check(
+      '迁移引导单测全绿（offer 校验 / stable-only / URL 白名单 / 多镜像取舍 / 探测节流 / 预检只读 / eol 哨兵 / 普通更新回归）',
+      run.status === 0 && !!m && m[1] === m[2] && Number(m[2]) >= 50,
       m ? m[0] + '（共 ' + m[2] + ' 项）' : (((run.stderr || '') + (run.stdout || '')).slice(-260) || '无输出')
     )
   }
@@ -3361,7 +3486,10 @@ try {
   {
     const lab = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-ensure-'))
     const port2 = 39700 + (process.pid % 200)
-    const env2 = { ...process.env, CODEBUDDY_HOME: lab, FOX_WIDGET_DATA_DIR: lab, FOX_WIDGET_PORT: String(port2) }
+    // FOX_DOCK_DATA / FOX_DOCK_ROOT 也指到临时目录（或清空）：本机若装着 fox-dock
+    // （环境变量或 daemon 在跑），dockOnline / ensureDock 会命中真机，
+    // autostart 就会 skip:dock-online 而不是预期的 no-runtime
+    const env2 = { ...process.env, CODEBUDDY_HOME: lab, FOX_WIDGET_DATA_DIR: lab, FOX_DOCK_DATA: lab, FOX_DOCK_ROOT: '', FOX_WIDGET_PORT: String(port2) }
     const autoLog = path.join(lab, 'autostart.log')
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
     const fire = (dir, payload) =>
@@ -3674,7 +3802,8 @@ try {
     const bounds = { x: 0, y: 0, width: 2560, height: 1400 }
     const overlapOk = df.shouldHideBeforeSwitch({ x: 100, y: 100, width: 1200, height: 900 }, bounds) === false
     const overlapNeg = df.shouldHideBeforeSwitch({ x: -1800, y: 100, width: 1200, height: 900 }, bounds) === true
-    const slit = df.shouldHideBeforeSwitch({ x: -110, y: 0, width: 1200, height: 900 }, bounds) === true
+    // 窄缝：1200 宽的窗口在屏内只剩 110（< 120 DIP 最小可见宽度）→ 隐身
+    const slit = df.shouldHideBeforeSwitch({ x: -1090, y: 0, width: 1200, height: 900 }, bounds) === true
     const degenerate = df.shouldHideBeforeSwitch({ x: 0, y: 0, width: 0, height: 0 }, bounds) === true
     check(
       'display-follow：面积/窄缝/退化矩形判定（大部分可见不隐身，负坐标副屏与窄缝隐身）',
@@ -3686,7 +3815,7 @@ try {
       '跨屏跟随接线：换屏去抖 / 中心判定 / 重建清旧消息 / 兜底复位 / 桌宠不参与',
       mainSrc.includes("require('./display-follow.cjs')") &&
         mainSrc.indexOf('DISPLAY_SWITCH_MS = 700') !== -1 &&
-        /getDisplayNearestPoint\?/.test(mainSrc) &&
+        mainSrc.includes('getDisplayNearestPoint') &&
         /maybeSwitchDisplay\(rect\)/.test(mainSrc) &&
         /clearPendingDisplay\(\)\n  lastFollowerMsg = null/.test(mainSrc) &&
         mainSrc.indexOf('overlayWorkArea = null') !== -1 &&

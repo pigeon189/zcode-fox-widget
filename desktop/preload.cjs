@@ -43,4 +43,7 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
       } catch (err) {}
     })
   },
+  // 迁移说明页外开（「查看说明后升级」第一步）：主进程按 https + GitHub Releases
+  // 白名单校验后才交给系统浏览器；被拒（false）时页面保持未武装并显示可点链接。
+  openExternal: (url) => ipcRenderer.invoke('whale:open-external', String(url || '')),
 })

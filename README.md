@@ -46,6 +46,8 @@
 
 想开自更新：`FOX_WIDGET_ENABLE_UPDATE_CHECK=1`（6 小时自检、镜像链、验签、先备份再替换），风险自负。发版口径见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
 
+**迁到 fox-dock 2.0（独立桌宠程序）**：fox-dock 2.0 正式版发布后（远端清单带迁移公告），开自更新的用户会在「检查更新…」面板看到迁移入口——先点「查看说明后升级」在系统浏览器里看功能与升级代价，确认后按钮变「立即升级」，点击只做本机只读预检并给出安装引导（不代下载、不停服务、不动现有数据）。WorkBuddy 线的凭据不在 dock 的自动导入链里，需在 dock 控制台手动录入。`node lib/cli.mjs migrate --check` 可随时只读预检（不开自更新也能用）；`FOX_WIDGET_DISABLE_MIGRATION=1` 可整体关闭迁移入口。
+
 ---
 
 ## 功能

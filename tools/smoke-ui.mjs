@@ -2856,6 +2856,144 @@ try {
   check('更新面板：返回按钮收起面板', !!upClosed && upClosed.open === false, JSON.stringify(upClosed))
   if (stubUp && stubUp.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubUp.identifier })
 
+  // ⑬b fox-dock 迁移入口（两步「查看说明后升级」）：换迁移桩 reload，走真实点击。
+  // 桩记下 POST 动作与 window.open 的说明页地址；武装态用主按钮文案断言，二次
+  // 点击只产生 migrate 动作（桩会记下，不会真的下载/写盘）。
+  const migStub =
+    '(function(){var real=window.fetch;window.__mig={opened:null,actions:[],skip:false};' +
+    'window.open=function(u){window.__mig.opened=String(u);return {closed:false}};' +
+    'window.fetch=function(u,o){' +
+    "var s=String(u&&u.url?u.url:u);if(s.indexOf('/whale/update.json')!==-1){" +
+    "if(o&&o.method==='POST'){try{var a=JSON.parse(o.body||'{}');window.__mig.actions.push(a.action);if(a.action==='migrate-skip')window.__mig.skip=true}catch(e){}}" +
+    "var mig={available:!window.__mig.skip,version:'2.0.0',manifestVersion:'1.10.0',completed:false," +
+    "skipped:window.__mig.skip?'2.0.0':null,skipActive:window.__mig.skip,probedAt:Date.now()," +
+    "summary:'fox-dock 2.0 正式版：独立桌宠 + 权限接管 + 旧数据导入',highlights:['独立程序，不再依赖宿主插件运行']," +
+    "costs:['自定义气泡图片/模板不自动迁移']," +
+    "notesUrl:'https://github.com/pigeon189/zcode-fox-widget/releases/download/dock-v2.0.0/release-notes-2.0.0.html'," +
+    "downloadUrl:'https://github.com/pigeon189/zcode-fox-widget/releases/tag/dock-v2.0.0'};" +
+    "var b={ok:true,version:'1.10.0',latest:null,available:false,skipped:null,skipActive:false,busy:false,phase:null,progress:0,message:null,source:'stub',migration:mig};" +
+    "if(o&&o.method==='POST'){try{var a2=JSON.parse(o.body||'{}');if(a2.action==='migrate'){" +
+    'b.preflight={ok:false,checks:{},config:{keys:["apiKey"],credentials:{}},data:{bytes:1,files:1},disk:{freeBytes:1,enough:true},dock:{lockFound:false,online:false,version:null,versionOk:false},startup:{own:true,dock:true},update:{pending:false,busy:false,phase:null},installs:{count:1}};' +
+    "b.guide={dockReady:false,steps:['fox-dock 尚未安装：到 GitHub Releases 下载安装包','装好后回到更新面板再点一次「立即升级」']}}}catch(e){}}" +
+    "return Promise.resolve(new Response(JSON.stringify(b),{status:200,headers:{'Content-Type':'application/json'}}))}" +
+    'return real.apply(this,arguments)}})()'
+  const stubMig = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: migStub })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 3000))
+  await pollEval(cdp, "document.readyState === 'complete' && !!document.querySelector('.zcwv-hint')", 12000)
+  // 迁移提醒气泡（键与普通更新提醒分开；文案是「查看说明后再升级」，不是诱导直升）
+  const migNotify = await pollEval(
+    cdp,
+    "(function(){var l=document.querySelector('.zcwv-label');var open=document.querySelector('.zcwv-bubble').classList.contains('zcwv-bubble-open');" +
+      "return (open&&l&&l.textContent.indexOf('fox-dock 2.0')===0)?l.textContent:null})()",
+    8000
+  )
+  check('迁移入口出现时弹一次提醒气泡（fox-dock 2.0 正式版）', migNotify === 'fox-dock 2.0.0 正式版已发布', JSON.stringify(migNotify))
+  // 打开菜单 → 更新入口 → 面板：主按钮「查看说明后升级」，迁移块带 summary + costs
+  await cdp.eval("(function(){document.querySelector('.zcwv-menu-btn').click();return true})()")
+  await new Promise((r) => setTimeout(r, 600))
+  const migPanel1 = JSON.parse(
+    await cdp.eval(
+      "(function(){var bs=document.querySelectorAll('.zcwv-menu-row button');var btn=null;" +
+        "for(var i=0;i<bs.length;i++){if(bs[i].textContent.indexOf('\\u68c0\\u67e5\\u66f4\\u65b0')===0)btn=bs[i]}" +
+        "if(!btn)return JSON.stringify({err:'no-btn'});btn.click();" +
+        "var p=document.querySelector('.zcwv-update');if(!p)return JSON.stringify({err:'no-panel'});" +
+        "var st=document.querySelector('.zcwv-update-state');var mig=p.querySelector('.zcwv-update-mig');" +
+        "var labels=[];var pb=p.querySelectorAll('button');for(var j=0;j<pb.length;j++)labels.push(pb[j].textContent);" +
+        "return JSON.stringify({state:st?st.textContent:null,labels:labels,migVisible:mig&&mig.style.display!=='none'," +
+        "migText:mig?mig.textContent:''})})()"
+    )
+  )
+  check(
+    '迁移面板：状态行「fox-dock 2.0 可迁移」，主按钮「查看说明后升级」，块内显示 summary 与 costs',
+    !!migPanel1 && migPanel1.state === 'fox-dock 2.0.0 可迁移' &&
+      (migPanel1.labels || []).indexOf('查看说明后升级') !== -1 &&
+      migPanel1.migVisible === true &&
+      (migPanel1.migText || '').indexOf('独立桌宠') !== -1 &&
+      (migPanel1.migText || '').indexOf('气泡图片') !== -1,
+    JSON.stringify(migPanel1 && { state: migPanel1.state, labels: migPanel1.labels, migVisible: migPanel1.migVisible })
+  )
+  // 第一步：点「查看说明后升级」→ 系统浏览器/桩打开说明页，按钮变「立即升级」；
+  // 必须没有发出任何下载/迁移动作
+  const migArm = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-update');if(!p)return JSON.stringify({err:'no-panel'});" +
+        "var bs=p.querySelectorAll('button');for(var i=0;i<bs.length;i++){" +
+        "if(bs[i].textContent==='\\u67e5\\u770b\\u8bf4\\u660e\\u540e\\u5347\\u7ea7'){bs[i].click();return JSON.stringify({clicked:true})}}" +
+        'return JSON.stringify({clicked:false})})()'
+    )
+  )
+  await new Promise((r) => setTimeout(r, 800))
+  const migArmState = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-update');if(!p)return JSON.stringify({err:'no-panel'});" +
+        "var labels=[];var bs=p.querySelectorAll('button');for(var j=0;j<bs.length;j++)labels.push(bs[j].textContent);" +
+        'return JSON.stringify({labels:labels,opened:window.__mig.opened,actions:window.__mig.actions})})()'
+    )
+  )
+  check(
+    '迁移两步：首点只打开说明页并武装（无任何下载/迁移动作），按钮变「立即升级」',
+    !!migArm.clicked && !!migArmState &&
+      (migArmState.labels || []).indexOf('立即升级') !== -1 &&
+      /releases\/download\/dock-v2\.0\.0/.test(String(migArmState.opened || '')) &&
+      (migArmState.actions || []).length === 0,
+    JSON.stringify(migArmState)
+  )
+  // 第二步：点「立即升级」→ 只触发 migrate 预检；引导步骤与自启交接按钮出现
+  const migGo = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-update');if(!p)return JSON.stringify({err:'no-panel'});" +
+        "var bs=p.querySelectorAll('button');for(var i=0;i<bs.length;i++){" +
+        "if(bs[i].textContent==='\\u7acb\\u5373\\u5347\\u7ea7'){bs[i].click();return JSON.stringify({clicked:true})}}" +
+        'return JSON.stringify({clicked:false})})()'
+    )
+  )
+  await new Promise((r) => setTimeout(r, 1200))
+  const migGoState = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-update');if(!p)return JSON.stringify({err:'no-panel'});" +
+        "var mig=p.querySelector('.zcwv-update-mig');var labels=[];var bs=p.querySelectorAll('button');" +
+        'for(var j=0;j<bs.length;j++)labels.push(bs[j].textContent);' +
+        "return JSON.stringify({labels:labels,actions:window.__mig.actions,migText:mig?mig.textContent:'',migVisible:mig&&mig.style.display!=='none'})})()"
+    )
+  )
+  check(
+    '迁移两步：二次点击只发 migrate 预检，引导步骤出现，自启交接按钮就位',
+    !!migGo.clicked && !!migGoState &&
+      (migGoState.actions || []).indexOf('migrate') !== -1 &&
+      (migGoState.actions || []).indexOf('update') === -1 &&
+      (migGoState.migText || '').indexOf('迁移步骤') !== -1 &&
+      (migGoState.labels || []).indexOf('撤掉本挂件的开机自启') !== -1,
+    JSON.stringify(migGoState)
+  )
+  // 跳过迁移：走 migrate-skip（与 1.x 的 updateSkip 分开），入口隐藏、按钮回「检查更新」
+  const migSkip = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-update');if(!p)return JSON.stringify({err:'no-panel'});" +
+        "var bs=p.querySelectorAll('button');for(var i=0;i<bs.length;i++){" +
+        "if(bs[i].textContent==='\\u8df3\\u8fc7\\u6b64\\u7248\\u672c'){bs[i].click();return JSON.stringify({clicked:true})}}" +
+        'return JSON.stringify({clicked:false})})()'
+    )
+  )
+  await new Promise((r) => setTimeout(r, 1200))
+  const migSkipState = JSON.parse(
+    await cdp.eval(
+      "(function(){var p=document.querySelector('.zcwv-update');if(!p)return JSON.stringify({err:'no-panel'});" +
+        "var mig=p.querySelector('.zcwv-update-mig');var labels=[];var bs=p.querySelectorAll('button');" +
+        'for(var j=0;j<bs.length;j++)labels.push(bs[j].textContent);' +
+        "return JSON.stringify({labels:labels,actions:window.__mig.actions,migVisible:mig&&mig.style.display!=='none'})})()"
+    )
+  )
+  check(
+    '迁移跳过：走 migrate-skip，入口隐藏、主按钮回「检查更新」',
+    !!migSkip.clicked && !!migSkipState &&
+      (migSkipState.actions || []).indexOf('migrate-skip') !== -1 &&
+      (migSkipState.labels || []).indexOf('检查更新') !== -1 &&
+      migSkipState.migVisible === false,
+    JSON.stringify(migSkipState)
+  )
+  if (stubMig && stubMig.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubMig.identifier })
+
   // ⑭ 按模型换角色 + 等确认提醒（v-next）
   // 桩直接在当前页面里覆盖 fetch（不 reload）：模型/钩子状态由 window.__model、
   // window.__hook 两个旋钮驱动，页面自己的 3s（会话）/5s（钩子）轮询会跟着变。
