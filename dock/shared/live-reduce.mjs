@@ -97,6 +97,10 @@ export function reduce(prev, evt, now = Date.now()) {
   const e = evt && typeof evt === 'object' ? evt : {}
   const at = finite(e.at, now)
   const p = prev && typeof prev === 'object' ? prev : null
+  // 乱序丢弃只认「严格更早」：at === updatedAt 的同毫秒重复投递会再执行一遍
+  // （如重放 turn_start 会把 turns.count 再加 1）。留档（复审 P2）：真实钩子
+  // 事件时间戳单调、无重放来源，做 (event, at, turnId) 去重前先证明有这个
+  // 敌人；若未来出现重放来源，在入口按最近一条事件做身份去重。
   if (p && Number.isFinite(Number(p.updatedAt)) && at < Number(p.updatedAt)) {
     return { session: p, changed: false, dropped: true }
   }
@@ -330,10 +334,18 @@ export function expire(prev, now = Date.now()) {
 
   if (livePending.length === 0 && s.status === 'waiting_permission') {
     // 没有活着的 pending 就不能再显示「等待确认」：刚结束的回合保持 done 4s，
-    // 否则回落 idle，而不是再等 10 分钟。
-    const endedAt = Number(s.endedAt) || 0
-    next.status = endedAt > 0 && now - endedAt < DONE_HOLD_MS ? 'done' : 'idle'
-    next.statusSince = now
+    // 否则回落 idle，而不是再等 10 分钟。钩子确认回合还在跑（turnActive）时
+    // 不能落 done/idle——那是「等待中」被误清的瞬态，下一拍自愈不该发生
+    // （D056：turnActive 压制 done/idle；复审 P1）。
+    if (next.turnActive === true) {
+      next.status = 'working'
+      next.statusSince = now
+      next.doneAt = 0
+    } else {
+      const endedAt = Number(s.endedAt) || 0
+      next.status = endedAt > 0 && now - endedAt < DONE_HOLD_MS ? 'done' : 'idle'
+      next.statusSince = now
+    }
     changed = true
   } else if (next.turnActive === true && (s.status === 'idle' || s.status === 'done')) {
     // 钩子说回合还在跑：库里的 idle/done 快照不能把它打下去。
@@ -446,9 +458,15 @@ export function mergeSnapshot(prev, incoming, now = Date.now(), opts = {}) {
     : 0
 
   // doneAt：活跃状态清零；done 用本次快照的时间；idle 保留（5 分钟窗口）。
+  // 例外（D056 修订 / 复审 R2-2）：db 明确说最后一回合不是 completed——
+  // 适配器对 cancelled/error 回合刻意落 doneAt=null（idle + endedAt）。
+  // 这时不能回退保留 prev.doneAt，否则手动停止后 5 分钟内仍显示「已完成」。
+  const dbSaysNotCompleted =
+    dbTurnEnded && next.status === 'idle' && !Number(incoming.doneAt)
   const incomingActive = ['working', 'waiting_permission', 'waiting_input', 'error'].includes(next.status)
   if (incomingActive) next.doneAt = 0
   else if (next.status === 'done') next.doneAt = Number(incoming.doneAt) || Number(incoming.statusSince) || now
+  else if (dbSaysNotCompleted) next.doneAt = 0
   else next.doneAt = Number(incoming.doneAt) || Number(prev.doneAt) || 0
 
   // 滞回（问题 6「状态横跳」）：适配器按静默推断的 idle（statusSource='inferred'，

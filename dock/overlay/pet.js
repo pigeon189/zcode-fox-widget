@@ -497,8 +497,11 @@ function applySettings() {
   // 桌面悬浮时「避让滚动条」改的是屏幕右缘安全距离：值一变就按新缝重夹当前
   // 位置（ON 立即左移 17px）。从 ON 关掉时，如果角色正停在「右缘-旧缝」上，
   // 顺手贴回屏幕右缘，开关两个方向都有可见反馈。
+  // 正处于失焦兜底角（fallbackFacing 非空）时跳过这次重夹：兜底位按 D044
+  // 是「贴死工作区角」（noGap），按新缝重夹会把角色从贴角位内移一个缝宽
+  // （复审 R1-3）；回前台吸附/重落角时自然按新设置落位。
   const gapKey = (settings.scrollGapOn ? '1' : '0') + ':' + (Number(settings.scrollGap) || 0)
-  if (lastScrollGapKey && gapKey !== lastScrollGapKey && state.pet.mode !== 'attached') {
+  if (lastScrollGapKey && gapKey !== lastScrollGapKey && state.pet.mode !== 'attached' && !fallbackFacing) {
     const prevGap = Number(String(lastScrollGapKey).split(':')[1]) || 0
     const prevOn = String(lastScrollGapKey).startsWith('1:')
     const atOldEdge = prevOn && Math.abs(pos.x - (window.innerWidth - size - prevGap)) < 1.5

@@ -37,7 +37,7 @@ let base = ''
 function seedZcode() {
   const dbFile = path.join(zcodeHome, 'cli', 'db', 'db.sqlite')
   fs.mkdirSync(path.dirname(dbFile), { recursive: true })
-  const db = new DatabaseSync(dbFile)
+  const db = new DatabaseSync(dbFile, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
     CREATE TABLE model_usage (
@@ -52,6 +52,12 @@ function seedZcode() {
   db.prepare(
     `INSERT INTO model_usage VALUES ('s1','t1','p','deepseek-v4.1','completed',?,?,?,?,?,?,?,?,?)`
   ).run(now - 1000, now - 900, 800, 200, 0, 0, 200, 1000, 0)
+  // 标题里埋主目录路径：匿名读面（R3-1）必须脱敏后再出站
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir()
+  db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?)').run('s2', null, 'proj ' + home + '\\repo\\x', now - 1, null, null)
+  db.prepare(
+    `INSERT INTO model_usage VALUES ('s2','t2','p','deepseek-v4.1','completed',?,?,?,?,?,?,?,?,?)`
+  ).run(now - 2000, now - 1900, 800, 200, 0, 0, 200, 1000, 0)
   db.close()
   const endpoint = path.join(zcodeHome, 'v2', 'runtime', 'provider', 'windows-x86_64', '9.9.9', 'ep')
   fs.mkdirSync(endpoint, { recursive: true })
@@ -189,6 +195,47 @@ test('v1: 上下文接口返回 used/limit/pct，并带会话列表', async () =
   const none = await (await fetch(base + '/v1/agents/workbuddy/context')).json()
   assert.equal(none.context.supported, false)
   assert.equal(none.context.used, null)
+})
+
+test('v1: 匿名读面的会话标题与绑定 key/title 过主目录脱敏（R3-1）', async () => {
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir()
+  assert.ok(home, '需要可用的主目录')
+  const s = await (await fetch(base + '/v1/agents/zcode/sessions')).json()
+  assert.equal(s.ok, true)
+  const s2 = (s.sessions || []).find((x) => x.id === 's2')
+  assert.ok(s2, 's2 会话应在列')
+  assert.ok(!s2.title.includes(home), 'listSessions title 泄漏主目录: ' + s2.title)
+  assert.ok(s2.title.includes('~'), '主目录应替换成 ~: ' + s2.title)
+
+  // 绑定读面：/v1/state（并经 SSE 'state' 广播）与 /v1/bindings；hwnd 必须保留
+  //（宠物层吸附匹配用），key（完整 exe 路径）与 title 脱敏。
+  const bindingFile = path.join(dir, 'bindings.json')
+  fs.writeFileSync(
+    bindingFile,
+    JSON.stringify([
+      {
+        key: home + '\\apps\\ZCode.exe|100|200|0xabc',
+        adapterId: 'zcode',
+        anchor: { corner: 'top-right' },
+        window: { title: 'repo ' + home + '\\proj', exe: home + '\\apps\\ZCode.exe', hwnd: '0xabc', pid: 100 },
+        at: Date.now(),
+      },
+    ])
+  )
+  try {
+    const st = await (await fetch(base + '/v1/state')).json()
+    const b = (st.bindings || [])[0]
+    assert.ok(b, '/v1/state 应带种子绑定')
+    assert.ok(!b.key.includes(home) && !b.title.includes(home), '/v1/state bindings 泄漏主目录')
+    const bl = await (await fetch(base + '/v1/bindings')).json()
+    const bb = (bl.bindings || [])[0]
+    assert.ok(bb && bb.window && bb.window.hwnd === '0xabc', '/v1/bindings 的 hwnd 保留（吸附匹配用）')
+    assert.ok(!bb.key.includes(home), '/v1/bindings key 泄漏主目录')
+    assert.ok(!bb.window.title.includes(home) && !bb.window.exe.includes(home), '/v1/bindings window 泄漏主目录')
+    assert.ok(bb.window.title.includes('~'))
+  } finally {
+    fs.rmSync(bindingFile, { force: true })
+  }
 })
 
 test('v1: 厂商页走内置 engines，响应里没有完整密钥', async () => {

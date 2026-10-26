@@ -498,9 +498,30 @@ function App() {
     } catch (err) {}
   }
 
+  // 乐观更新的嵌套深合并（复审 R3-4）：patch 为 {permission:{takeover}} 这类
+  // 嵌套对象时，顶层浅合并会把 UI 侧整个 permission/live/ingest/hotkeys 子对象
+  // 替换成只有一个键的临时值，PUT 往返期间「接管等待时长」下拉与热键输入框
+  // 瞬显错误默认值/空值。与 daemon writeSettings 的合并规则同构（数组与标量
+  // 整体替换，普通对象逐键合并）。
+  function mergeSettingsPatch(base, patch) {
+    const next = { ...base }
+    for (const k of Object.keys(patch)) {
+      const v = patch[k]
+      if (
+        v && typeof v === 'object' && !Array.isArray(v) &&
+        next[k] && typeof next[k] === 'object' && !Array.isArray(next[k])
+      ) {
+        next[k] = mergeSettingsPatch(next[k], v)
+      } else {
+        next[k] = v
+      }
+    }
+    return next
+  }
+
   function saveSettings(patch) {
     const before = settingsRef.current || {}
-    setSettings((s) => ({ ...s, ...patch }))
+    setSettings((s) => mergeSettingsPatch(s, patch))
     // 串行保存：两个开关快速连点时，后一个的失败回滚不能把前一个已成功的
     // 改动一起撤销（旧实现用整份 settings 快照回滚）；成功时也只合并本次
     // patch 的字段，不拿服务端整份响应覆盖还排在队列里的乐观值。

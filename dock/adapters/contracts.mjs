@@ -28,6 +28,7 @@ import {
   prov,
   unavailable,
 } from '../shared/provenance.mjs'
+import { redactHome } from '../shared/redact.mjs'
 
 export const UNITS = ['money', 'credit', 'percent']
 
@@ -390,7 +391,9 @@ export function normalizeContext(raw, ctx = {}) {
     confidence,
     reason,
     sessionId: text(r.sessionId, 80),
-    title: text(r.title, 160),
+    // 上下文经 HTTP /v1/context 与匿名可订阅的 SSE 'context' 两条路出站：
+    // 标题常含文件路径/用户名，在组装边界统一过主目录脱敏（R3-1）。
+    title: redactHome(text(r.title, 160)),
     model: text(r.model, 80),
     limit,
     limitSource: ['host', 'config', 'builtin-table', 'unknown'].includes(String(r.limitSource || ''))

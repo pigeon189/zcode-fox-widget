@@ -113,6 +113,17 @@ test('provenance-adapters: 上下文 used/limit 分别标注（host/config/built
   assert.equal(missing.provenance.used.reason, 'host-unsupported')
 })
 
+test('provenance-adapters: normalizeContext 标题过主目录脱敏（R3-1，HTTP 与 SSE context 共用）', () => {
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir()
+  if (!home) return
+  const ctx = normalizeContext(
+    { supported: true, confidence: 'exact', used: 10, limit: 100, limitSource: 'host', title: 'repo ' + home + '\\proj\\x' },
+    { adapterId: 'zcode', now: 1 }
+  )
+  assert.ok(!ctx.title.includes(home), 'context.title 泄漏主目录: ' + ctx.title)
+  assert.ok(ctx.title.includes('~'))
+})
+
 test('provenance-adapters: buildStats 每个维度都有 provenance；cost 是 estimated/pricing-table', () => {
   const stats = buildStats({
     now: 1000,
@@ -201,7 +212,7 @@ test('provenance-adapters: ZCode 快照（金额估算/用量本地库/余额不
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-prov-zc-'))
   try {
     const file = path.join(dir, 'db.sqlite')
-    const db = new sqlite.DatabaseSync(file)
+    const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
     db.exec(`CREATE TABLE model_usage (session_id TEXT, turn_id TEXT, provider_id TEXT, model_id TEXT, status TEXT, started_at INTEGER, input_tokens INTEGER, output_tokens INTEGER, reasoning_tokens INTEGER, cache_read_input_tokens INTEGER, cache_creation_input_tokens INTEGER, computed_total_tokens INTEGER);
       CREATE TABLE turn_usage (session_id TEXT, turn_id TEXT, status TEXT, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER);
       CREATE TABLE tool_usage (session_id TEXT, turn_id TEXT, tool_name TEXT, status TEXT, started_at INTEGER, duration_ms INTEGER);`)

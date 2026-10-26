@@ -345,6 +345,15 @@ test('e2e: 失焦兜底贴死角落，不被右侧避让缝内移', async () => 
     })
     assert.ok(Math.abs(r.pos.x + r.size - r.viewport.w) <= 1, '右下兜底必须贴住右缘：' + JSON.stringify(r))
     assert.ok(Math.abs(r.pos.y + r.size - r.viewport.h) <= 1, '右下兜底必须贴住底边：' + JSON.stringify(r))
+    // 落角后再改「避让滚动条」：兜底位按 D044 贴死角落（noGap），按新缝重夹
+    // 会把角色内移一个缝宽（复审 R1-3）——兜底期间必须原地不动。
+    const after = await p.evaluate(() => {
+      window.__pet.setSettings({ scrollGapOn: false })
+      const fox = document.getElementById('fox')
+      return { x: parseFloat(fox.style.left), y: parseFloat(fox.style.top) }
+    })
+    assert.equal(after.x, r.pos.x, '兜底期间改 scrollGapOn 不应移动角色')
+    assert.equal(after.y, r.pos.y, '兜底期间改 scrollGapOn 不应移动角色')
     assert.equal(errors.length, 0, errors.join(' | '))
   } finally {
     await ctx.close()

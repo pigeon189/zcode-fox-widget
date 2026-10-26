@@ -14,7 +14,6 @@ import './bootstrap.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { VERSION } from './main.mjs'
@@ -39,6 +38,9 @@ import { createUsageBreakdown } from './usage-breakdown.mjs'
 import { createVault } from './vault.mjs'
 import { installLauncher, uninstallLauncher, launcherPaths, startupDir } from './install.mjs'
 import { buildBindKey } from '../../shared/identity.mjs'
+// 主目录脱敏统一走 shared 版（4 变体 + 大小写不敏感，review 2026-10-26 P3-1）；
+// 本文件曾自带弱化单变体实现，诊断包会漏替正斜杠/混合大小写的主目录路径（R2-3）。
+import { redactHome } from '../../shared/redact.mjs'
 import { builtinAdapters, describeAdapters, resolveAdapter } from '../../adapters/registry.mjs'
 import { DEFAULT_PORT, MAX_PORT_TRIES, pathsFor } from './paths.mjs'
 import { Win32Bridge } from './win32.mjs'
@@ -85,15 +87,6 @@ function log(...parts) {
   LOG_RING.push(new Date().toISOString().slice(11, 19) + ' ' + parts.join(' '))
   if (LOG_RING.length > 200) LOG_RING.shift()
   console.log(line)
-}
-
-function redactHome(text) {
-  try {
-    const home = os.homedir()
-    return home ? String(text).split(home).join('~') : String(text)
-  } catch (err) {
-    return String(text)
-  }
 }
 
 function sendJson(res, code, obj) {
@@ -759,9 +752,17 @@ export async function runDaemon(argv = process.argv.slice(2)) {
   let watcher = null
   if (bridge) {
     watcher = createAgentWatcher({ bridge, adapters })
+    // SSE 是匿名可订阅的读面：事件里的窗口标题/exe 可能带文件路径与用户名，
+    // 广播前过主目录脱敏（R3-1）；内部吸附逻辑仍用原文 hwnd/title。
+    const redactWatcherEvent = (e) => ({
+      ...e,
+      window: e && e.window
+        ? { ...e.window, title: redactHome(e.window.title || ''), exe: redactHome(e.window.exe || '') }
+        : e && e.window,
+    })
     watcher.on('appear', (e) => {
       try {
-        sse.broadcast('agent-appeared', e)
+        sse.broadcast('agent-appeared', redactWatcherEvent(e))
         const settings = readSettings(paths.settings)
         let pet = settings.pet
         // 悬浮态且等的是这个 agent → 自动重新吸附（设置默认开）
@@ -786,7 +787,7 @@ export async function runDaemon(argv = process.argv.slice(2)) {
           writePet(paths.settings, transition(settings.pet, { type: 'agent-window-gone' }))
           v1.broadcastState()
         }
-        sse.broadcast('agent-gone', e)
+        sse.broadcast('agent-gone', redactWatcherEvent(e))
       } catch (err) {}
     })
     watcher.start()

@@ -304,9 +304,12 @@ export function createV1Router(deps) {
         hotkeys: settings.hotkeys,
       },
       bindings: readBindings(paths.bindings).slice(0, 20).map((b) => ({
-        key: b.key,
+        // 匿名读面且经 SSE 'state' 广播（R3-1）：key 含完整 exe 路径、标题常含
+        // 文件路径/用户名，与诊断包同口径过主目录脱敏。宠物层吸附匹配走
+        // /v1/bindings 的 hwnd，不依赖这里的 key 原文。
+        key: redactHome(b.key || ''),
         adapterId: b.adapterId,
-        title: b.window ? b.window.title : '',
+        title: redactHome(b.window ? b.window.title || '' : ''),
         hwnd: b.window ? b.window.hwnd : '',
       })),
       daemon: {
@@ -421,7 +424,13 @@ export function createV1Router(deps) {
 
       const sessMatch = p.match(/^\/v1\/agents\/([^/]+)\/sessions$/)
       if (sessMatch && method === 'GET') {
-        sendJson(res, 200, { ok: true, sessions: await sessionsFor(decodeURIComponent(sessMatch[1])) })
+        // 匿名 GET 读面（R3-1）：适配器 listSessions 的原始 title 可能带完整路径，
+        // 与跨 agent 的 /v1/sessions 同一脱敏口径。
+        const list = await sessionsFor(decodeURIComponent(sessMatch[1]))
+        sendJson(res, 200, {
+          ok: true,
+          sessions: (Array.isArray(list) ? list : []).map((s) => sanitizeSession(s, { authorized })),
+        })
         return true
       }
 
@@ -715,7 +724,16 @@ export function createV1Router(deps) {
       }
 
       if (p === '/v1/bindings' && method === 'GET') {
-        sendJson(res, 200, { ok: true, bindings: readBindings(paths.bindings) })
+        // 匿名 GET 读面（R3-1）：宠物层只用 window.hwnd 做吸附匹配，key（完整
+        // exe 路径）与 title 同样过主目录脱敏。
+        sendJson(res, 200, {
+          ok: true,
+          bindings: readBindings(paths.bindings).map((b) => ({
+            ...b,
+            key: redactHome(b.key || ''),
+            window: b.window ? { ...b.window, title: redactHome(b.window.title || ''), exe: redactHome(b.window.exe || '') } : b.window,
+          })),
+        })
         return true
       }
 

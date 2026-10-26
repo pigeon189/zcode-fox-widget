@@ -148,7 +148,11 @@ export function SessionsPage({ app }) {
   const [selected, setSelected] = useState(initial.get('select') || '')
   const [tab, setTab] = useState(TABS.some((t) => t.value === initial.get('tab')) ? initial.get('tab') : 'overview')
   const [expanded, setExpanded] = useState(() => new Set())
-  const [detail, setDetail] = useState(null)
+  // 详情响应带着取它时的选中 key 落地（复审 R3-3）：切换选中 A→B 后、B 的
+  // 详情请求返回前，不能把 A 的详情整块（标题/回合/工具/成本/「跳转到宿主
+  // 窗口」「复制会话 ID」）继续挂在 B 的行高亮下——那两个按钮此刻会作用于
+  // 旧会话。渲染时 detail 只在 key 与当前选中一致时使用，否则回退列表行。
+  const [detailState, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
@@ -327,7 +331,7 @@ export function SessionsPage({ app }) {
     let alive = true
     app
       .api('/v1/sessions/' + encodeURIComponent(selected))
-      .then((d) => alive && setDetail(d))
+      .then((d) => alive && setDetail({ key: selected, data: d }))
       .catch(() => alive && setDetail(null))
     return () => {
       alive = false
@@ -390,6 +394,9 @@ export function SessionsPage({ app }) {
   }
   const shown = visible
   const loadedRoots = roots.length
+  // 详情面板与选中行同源：detail 只在「它就是当前选中会话的响应」时使用，
+  // 否则（切换选中的请求在途）回退列表行数据（复审 R3-3）。
+  const detail = detailState && detailState.key === selected ? detailState.data : null
   const current = detail && detail.session ? detail.session : byKey.get(selected) || null
   const pending = items.flatMap((s) => (s.pending || []).map((p) => ({ ...p, agentId: s.agentId, sessionKey: s.key })))
   const waitingCount = Number(counts.waiting_permission != null ? counts.waiting_permission : counts.waiting) || 0

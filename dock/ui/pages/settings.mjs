@@ -83,6 +83,19 @@ export function SettingsPage({ app }) {
     save(parts.join('+') + '+' + upper)
   }
 
+  // 全局热键（显示或隐藏角色 / 打开控制台 / 隐藏金额）与权限热键同款 keydown
+  // 采集（复审 R3-2）：逐键 onInput 会把不完整的组合（'C'、'Ctrl'）交给 daemon
+  // 的 normalizeHotkey，被静默回落默认值并在 PUT 响应后把受控输入框弹回默认
+  // 串，用户实际无法录入。按下完整组合才保存；Escape 清除（留空 = 关闭该热键）。
+  function recordGlobalHotkey(e, save) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      save('')
+      return
+    }
+    recordHotkey(e, save)
+  }
+
   async function openImport() {
     try {
       const d = await app.api('/v1/import/sources')
@@ -312,14 +325,14 @@ export function SettingsPage({ app }) {
                   .catch((e) => app.toast('自启设置失败：' + String(e.message || e), 'bad'))
               }} />
             </${Row}>
-            <${Row} label="显示或隐藏角色" hint="全局热键，格式如 Ctrl+Alt+F；留空表示关闭。按下后切换桌面角色的显示与隐藏" hidden=${!has('全局热键')}>
-              <${Input} aria-label="显示或隐藏角色热键" value=${s.hotkeys?.toggle || ''} onInput=${(v) => save({ hotkeys: { toggle: v } })} style=${{ width: 140 }} />
+            <${Row} label="显示或隐藏角色" hint="全局热键：点击输入框后按下组合键（如 Ctrl+Alt+F），Escape 清除（留空 = 关闭）。按下后切换桌面角色的显示与隐藏" hidden=${!has('全局热键')}>
+              <${Input} aria-label="显示或隐藏角色热键" value=${s.hotkeys?.toggle || ''} title="点击后按下组合键" onKeyDown=${(e) => recordGlobalHotkey(e, (v) => save({ hotkeys: { toggle: v } }))} style=${{ width: 140 }} />
             </${Row}>
-            <${Row} label="打开控制台" hint="全局热键。按下后打开 fox-dock 控制台窗口" hidden=${!has('全局热键')}>
-              <${Input} aria-label="打开控制台热键" value=${s.hotkeys?.console || ''} onInput=${(v) => save({ hotkeys: { console: v } })} style=${{ width: 140 }} />
+            <${Row} label="打开控制台" hint="全局热键：点击输入框后按下组合键，Escape 清除。按下后打开 fox-dock 控制台窗口" hidden=${!has('全局热键')}>
+              <${Input} aria-label="打开控制台热键" value=${s.hotkeys?.console || ''} title="点击后按下组合键" onKeyDown=${(e) => recordGlobalHotkey(e, (v) => save({ hotkeys: { console: v } }))} style=${{ width: 140 }} />
             </${Row}>
-            <${Row} label="隐藏金额" hint="全局热键。按下后临时隐藏金额与胶囊（与「隐藏金额」开关同一效果）" hidden=${!has('全局热键')}>
-              <${Input} aria-label="隐藏金额热键" value=${s.hotkeys?.hideMoney || ''} onInput=${(v) => save({ hotkeys: { hideMoney: v } })} style=${{ width: 140 }} />
+            <${Row} label="隐藏金额" hint="全局热键：点击输入框后按下组合键，Escape 清除。按下后临时隐藏金额与胶囊（与「隐藏金额」开关同一效果）" hidden=${!has('全局热键')}>
+              <${Input} aria-label="隐藏金额热键" value=${s.hotkeys?.hideMoney || ''} title="点击后按下组合键" onKeyDown=${(e) => recordGlobalHotkey(e, (v) => save({ hotkeys: { hideMoney: v } }))} style=${{ width: 140 }} />
             </${Row}>
             <${Row} label="启动时检查更新" hidden=${!has('检查更新')}>
               <${Toggle} checked=${s.autoUpdate} onChange=${(v) => save({ autoUpdate: v })} />

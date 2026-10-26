@@ -3,7 +3,7 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, nativeImage, Notification } = require('electron')
 const { overlayWorkAreaBounds } = require('./window-bounds.cjs')
-const { probeOnce, createProbeWatchdog } = require('./input-probe.cjs')
+const { probeOnce, createProbeWatchdog, createMousePolicy } = require('./input-probe.cjs')
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(name)
@@ -209,10 +209,9 @@ function startInputProbe() {
         return
       }
       watchdog.ok()
-      // 以页面 DOM 的真实命中为准纠正穿透状态，不再依赖渲染层 IPC 是否还通。
-      try {
-        win.setIgnoreMouseEvents(!probe.hit, { forward: true })
-      } catch (err) {}
+      // 以页面 DOM 的真实命中为准纠正穿透状态，不再依赖渲染层 IPC 是否还通；
+      // 纠正同时写回权威状态（mousePolicy），否则 300ms 轮询会用陈旧值回滚。
+      mousePolicy.applyProbe(probe)
     } catch (err) {
       watchdog.fail()
     }
@@ -285,17 +284,25 @@ let consoleProcess = null
 let overlayShown = true
 let manuallyHidden = false
 let petBusy = false
-let rendererInteractive = false
 let zOrderTimer = null
 
 // 浮层的鼠标策略：渲染层只在指针压到角色/菜单/气泡上时要求交互。
 // 全屏视频/无边框全屏应用上方仍保留角色：指针不在角色上时点击穿透给应用，
 // 压在角色上时正常点击/拖动（不能因为「下方全屏」就永久忽略鼠标）。
+// 「渲染层要交互」的权威状态（rendererInteractive 语义）收进 mousePolicy：
+// IPC 'set-interactive' 与 30s 输入探针都写它，300ms zOrder 轮询只重放，
+// 否则探针的纠正最迟 300ms 后被陈旧值回滚（D057 / 复审 R1-1）。
+const mousePolicy = createMousePolicy({
+  apply(ignore) {
+    if (!win || win.isDestroyed() || noClickThrough) return
+    try {
+      win.setIgnoreMouseEvents(ignore, { forward: true })
+    } catch (err) {}
+  },
+})
+
 function applyMousePolicy() {
-  if (!win || win.isDestroyed() || noClickThrough) return
-  try {
-    win.setIgnoreMouseEvents(!rendererInteractive || !overlayShown, { forward: true })
-  } catch (err) {}
+  mousePolicy.refresh()
 }
 
 function setOverlayShown(show) {
@@ -316,7 +323,7 @@ function setOverlayShown(show) {
       win.showInactive()
     } catch (err) {}
   }
-  applyMousePolicy()
+  mousePolicy.setShown(v)
 }
 
 async function syncZOrder() {
@@ -383,6 +390,7 @@ function toggleVisible() {
     } else {
       manuallyHidden = false
       overlayShown = true
+      mousePolicy.setShown(true)
       win.setOpacity(1)
       win.showInactive()
       syncZOrder().catch(() => {})
@@ -719,10 +727,13 @@ app.whenReady().then(() => {
       }
       if (scaleChanged) {
         daemonApi('/v1/maintenance/bridge-restart', 'POST', {})
-          .then(refitRenderer)
           .catch((err) => {
+            // 桥重启失败只告警：渲染层重读 /rect 与窗口原点不依赖桥重启是否
+            // 成功，不能因此跳过 refit——否则角色按旧工作区原点偏移摆放，
+            // 直到下一次缩放 refit 或渲染进程重载（复审 R1-2）。
             console.warn('[fox-dock] bridge restart failed: ' + (err && err.message ? err.message : err))
           })
+          .then(refitRenderer, refitRenderer)
       } else if (boundsChanged) {
         // 只改工作区原点（任务栏换边、显示器排布变化）也必须让渲染层重读
         // 窗口原点，否则本地坐标仍按旧 origin 偏移。
@@ -873,8 +884,7 @@ app.whenReady().then(() => {
   ipcMain.on('quit-dock', () => quitDock())
 
   ipcMain.on('set-interactive', (_e, on) => {
-    rendererInteractive = !!on
-    applyMousePolicy()
+    mousePolicy.setInteractive(!!on)
   })
   ipcMain.on('set-busy', (_e, on) => {
     petBusy = !!on

@@ -137,6 +137,46 @@ test('e2e: 上下文切换失败时不残留上一会话数据，并显示重试
   }
 })
 
+test('e2e: 切换选中会话时详情面板与选中行同源，旧详情不挂在新行下（复审 R3-3）', async () => {
+  const sessions = [
+    { key: 'zcode:sA', agentId: 'zcode', sessionId: 'sA', title: '详情标题甲', status: 'idle', model: 'model-A' },
+    { key: 'zcode:sB', agentId: 'zcode', sessionId: 'sB', title: '列表标题乙', status: 'idle', model: 'model-B' },
+  ]
+  const { ctx, p, errors } = await openRouted('sessions?select=zcode%3AsA', async (page) => {
+    await page.route(/\/v1\/sessions\?/, (route) =>
+      route.fulfill({ json: { ok: true, items: sessions, counts: { idle: 2 }, total: 2, rootTotal: 2 } })
+    )
+    await page.route(/\/v1\/sessions\/[^/?]+$/, async (route) => {
+      const key = decodeURIComponent(route.request().url().split('/v1/sessions/')[1].split('?')[0])
+      const hit = sessions.find((s) => s.key === key)
+      if (!hit) return route.fulfill({ status: 404, json: { ok: false } })
+      if (key === 'zcode:sB') {
+        // B 的详情延迟返回：窗口期内详情面板必须显示 B 的列表行数据，
+        // 不能继续渲染 A 的详情（「跳转到宿主窗口」会作用于旧会话）。
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+      // B 的详情标题与列表行刻意不同，两个数据源可区分；A 保持原标题。
+      const payload = key === 'zcode:sB' ? { ...hit, title: '详情标题乙' } : hit
+      return route.fulfill({ json: { ok: true, session: payload, turns: [], tools: [], models: [] } })
+    })
+  })
+  try {
+    await p.waitForSelector('[data-testid="sessions.detail"]', { timeout: 10000 })
+    await p.waitForFunction(() => (document.querySelector('[data-testid="sessions.detail"]') || {}).textContent.indexOf('详情标题甲') >= 0, null, { timeout: 8000 })
+    await p.evaluate(() => {
+      location.hash = '#sessions?select=zcode%3AsB'
+    })
+    await p.waitForTimeout(400)
+    const during = await p.locator('[data-testid="sessions.detail"]').innerText()
+    assert.match(during, /列表标题乙/, 'B 详情未返回期间应显示 B 的列表行数据：' + during)
+    assert.doesNotMatch(during, /详情标题甲|model-A/, '不能继续渲染 A 的详情：' + during)
+    await p.waitForFunction(() => (document.querySelector('[data-testid="sessions.detail"]') || {}).textContent.indexOf('详情标题乙') >= 0, null, { timeout: 8000 })
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
 test('e2e: 预算逐键输入 1.25 不会被回写成 251', async () => {
   const { ctx, p, errors } = await open('settings')
   try {

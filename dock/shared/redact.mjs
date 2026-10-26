@@ -9,12 +9,14 @@ export const MASK = '「已隐藏」'
 
 // 主目录统一替换成 ~：HTTP 会话响应、SSE、诊断包、窗口标题都走同一套规则，
 // 避免某个读面漏掉完整用户名/主目录（review 2026-10-26 P3-1）。
+// 用与 redact() 相同的转义正则 + 'gi' 替换（复审 R2-4）：split/join 只覆盖手工
+// 变体，混合大小写形态（Windows 路径大小写不敏感，如 c:\USERS\x）会漏替。
 export function redactHome(value) {
-  const home = String(process.env.USERPROFILE || process.env.HOME || os.homedir() || '').trim()
-  if (!home) return String(value == null ? '' : value)
   let out = String(value == null ? '' : value)
-  const variants = [home, home.replace(/\\/g, '/'), home.toLowerCase(), home.replace(/\\/g, '/').toLowerCase()]
-  for (const v of variants) if (v) out = out.split(v).join('~')
+  for (const home of homeVariants()) {
+    const re = new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+    out = out.replace(re, '~')
+  }
   return out
 }
 
@@ -32,9 +34,12 @@ const RULES = [
   /\bBearer\s+[A-Za-z0-9._-]{12,}/gi,
   // api_key = / token: / password= ...
   /\b(api[_-]?key|access[_-]?key|token|secret|password|passwd)\s*[=:]\s*["']?\S+/gi,
-  // 命令行凭据参数：`--password <值>` / `--token=<值>` / `--api-key "<值>"`。
-  // 上面的规则只认 `=`/`:`，空格分隔的 `--password hunter2` 会原样漏出。
-  /(?<!\S)--?(?:password|passwd|pwd|pass|token|secret|api[_-]?key)(?:\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|\S+)/gi,
+  // 命令行凭据参数：`--password <值>` / `--token=<值>` / `--api-key "<值>"`，以及
+  // 空格分隔的复合长选项 `--access-token X` / `--auth-token X` / `--refresh-token X` /
+  // `--client-secret X` / `--session-token X`（复审 R2-1：裸名规则只认 `--` 后紧跟
+  // 裸名，`-token` 前是 `-` 不是空白，复合名整条漏出）。允许任意字母数字前缀 +
+  // `-_` 分隔再接裸名；值约束保持不变（不吞 shell 语法/引号/重定向）。
+  /(?<!\S)--?(?:[a-z0-9]+[-_])?(?:password|passwd|pwd|pass|token|secret|api[_-]?key)(?:\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|\S+)/gi,
   // 短选项紧贴值（mysql -pS3cr3t）：只认 `-p` 后紧跟「像凭据」的紧凑值——
   // 至少含一个非字母字符（数字/符号）。两条边界必须守住：
   //   ① 不能吞 shell 语法/引号/重定向：`bash -p<<<"rm -rf /"` 若整段被替换，
@@ -55,7 +60,9 @@ const RULES = [
 ]
 
 function homeVariants() {
-  const home = process.env.USERPROFILE || os.homedir() || ''
+  // 统一来源顺序（复审 R2-4）：USERPROFILE → HOME → os.homedir()，与 redactHome
+  // 旧实现一致；redact() 曾只读 USERPROFILE，两套矩阵不一致。
+  const home = String(process.env.USERPROFILE || process.env.HOME || os.homedir() || '').trim()
   if (!home) return []
   return [...new Set([home, home.replace(/\\/g, '/'), home.toLowerCase(), home.replace(/\\/g, '/').toLowerCase()])].filter(Boolean)
 }

@@ -206,6 +206,57 @@ test('手动停止（db cancelled）清掉钩子留下的 turnActive，立刻显
   assert.notEqual(displayStatusOf(merged, T + 20_000), 'done', '停止不是完成')
 })
 
+test('手动停止清掉钩子回合的 doneAt：turn_end(done) → db cancelled merge → 立即回空闲（复审 R2-2）', () => {
+  // 宿主对手动中断也发 Stop 钩子时，reduce 先落 done/doneAt，随后适配器用 db
+  // 证实最后一回合是 cancelled（idle + endedAt + doneAt=null）。merge 不能回退
+  // 保留 prev.doneAt，否则停止后 5 分钟内仍显示「已完成」（违反 D056 修订）。
+  let s = reduce(seed({ status: 'working', turnActive: true, turnActiveSince: T, updatedAt: T }), {
+    event: 'turn_start',
+    at: T,
+  }).session
+  s = reduce(s, { event: 'turn_end', at: T + 20_000 }).session
+  assert.equal(s.status, 'done')
+  assert.equal(s.doneAt, T + 20_000)
+  const incoming = seed({
+    status: 'idle',
+    statusSource: 'db',
+    endedAt: T + 20_000,
+    doneAt: null,
+    turnActive: false,
+    updatedAt: T + 20_000,
+    statusSince: T + 20_000,
+  })
+  const merged = mergeSnapshot(s, incoming, T + 20_000).session
+  assert.equal(merged.status, 'idle')
+  assert.equal(merged.doneAt, 0, 'db 明确说最后一回合不是 completed，不能保留 prev.doneAt')
+  assert.equal(displayStatusOf(merged, T + 20_000), 'idle')
+  assert.equal(displayStatusOf(merged, T + 60_000), 'idle')
+})
+
+test('正常完成的回合不受影响：db idle 快照继续撑 5 分钟展示窗口（复审 R2-2 对照）', () => {
+  let s = reduce(seed({ status: 'working', turnActive: true, turnActiveSince: T, updatedAt: T }), {
+    event: 'turn_start',
+    at: T,
+  }).session
+  s = reduce(s, { event: 'turn_end', at: T + 20_000 }).session
+  // DONE_HOLD 过后适配器也报 db idle，但 completed 回合的 doneAt 非空
+  const incoming = seed({
+    status: 'idle',
+    statusSource: 'db',
+    endedAt: T + 20_000,
+    doneAt: T + 20_000,
+    turnActive: false,
+    updatedAt: T + 30_000,
+    statusSince: T + 30_000,
+  })
+  const merged = mergeSnapshot(s, incoming, T + 30_000).session
+  assert.equal(merged.doneAt, T + 20_000)
+  // 展示窗口从 doneAt（回合结束）起算，不受快照合并时刻影响。
+  assert.equal(displayStatusOf(merged, T + 30_000), 'done')
+  assert.equal(displayStatusOf(merged, T + 20_000 + DONE_DISPLAY_MS - 1000), 'done')
+  assert.equal(displayStatusOf(merged, T + 20_000 + DONE_DISPLAY_MS + 1000), 'idle')
+})
+
 test('计数与展示同源：displayStatus 已算好的行按已完成计数', () => {
   const agg = aggregateOf([
     { status: 'idle', displayStatus: 'done' },
