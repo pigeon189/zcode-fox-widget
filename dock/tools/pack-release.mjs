@@ -23,7 +23,20 @@ const DIST = path.join(DOCK, 'dist')
 const PUB = path.join(DOCK, 'keys', 'update-pub.pem')
 const MANIFEST = path.join(DOCK, '..', 'docs', 'dock', 'update.json')
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.backup', '__shots__', '__diff__', 'test-results', 'playwright-report'])
+// .mimosa / .zcode 是本地扫描与工作流状态（也散落在 integrations、test 子目录里），
+// 不是发布内容：按目录名整棵跳过，避免把本机报告/运行记录打进发布包。
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  '.git',
+  '.backup',
+  '.mimosa',
+  '.zcode',
+  '__shots__',
+  '__diff__',
+  'test-results',
+  'playwright-report',
+])
 const SKIP_EXT = new Set(['.tgz', '.gz', '.zip'])
 
 function argValue(name, fallback) {
