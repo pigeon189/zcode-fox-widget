@@ -15,6 +15,7 @@ import {
   mainMetric,
   pctTone,
   remainText,
+  sessionStatusLabel,
   shortDay,
   usedPctOf,
 } from '../lib/format.mjs'
@@ -162,6 +163,25 @@ export function OverviewPage({ app }) {
   const [breakdown, setBreakdown] = useState(null)
   const [sessions, setSessions] = useState([])
   const [sessionCounts, setSessionCounts] = useState({})
+  // 图表高度是按窗口宽度算的 prop；只靠数据轮询重渲染时，从最大化切回窗口化
+  // 会先按上一轮的形状画一次、约一秒后才适配（真机反馈）。监听 resize，下一帧
+  // 就重渲染，与 CSS 媒体查询同步生效。
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
+  useEffect(() => {
+    let raf = 0
+    const onResize = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        setViewportWidth(window.innerWidth)
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [])
   useEffect(() => {
     let alive = true
     app
@@ -277,23 +297,41 @@ export function OverviewPage({ app }) {
   })
   const chartHasMoney = series.some((s) => Number(s.value) > 0)
   const hasPrepaidEquivalent = series.some((s) => s.includesPrepaid)
+  // 窄窗口（任务卡两列，含默认 960×680）压图表高度，保证「近 7 天成本 / 额度窗口」
+  // 和上面四张任务卡同屏；宽窗口维持原高度。迷你图高度必须与 CSS 的
+  // `.today-chart .chart` 保持一致——两边不一致时 SVG viewBox 会等比缩放，
+  // 左右留出大片空白（真机截图）。
+  const compactOverview = viewportWidth <= 1279
+  const weekChartHeight = compactOverview ? 148 : 220
+  const sparkHeight = compactOverview ? 56 : 90
   const sparkDays = days.slice(-7)
   const spark = sparkDays.map((d) => (prepaidToday ? dayTokens(d, cur) : dayTotal(d, 'money', cur)))
   const sparkLabels = sparkDays.map((d) => shortDay(d.date))
   const sparkValueLabel = prepaidToday ? (v) => compactTokens(v) : (v) => fmtMoney(v, cur)
   const windows = card && card.windows ? card.windows.slice(0, 3) : []
   const agents = (app.state && app.state.agents) || []
+  // 当前会话与徽标都读服务端展示状态（D056）：机器 status=working 可能是钩子
+  // 留下的陈旧值，只有 displayStatus 能区分空闲/已完成。
+  const shownStatus = (s) => s.displayStatus || s.status || 'unknown'
   const currentSession =
-    sessions.find((s) => s.status === 'working') ||
-    sessions.find((s) => s.status === 'waiting_permission') ||
-    sessions.find((s) => s.status === 'waiting_input') ||
+    sessions.find((s) => shownStatus(s) === 'working') ||
+    sessions.find((s) => shownStatus(s) === 'waiting_permission') ||
+    sessions.find((s) => shownStatus(s) === 'waiting_input') ||
     null
+  const currentStatus = currentSession ? shownStatus(currentSession) : ''
   const pending = sessions.flatMap((s) => (s.pending || []).map((p) => ({ ...p, agentId: s.agentId, sessionKey: s.key })))
+  // 待办数用服务端全局计数兜底：列表只取最近 30 条，落在后面的等待确认会话
+  // 不能因此整块显示「没有待处理事项」。
+  const pendingTotal = Math.max(pending.length, Number(sessionCounts.waiting_permission) || 0)
   const counts = (app.live && app.live.counts) || sessionCounts || {}
   const liveStatus = (agentId) => {
     const by = app.live && app.live.byAgent && app.live.byAgent[agentId]
     if (!by) return { text: '空闲', tone: 'neutral' }
     if (by.error > 0) return { text: '出错', tone: 'bad' }
+    // 优先用拆分计数：waiting 是旧服务端的合并值，分不清「等待确认」与
+    // 「等待输入」，会把等待输入误报成等待确认。
+    if (by.waiting_permission > 0) return { text: '等待确认', tone: 'warn' }
+    if (by.waiting_input > 0) return { text: '等待输入', tone: 'warn' }
     if (by.waiting > 0) return { text: '等待确认', tone: 'warn' }
     if (by.working > 0) return { text: '工作中', tone: 'info' }
     if (by.done > 0) return { text: '已完成', tone: 'ok' }
@@ -302,7 +340,12 @@ export function OverviewPage({ app }) {
 
   return html`<div class="grid" data-testid="page.overview">
     ${app.permActions && app.permActions.length ? html`<${PermBanner} app=${app} />` : null}
-    ${alerts.slice(0, 3).map((a) => html`<div class="col-12"><div class=${'alert-bar ' + (a.tone === 'bad' ? 'bad' : '')} onClick=${() => app.navigate(a.go)} style=${{ cursor: 'pointer' }}>${a.text}</div></div>`)}
+    ${alerts.slice(0, 3).map((a) => html`<div class="col-12"><div class=${'alert-bar ' + (a.tone === 'bad' ? 'bad' : '')} role="button" tabindex="0" onClick=${() => app.navigate(a.go)} onKeyDown=${(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        app.navigate(a.go)
+      }
+    }} style=${{ cursor: 'pointer', marginBottom: 0 }}>${a.text}</div></div>`)}
 
     <div class="col-3 task-card">
       <${Card} testid="overview.today-cost" class="today-card">
@@ -315,7 +358,7 @@ export function OverviewPage({ app }) {
           ${prepaidToday ? fmtTokens(todayTokens) : hasMoney ? fmtMoney(todayMoney, cur) : hasCredit ? fmtCredit(todayCredits) : '—'}
         </div>
         <div class="today-chart">
-          <${Sparkline} values=${spark} labels=${sparkLabels} height=${90} valueLabel=${sparkValueLabel} />
+          <${Sparkline} values=${spark} labels=${sparkLabels} height=${sparkHeight} valueLabel=${sparkValueLabel} />
         </div>
       </${Card}>
     </div>
@@ -323,17 +366,17 @@ export function OverviewPage({ app }) {
     <div class="col-3 task-card">
       <${Card} testid="overview.current-session">
         <div class="stat-label"><span>当前会话</span>
-          ${currentSession ? html`<${Badge} tone=${currentSession.status === 'error' ? 'bad' : currentSession.status === 'working' ? 'info' : 'warn'}>${currentSession.status === 'working' ? '工作中' : '等待中'}</${Badge}>` : null}
+          ${currentSession ? html`<${Badge} tone=${currentStatus === 'error' ? 'bad' : currentStatus === 'working' ? 'info' : currentStatus === 'done' ? 'ok' : 'warn'}>${sessionStatusLabel(currentStatus)}</${Badge}>` : null}
         </div>
         ${currentSession
           ? html`<div>
-              <div class="sess-title" style=${{ whiteSpace: 'normal', marginTop: 4 }}>${currentSession.title || currentSession.key}</div>
-              <div class="small muted" data-visual-mask style=${{ margin: '4px 0 8px' }}>${[currentSession.model, currentSession.startedAt ? '已运行 ' + fmtDuration(Date.now() - currentSession.startedAt) : ''].filter(Boolean).join(' · ')}</div>
+              <div class="sess-title" style=${{ whiteSpace: 'normal', marginTop: 10 }}>${currentSession.title || currentSession.key}</div>
+              <div class="small muted" data-visual-mask style=${{ margin: '4px 0 10px' }}>${[currentSession.model, currentSession.startedAt ? '已运行 ' + fmtDuration(Date.now() - currentSession.startedAt) : ''].filter(Boolean).join(' · ')}</div>
               <div class="row" style=${{ gap: 8 }}>
-                <${ProgressBar} pct=${ctx && ctx.pct != null ? ctx.pct : 0} tone=${pctTone(ctx && ctx.pct)} label="上下文占用" />
+                <${ProgressBar} pct=${ctx && ctx.pct != null ? ctx.pct : null} tone=${pctTone(ctx && ctx.pct)} label="上下文占用" />
                 <span class="small num">${ctx && ctx.pct != null ? fmtPct(ctx.pct) : '—'}</span>
+                <button type="button" class="link-btn" onClick=${() => app.navigate('sessions')}>查看会话</button>
               </div>
-              <button type="button" class="link-btn" style=${{ marginTop: 8 }} onClick=${() => app.navigate('sessions')}>查看会话</button>
             </div>`
           : html`<${EmptyState} icon="sessions" title="当前没有进行中的会话" hint="" />`}
       </${Card}>
@@ -341,8 +384,8 @@ export function OverviewPage({ app }) {
 
     <div class="col-3 task-card">
       <${Card} testid="overview.pending">
-        <div class="stat-label"><span>待处理</span><span class="spacer"></span><span class="num">${pending.length}</span></div>
-        ${pending.length
+        <div class="stat-label"><span>待处理</span><span class="spacer"></span><span class="num">${pendingTotal}</span></div>
+        ${pendingTotal
           ? html`<div>
               ${pending.slice(0, 3).map(
                 (p) => html`<div class="row" style=${{ minHeight: 40, gap: 8 }}>
@@ -350,7 +393,10 @@ export function OverviewPage({ app }) {
                   <span class="small truncate" style=${{ flex: 1 }}>${agentName(p.agentId)} · ${p.tool || '权限请求'}</span>
                 </div>`
               )}
-              <button type="button" class="link-btn" onClick=${() => app.navigate('sessions')}>查看全部 ${pending.length} 条</button>
+              ${!pending.length
+                ? html`<div class="small muted" style=${{ margin: '6px 0' }}>有 ${pendingTotal} 个会话在等待确认，去会话页查看</div>`
+                : null}
+              <button type="button" class="link-btn" onClick=${() => app.navigate('sessions')}>查看全部 ${pendingTotal} 条</button>
             </div>`
           : html`<${EmptyState} icon="check" title="没有待处理事项" hint="" />`}
       </${Card}>
@@ -375,7 +421,7 @@ export function OverviewPage({ app }) {
 
     <div class="col-7">
       <${Card} title="近 7 天成本" testid="overview.week" actions=${html`<span class="small muted">${hasPrepaidEquivalent ? '含预付等价 · ' : ''}${chartCur}</span>`}>
-        ${chartHasMoney && series.length ? html`<${ColumnChart} data=${series} height=${220} valueLabel=${(v) => fmtMoney(v, chartCur)} />` : html`<${EmptyState} title="还没有用量记录" hint="打开一次宿主会话后这里会出现" />`}
+        ${chartHasMoney && series.length ? html`<${ColumnChart} data=${series} height=${weekChartHeight} valueLabel=${(v) => fmtMoney(v, chartCur)} />` : html`<${EmptyState} title="还没有用量记录" hint="打开一次宿主会话后这里会出现" />`}
       </${Card}>
     </div>
 

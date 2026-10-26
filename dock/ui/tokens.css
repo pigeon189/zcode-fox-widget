@@ -96,7 +96,9 @@
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
+    /* 只改 duration 仍会保留 infinite 迭代（Skeleton 的 shimmer 会一直高频
+       运行）。D039 要求全部关闭，这里直接取消动画。 */
+    animation: none !important;
     transition-duration: 0.001ms !important;
   }
 }

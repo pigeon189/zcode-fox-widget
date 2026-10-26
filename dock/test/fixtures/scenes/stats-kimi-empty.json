@@ -21,7 +21,7 @@
             "title": "Kimi Code"
           }
         ],
-        "accent": "#b07cff",
+        "accent": "#3490f8",
         "roleDefault": "kimi",
         "context": true
       }
@@ -53,7 +53,7 @@
           "title": "Kimi Code"
         }
       ],
-      "accent": "#b07cff",
+      "accent": "#3490f8",
       "roleDefault": "kimi",
       "context": true
     }

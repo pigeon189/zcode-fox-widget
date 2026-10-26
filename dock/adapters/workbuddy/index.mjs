@@ -31,7 +31,7 @@ export const workbuddyAdapter = {
   name: 'WorkBuddy',
   priority: 20,
   roleDefault: 'xiaoke',
-  accent: '#7db6ff',
+  accent: '#0cc8a4',
   match: { exeBasenames: ['workbuddy.exe'] },
   capabilities: {
     billing: true,

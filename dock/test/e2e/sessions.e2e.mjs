@@ -89,6 +89,52 @@ test('e2e: 会话列表与详情标签', async () => {
   }
 })
 
+test('e2e: 并排窄详情栏的回合表不裁成本/状态列', async () => {
+  const { ctx, p, errors } = await newPage('sessions') // 1280 → 列表与详情并排
+  try {
+    await p.waitForSelector('.sess-row', { timeout: 10000 })
+    await p.getByText('重构 billing 适配器').first().click()
+    await p.getByRole('tab', { name: '回合' }).click()
+    await p.waitForSelector('.sess-turns-table tbody tr', { timeout: 5000 })
+    const layout = await p.evaluate(() => {
+      const card = document.querySelector('.sess-detail .card')
+      const table = document.querySelector('.sess-turns-table')
+      const ths = [...table.querySelectorAll('thead th')].map((el) => ({
+        cls: el.className,
+        hidden: getComputedStyle(el).display === 'none',
+      }))
+      const cells = [...table.querySelector('tbody tr').children].map((el) => {
+        const r = el.getBoundingClientRect()
+        return { cls: el.className, w: Math.round(r.width), right: Math.round(r.right) }
+      })
+      return { cardRight: Math.round(card.getBoundingClientRect().right), ths, cells }
+    })
+    const hiddenCls = layout.ths.filter((t) => t.hidden).map((t) => t.cls).join(' ')
+    assert.match(hiddenCls, /col-start/, '窄栏应收起「开始」列：' + JSON.stringify(layout.ths))
+    assert.match(hiddenCls, /col-duration/, '窄栏应收起「耗时」列：' + JSON.stringify(layout.ths))
+    const cost = layout.cells.find((c) => /col-cost/.test(c.cls))
+    const status = layout.cells.find((c) => /col-status/.test(c.cls))
+    assert.ok(cost && cost.w > 60, '成本列被压没：' + JSON.stringify(layout.cells))
+    assert.ok(status && status.w > 30, '状态列被压没：' + JSON.stringify(layout.cells))
+    assert.ok(cost.right <= layout.cardRight + 1, '成本列被裁出卡片：' + JSON.stringify(layout))
+    assert.ok(status.right <= layout.cardRight + 1, '状态列被裁出卡片：' + JSON.stringify(layout))
+
+    // 960 默认窗口：详情转整宽单列，回合表恢复完整 6 列（宽栏不受容器收列影响）。
+    await p.setViewportSize({ width: 960, height: 680 })
+    await p.waitForTimeout(400)
+    const wide = await p.evaluate(() =>
+      [...document.querySelectorAll('.sess-turns-table thead th')].map((el) => ({
+        cls: el.className,
+        hidden: getComputedStyle(el).display === 'none',
+      }))
+    )
+    assert.equal(wide.filter((t) => t.hidden).length, 0, '960 堆叠布局应显示完整 6 列：' + JSON.stringify(wide))
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
 test('e2e: 状态计数条筛选', async () => {
   const { ctx, p } = await newPage('sessions')
   try {

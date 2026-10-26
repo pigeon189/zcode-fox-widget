@@ -93,11 +93,25 @@ function StatusMark({ status }) {
   return statusDot(status)
 }
 
+// 成本列：金额只含真金白银（预付池/套餐行记 0，D054）。整段都是预付用量时
+// 显示「≈等价市值」并标注不是真实支出——否则一列 ¥0.00 会被误认为计价坏了。
+const MARKET_HINT = '预付池/套餐用量：tokens 照算、不计按量金额；「≈」是等价市值，不是真实支出'
+// 只有「真实支出为 0、但确实有预付用量」时才用等价市值顶班。
+function shownMarket(cost, market) {
+  if (!market || !(Number(market.amount) > 0)) return null
+  return cost && Number(cost.amount) > 0 ? null : market
+}
+
+function costView(cost, market) {
+  if (!cost) return { text: '—', title: '' }
+  if (cost.unit === 'credit' || cost.currency === 'CREDIT') return { text: fmtCredit(cost.amount), title: '' }
+  const shown = shownMarket(cost, market)
+  if (shown) return { text: '≈' + fmtMoney(shown.amount, shown.currency || cost.currency), title: MARKET_HINT }
+  return { text: fmtMoney(Number(cost.amount) || 0, cost.currency), title: '' }
+}
+
 function costText(session) {
-  const c = session && session.cost
-  if (!c) return '—'
-  if (c.unit === 'credit' || c.currency === 'CREDIT') return fmtCredit(c.amount)
-  return fmtMoney(c.amount, c.currency)
+  return costView(session && session.cost, session && session.costMarket).text
 }
 
 function durationMs(session) {
@@ -164,15 +178,15 @@ export function SessionsPage({ app }) {
   useEffect(() => {
     function onHash() {
       const h = hashQuery()
-      if (h.has('select')) setSelected(h.get('select') || '')
-      if (h.has('tab')) {
-        const t = h.get('tab')
-        setTab(TABS.some((x) => x.value === t) ? t : 'overview')
-      }
-      if (h.has('q')) setQ(h.get('q') || '')
-      if (h.has('status')) setStatus(h.get('status') || '')
-      if (h.has('sort')) setSort(h.get('sort') || 'updated')
-      if (h.has('archived')) setArchived(archivedOf(h.get('archived')))
+      // 前进/后退时 hash 是完整视图状态：缺失的键要恢复成默认值，而不是
+      // 保留上一页的筛选。
+      setSelected(h.get('select') || '')
+      const t = h.get('tab')
+      setTab(TABS.some((x) => x.value === t) ? t : 'overview')
+      setQ(h.get('q') || '')
+      setStatus(h.get('status') || '')
+      setSort(h.get('sort') || 'updated')
+      setArchived(archivedOf(h.get('archived') || 'exclude'))
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
@@ -338,13 +352,16 @@ export function SessionsPage({ app }) {
     if (status) values.status = status
     if (sort && sort !== 'updated') values.sort = sort
     if (archivedMode && archivedMode !== 'exclude') values.archived = archivedMode
+    // 搜索词也要进 hash：刷新/分享链接后能恢复同一筛选视图。
+    if (debouncedQ.trim()) values.q = debouncedQ.trim()
     replaceHash(values)
-  }, [selected, tab, status, sort, archivedMode])
+  }, [selected, tab, status, sort, archivedMode, debouncedQ])
 
-  function select(key, update = true) {
+  function select(key, update = true, index = null) {
     setSelected(key)
     if (update) setTab('overview')
-    if (update) setFocusIndex(0)
+    // 键盘连续浏览时 Enter 不能把焦点行重置到第一行；鼠标点行才同步到该行。
+    if (index != null) setFocusIndex(index)
   }
 
   function clearFilters() {
@@ -495,7 +512,7 @@ export function SessionsPage({ app }) {
                   <th class="sess-title-cell">会话</th>
                   <th class="right col-turns">回合</th>
                   <th class="right col-tokens">Token</th>
-                  <th class="right col-cost">成本</th>
+                  <th class="right col-cost" title="真实支出；「≈」为预付池/套餐用量的等价市值，不是真实支出">成本</th>
                   <th class="right col-duration">耗时</th>
                   <th class="right col-updated">更新</th>
                 </tr></thead>
@@ -506,9 +523,9 @@ export function SessionsPage({ app }) {
                     const kidError = kids.some((k) => k.status === 'error')
                     return html`<tr class=${'sess-row ' + (selected === s.key ? 'selected ' : '') + (idx === focusIndex ? 'focused ' : '') + (row.depth ? 'sub' : '')}
                       role="row" aria-selected=${selected === s.key} tabIndex=${-1}
-                      onClick=${() => select(s.key)} data-testid=${'sessions.row.' + s.key}>
+                      onClick=${() => select(s.key, true, idx)} data-testid=${'sessions.row.' + s.key}>
                       <td class="col-status">
-                        <div class="sess-cell"><${StatusMark} status=${s.status} /><span class="small">${sessionStatusLabel(s.status)}</span></div>
+                        <div class="sess-cell"><${StatusMark} status=${s.displayStatus || s.status} /><span class="small">${sessionStatusLabel(s.displayStatus || s.status)}</span></div>
                       </td>
                       <td class="sess-title-cell">
                         <div class=${'sess-cell' + (row.depth ? ' sess-indent' : '')}>
@@ -542,7 +559,7 @@ export function SessionsPage({ app }) {
                       </td>
                       <td class="right col-cost">
                         <div class="sess-cell" style=${{ justifyContent: 'flex-end' }}>
-                          <span class="num">${costText(s)}</span>
+                          <span class="num" title=${shownMarket(s.cost, s.costMarket) ? MARKET_HINT : undefined}>${costText(s)}</span>
                           <${SourceTag} prov=${s.provenance && s.provenance.cost} variant="dot" />
                         </div>
                       </td>
@@ -574,8 +591,8 @@ export function SessionsPage({ app }) {
                   <div style=${{ minWidth: 0, flex: 1 }}>
                     <div class="sess-title" title=${current.title || current.key}>${current.title || '(未命名会话)'}</div>
                     <div class="row" style=${{ marginTop: 6, gap: 8 }}>
-                      <${Badge} tone=${current.status === 'error' ? 'bad' : current.status === 'working' ? 'info' : current.status === 'waiting_permission' || current.status === 'waiting_input' ? 'warn' : current.status === 'done' ? 'ok' : 'neutral'}>
-                        ${sessionStatusLabel(current.status)}
+                      <${Badge} tone=${(current.displayStatus || current.status) === 'error' ? 'bad' : (current.displayStatus || current.status) === 'working' ? 'info' : (current.displayStatus || current.status) === 'waiting_permission' || (current.displayStatus || current.status) === 'waiting_input' ? 'warn' : (current.displayStatus || current.status) === 'done' ? 'ok' : 'neutral'}>
+                        ${sessionStatusLabel(current.displayStatus || current.status)}
                       </${Badge}>
                       <span class="small muted">${agentName(current.agentId)}${current.model ? ' · ' + current.model : ''}</span>
                       ${current.statusSource === 'inferred' ? html`<span class="small muted" title="按最近活动推断">· 推断</span>` : null}
@@ -613,21 +630,26 @@ export function SessionsPage({ app }) {
                   : null}
 
                 ${tab === 'turns'
-                  ? html`<table class="table">
-                      <thead><tr><th style=${{ width: 40 }}>#</th><th style=${{ width: 80 }}>开始</th><th style=${{ width: 72 }} class="right">耗时</th><th style=${{ width: 88 }} class="right">Token</th><th style=${{ width: 96 }} class="right">成本</th><th style=${{ width: 64 }}>状态</th></tr></thead>
+                  ? html`<table class="table sess-turns-table">
+                      <thead><tr><th class="col-index">#</th><th class="col-start">开始</th><th class="right col-duration">耗时</th><th class="right col-tokens">Token</th><th class="right col-cost">成本</th><th class="col-status">状态</th></tr></thead>
                       <tbody>
                         ${(detail && detail.turns && detail.turns.length
                           ? detail.turns.slice(0, 50)
                           : []
                         ).map(
-                          (t) => html`<tr>
-                            <td class="num">${t.index}</td>
-                            <td class="mono small">${t.startedAt ? new Date(t.startedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '—'}</td>
-                            <td class="right num">${t.durationMs != null ? fmtDuration(t.durationMs) : '—'}</td>
-                            <td class="right num">${t.tokens != null ? fmtTokens(t.tokens) : '—'}</td>
-                            <td class="right num">${t.cost ? (t.cost.unit === 'credit' ? fmtCredit(t.cost.amount) : fmtMoney(t.cost.amount, t.cost.currency)) : '—'}</td>
-                            <td>${t.status === 'error' ? html`<${Badge} tone="bad">出错</${Badge}>` : t.status === 'running' ? html`<${Badge} tone="info">进行中</${Badge}>` : t.status === 'cancelled' ? html`<${Badge} tone="neutral">已取消</${Badge}>` : html`<span class="small muted">完成</span>`}</td>
+                          (t) => {
+                            const startText = t.startedAt ? new Date(t.startedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '—'
+                            const durText = t.durationMs != null ? fmtDuration(t.durationMs) : '—'
+                            // 并排布局的窄详情栏会隐藏「开始 / 耗时」两列，序号单元格的 title 兜住这两项。
+                            return html`<tr>
+                            <td class="num col-index" title=${'开始 ' + startText + ' · 耗时 ' + durText}>${t.index}</td>
+                            <td class="mono small col-start">${startText}</td>
+                            <td class="right num col-duration">${durText}</td>
+                            <td class="right num col-tokens">${t.tokens != null ? fmtTokens(t.tokens) : '—'}</td>
+                            <td class="right num col-cost" title=${shownMarket(t.cost, t.costMarket) ? MARKET_HINT : undefined}>${costView(t.cost, t.costMarket).text}</td>
+                            <td class="col-status">${t.status === 'error' ? html`<${Badge} tone="bad">出错</${Badge}>` : t.status === 'running' ? html`<${Badge} tone="info">进行中</${Badge}>` : t.status === 'cancelled' ? html`<${Badge} tone="neutral">已取消</${Badge}>` : html`<span class="small muted">完成</span>`}</td>
                           </tr>`
+                          }
                         )}
                         ${!detail || !detail.turns || !detail.turns.length
                           ? html`<tr><td colSpan="6"><${EmptyState} title="没有回合明细" hint=${current.agentId === 'kimi' ? 'Kimi Code 不提供回合历史' : '该宿主没有返回回合数据'} /></td></tr>`

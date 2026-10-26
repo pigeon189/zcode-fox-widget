@@ -72,15 +72,40 @@ let win = null
 let sseTimer = null
 let sseAbort = null
 let streamFails = 0
-let lastRecoveryAt = 0
+let crashTimes = []
 
-// 渲染进程崩溃/无响应时自动重载；10 秒内只做一次，避免持续故障时刷新循环。
-function recoverRenderer() {
+// 渲染进程崩溃/无响应/主框架加载失败时自动重载。
+//
+// 旧实现是「10 秒内只重载一次，否则直接 return」：只要新的渲染进程在 10 秒内
+// 再崩一次（真机：设置页操作后渲染进程崩过一次，重载加载中又崩），第二次就被
+// 静默跳过，窗口永久停在白屏。现在按滑动窗口计数并退避重试：首次立即重载，
+// 之后 1s/3s/10s/30s，永不彻底放弃；崩溃记录写进数据目录便于事后定位。
+const CRASH_LOG_LIMIT_MS = 60_000
+const RELOAD_BACKOFF_MS = [0, 1000, 3000, 10000, 30000]
+
+function recoverRenderer(reason) {
   const now = Date.now()
-  if (now - lastRecoveryAt < 10000) return
-  lastRecoveryAt = now
+  crashTimes = crashTimes.filter((t) => now - t < CRASH_LOG_LIMIT_MS)
+  crashTimes.push(now)
+  const n = crashTimes.length
   try {
-    if (win && !win.isDestroyed()) win.reload()
+    if (dataDir) {
+      fs.appendFileSync(
+        path.join(dataDir, 'console-crash.log'),
+        new Date(now).toISOString() + '  ' + String(reason || 'unknown') + '  (近 60s 第 ' + n + ' 次)\n'
+      )
+    }
+  } catch (err) {}
+  const delay = RELOAD_BACKOFF_MS[Math.min(n - 1, RELOAD_BACKOFF_MS.length - 1)]
+  try {
+    if (win && !win.isDestroyed()) {
+      if (delay <= 0) win.reload()
+      else setTimeout(() => {
+        try {
+          if (win && !win.isDestroyed()) win.reload()
+        } catch (err) {}
+      }, delay)
+    }
   } catch (err) {}
 }
 
@@ -214,9 +239,15 @@ function createWindow() {
   try {
     if (fs.existsSync(APP_ICON)) win.setIcon(APP_ICON)
   } catch (err) {}
-  // 渲染进程崩了/卡死：自动重载，别把白屏留给用户。
-  win.webContents.on('render-process-gone', () => recoverRenderer())
-  win.webContents.on('unresponsive', () => recoverRenderer())
+  // 渲染进程崩了/卡死/主框架加载失败：退避重载，别把白屏留给用户。
+  win.webContents.on('render-process-gone', (_event, details) =>
+    recoverRenderer('render-process-gone ' + String((details && details.reason) || ''))
+  )
+  win.webContents.on('unresponsive', () => recoverRenderer('unresponsive'))
+  win.webContents.on('did-fail-load', (_event, code, desc, url, isMainFrame) => {
+    // -3 = ERR_ABORTED（主动 reload / 导航打断），不算故障
+    if (isMainFrame && Number(code) !== -3) recoverRenderer('did-fail-load ' + code + ' ' + desc)
+  })
   win.on('show', () => {
     try {
       win.webContents.invalidate()

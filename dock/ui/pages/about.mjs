@@ -9,16 +9,26 @@ const html = htm.bind(h)
 
 export function AboutPage({ app }) {
   const [diag, setDiag] = useState(null)
+  const [diagLoading, setDiagLoading] = useState(true)
+  const [diagError, setDiagError] = useState('')
   const [update, setUpdate] = useState(null)
   const [checking, setChecking] = useState(false)
   const [wizard, setWizard] = useState(false)
 
   useEffect(() => {
     let alive = true
+    setDiagLoading(true)
+    setDiagError('')
     app
       .api('/v1/diag/bundle')
       .then((d) => alive && setDiag(d))
-      .catch(() => {})
+      .catch((e) => {
+        if (!alive) return
+        // 失败时清掉旧诊断：不能让导出按钮拿上一份数据冒充当前状态。
+        setDiag(null)
+        setDiagError(String((e && e.message) || e || '诊断读取失败'))
+      })
+      .finally(() => alive && setDiagLoading(false))
     return () => {
       alive = false
     }
@@ -132,17 +142,19 @@ export function AboutPage({ app }) {
       <${Card} title="诊断" class="group">
         <div class="row">
           <${Button} onClick=${() => app.copyDiagnostics()}>复制诊断信息</${Button}>
-          <${Button} onClick=${() => {
-            const blob = new Blob([JSON.stringify(diag || {}, null, 2)], { type: 'application/json' })
+          <${Button} disabled=${diagLoading || !diag || !!diagError} onClick=${() => {
+            const blob = new Blob([JSON.stringify(diag, null, 2)], { type: 'application/json' })
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
             a.download = 'fox-dock-diagnostics.json'
             a.click()
             setTimeout(() => URL.revokeObjectURL(url), 2000)
+            app.toast('已导出诊断包')
           }}>导出诊断包</${Button}>
         </div>
-        <div class="small muted" data-visual-mask style=${{ marginTop: 8 }}>不含密钥；用户目录已替换为 ~。生成于 ${diag ? fmtDateTime(Date.parse(diag.generatedAt)) : '—'}</div>
+        ${diagError ? html`<div class="small" style=${{ marginTop: 8, color: 'var(--bad)' }}>诊断读取失败：${diagError}</div>` : null}
+        <div class="small muted" data-visual-mask style=${{ marginTop: 8 }}>不含密钥；用户目录已替换为 ~。生成于 ${diag ? fmtDateTime(Date.parse(diag.generatedAt)) : diagLoading ? '读取中…' : '—'}</div>
       </${Card}>
     </div>
     ${wizard ? html`<${Wizard} app=${app} onClose=${() => setWizard(false)} />` : null}

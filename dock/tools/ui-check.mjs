@@ -76,8 +76,12 @@ async function main() {
         if (errors.length) problems.push(page + '/' + theme + ' JS 异常：' + errors.join(' | '))
 
         const layout = await p.evaluate(() => {
-          const out = { overflow: false, small: [], unnamed: [] }
+          const out = { overflow: false, voverflow: false, small: [], unnamed: [] }
           out.overflow = document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+          // 控制台是定高壳层：滚动只能发生在 .content / .sidebar 内部。document 一旦
+          // 被撑高（典型原因：flex 子项缺 min-height:0），点任何控件都会因 focus 的
+          // 滚动让整页上移（真机「避让滚动条」截图）。
+          out.voverflow = document.documentElement.scrollHeight > document.documentElement.clientHeight + 1
           const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
           const seen = new Set()
           while (walker.nextNode()) {
@@ -106,6 +110,8 @@ async function main() {
           return out
         })
         if (layout.overflow) problems.push(page + '/' + theme + '/' + vp.width + ' 出现横向滚动')
+        if (layout.voverflow)
+          problems.push(page + '/' + theme + '/' + vp.width + ' document 出现纵向滚动（flex 子项缺 min-height:0，聚焦控件会让整页漂移）')
         if (layout.small.length) problems.push(page + '/' + theme + '/' + vp.width + ' 字号 <12：' + layout.small.slice(0, 4).join(', '))
         if (layout.unnamed.length) problems.push(page + '/' + theme + '/' + vp.width + ' 无可访问名称：' + layout.unnamed.slice(0, 4).join(', '))
         // 2.0-pre.2 几何断言：会话行 48 / 表头 36 / 计数磁贴 56（<1100 为 48）。

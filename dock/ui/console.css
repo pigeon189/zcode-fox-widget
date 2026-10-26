@@ -61,6 +61,23 @@ a {
 .titlebar .dot.offline {
   background: var(--bad);
 }
+/* 侧栏在线状态与视角切换的状态点：之前只有 0×0 的空 span，文字可读但视觉
+   标记完全不可见。这里给这两处补通用尺寸（不影响 SourceTag 的 .dot）。 */
+.sidebar-status .dot,
+.segmented .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: var(--ok);
+}
+.sidebar-status .dot.offline,
+.segmented .dot.offline {
+  background: var(--bad);
+}
 .titlebar .spacer {
   flex: 1;
 }
@@ -87,6 +104,8 @@ a {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: auto; /* 窗口很矮时导航自己滚，不把 document 撑高 */
   padding: 12px 8px;
 }
 .nav-group {
@@ -145,9 +164,18 @@ a {
   color: var(--text-3);
   border-top: 1px solid var(--border);
 }
+/* 「关于与诊断」按钮与下面的在线状态之间留一点距离，否则悬停块紧贴状态行。 */
+.sidebar-footer .sidebar-status {
+  margin-top: 8px;
+}
 .main {
   flex: 1;
   min-width: 0;
+  /* 关键：没有 min-height:0 时，.content 的 min-content 高度会把 .main 撑到整页
+     内容那么高，超出定高的 .app。此时 document 变成可滚动（overflow:hidden 只挡
+     用户滚动、挡不住 focus 的滚动），点设置里任意控件会让浏览器把它滚进视口，
+     整个界面被顶出窗口（真机「向上漂移」）。 */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -175,6 +203,10 @@ a {
 }
 .content {
   flex: 1;
+  min-height: 0; /* 同上：让内容在自己这一层滚动，而不是把 document 撑高 */
+  /* 作为滚动容器必须同时是定位祖先：设置页里绝对定位的隐藏控件没有已定位祖先
+     时会锚到初始包含块，逃出裁剪并把 document 撑高，聚焦控件时整页被滚上去。 */
+  position: relative;
   overflow: auto;
   overflow-x: hidden;
   padding: 8px 24px 24px;
@@ -279,6 +311,12 @@ a {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-3);
+  /* 标签后面常跟状态徽标 / 来源圆点 / 右侧计数（spacer）：做成 flex 才有间距，
+     否则徽标会紧贴在「当前会话」右边（真机截图）。 */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .stat-value {
   font-size: 24px;
@@ -436,7 +474,7 @@ a {
 }
 .select-option {
   width: 100%;
-  min-height: 30px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   padding: 0 10px;
@@ -535,9 +573,9 @@ a {
   font-variant-numeric: tabular-nums;
 }
 .dp-nav {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   padding: 0;
   border: 0;
   border-radius: var(--r-sm);
@@ -580,7 +618,7 @@ a {
   color: var(--text-3);
 }
 .dp-day {
-  height: 28px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: var(--r-sm);
@@ -608,6 +646,12 @@ a {
   cursor: not-allowed;
 }
 .dp-day:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+/* 焦点停在日历容器上（aria-activedescendant 模式），活动日必须有可见标记，
+   否则键盘用户看不出 Enter 会选哪天。 */
+.dp-day.active {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
@@ -783,6 +827,12 @@ a {
 }
 .progress.warn > span { background: var(--warn); }
 .progress.bad > span { background: var(--bad); }
+/* 数据不可得：保留占位（不把布局撑塌），但明确不是 0%。 */
+.progress.unavailable {
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+.progress.unavailable > span { background: transparent; }
 
 /* ---------- 表格 ---------- */
 .table {
@@ -1388,7 +1438,7 @@ a {
 }
 .vendor-mini-value {
   margin-top: 6px;
-  font: 700 18px/1.2 var(--font-num);
+  font: 700 16px/1.2 var(--font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -1416,11 +1466,21 @@ a {
   background: var(--ok);
 }
 .link-btn {
+  position: relative;
   border: 0;
   background: transparent;
   color: var(--accent-strong);
   font-size: 12px;
   padding: 0;
+}
+/* 文字链接的视觉高度只有 18px，用伪元素把命中区补到 32px，不改变排版。 */
+.link-btn::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: -8px;
+  bottom: -8px;
 }
 .link-btn:hover {
   text-decoration: underline;
@@ -1705,6 +1765,8 @@ a {
   top: 8px;
   max-height: calc(100vh - 120px);
   overflow: auto;
+  /* 详情栏在 ≥1180 并排时只有 320–380px：回合表按容器宽度收列，而不是按视口。 */
+  container-type: inline-size;
 }
 .sess-toolbar {
   display: flex;
@@ -1747,7 +1809,9 @@ a {
 .sess-table .col-status { width: 84px; }
 .sess-table .col-turns { width: 56px; }
 .sess-table .col-tokens { width: 72px; }
-.sess-table .col-cost { width: 92px; }
+/* 成本列要容下「¥317.09」和「51.85 积分」两种口径（积分多 2 个汉字宽），
+   扣掉左右 8px 内边距后 92px 只剩 76px，WorkBuddy 的积分数值会被裁掉。 */
+.sess-table .col-cost { width: 112px; }
 .sess-table .col-duration { width: 72px; }
 .sess-table .col-updated { width: 72px; }
 .sess-table .col-status,
@@ -1761,7 +1825,7 @@ a {
 .sess-sub { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sess-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .sess-cell .badge { flex: none; }
-.sess-chevron { width: 16px; height: 16px; border: 0; background: none; padding: 0; color: var(--text-3); cursor: pointer; flex: none; }
+.sess-chevron { width: 32px; height: 32px; margin: -8px; border: 0; background: none; padding: 0; color: var(--text-3); cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .sess-chevron.open svg { transform: rotate(90deg); }
 .sess-chevron svg { transition: transform 120ms ease; }
 .sess-indent { padding-left: 24px; }
@@ -1778,8 +1842,28 @@ a {
 .sess-detail-head { display: flex; gap: 8px; align-items: flex-start; }
 .sess-detail-head .sess-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sess-tabs { display: flex; gap: 4px; margin: 12px 0; }
-.sess-tabs button { flex: 1; height: 28px; }
+.sess-tabs button { flex: 1; height: 32px; }
 .sess-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* 回合表：6 列固定宽合计 >450px，并排布局的窄详情栏只有约 288px 可用，
+   成本和状态列会被裁掉。宽栏（<1180 堆叠布局）保持原 6 列宽度；窄栏按容器
+   隐藏「开始 / 耗时」（序号单元格 title 仍可查看）并收紧宽度，成本/状态不被裁。 */
+.sess-turns-table { table-layout: fixed; }
+.sess-turns-table .col-index { width: 40px; }
+.sess-turns-table .col-start { width: 80px; }
+.sess-turns-table .col-duration { width: 72px; }
+.sess-turns-table .col-tokens { width: 88px; }
+.sess-turns-table .col-cost { width: 108px; }
+.sess-turns-table .col-status { width: 64px; }
+@container (max-width: 420px) {
+  .sess-turns-table th,
+  .sess-turns-table td { padding-left: 6px; padding-right: 6px; }
+  .sess-turns-table .col-index { width: 34px; }
+  .sess-turns-table .col-tokens { width: 82px; }
+  .sess-turns-table .col-cost { width: 102px; }
+  .sess-turns-table .col-status { width: 56px; }
+  .sess-turns-table .col-start,
+  .sess-turns-table .col-duration { display: none; }
+}
 .sess-error {
   margin-top: 12px;
   padding: 8px 12px;
@@ -1861,7 +1945,7 @@ a {
 .today-head .stat-label {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
   white-space: nowrap;
 }
@@ -1909,6 +1993,10 @@ a {
 /* ---------- 厂商 / 额度 / 设置（U3） ---------- */
 /* 厂商表：固定布局下长模板名/id 截断，不挤掉密钥状态与操作列。 */
 .vendors-table .vendors-name { min-width: 0; gap: 8px; }
+/* 名称列末尾是厂商 id（等宽字体），与右列类型徽标之间只有单元格内边距 8px，
+   看起来像连在一起；多留 12px，让文字和徽标之间有可见间距。 */
+.vendors-table th:first-child,
+.vendors-table td:first-child { padding-right: 20px; }
 .vendors-table .vendors-name-text {
   flex: 1 1 auto;
   min-width: 0;
@@ -1938,3 +2026,31 @@ a {
 
 /* 设置页：预算两个输入在窄窗口下成对换行，单位标签不被拉伸。 */
 .setting-row .control .small { flex: none; }
+
+/* 窄窗口（≤1279，四张任务卡两列）压缩任务卡与首屏图表：
+   默认 960×680 窗口里，空态卡 + 90px 迷你图会把「近 7 天成本 / 额度窗口」顶出首屏。
+   迷你图 56px 与 overview.mjs 的 sparkHeight 保持一致（UI-SPEC §5 同口径）。
+   放在文件末尾是为了覆盖前面同选择器的基线（空态 160px、today-chart 90px）。 */
+@media (max-width: 1279px) {
+  .grid > .task-card > .card { min-height: 108px; padding: 12px 14px; }
+  .task-card .empty { min-height: 56px; padding: 4px 8px; gap: 2px; }
+  .task-card .empty svg { width: 20px; height: 20px; }
+  .today-chart,
+  .today-chart .chart { min-height: 56px; height: 56px; }
+  /* 额度窗口 / 近 7 天成本这一行的空态：默认 160px + 24px 内边距会把整行顶到
+     960×680 首屏之外（预警条同屏时尤其明显）。只作用于总览这两张卡，
+     该行高度让给图表/窗口行本身。 */
+  .grid > .col-5 > [data-testid="overview.quota"] .empty,
+  .grid > .col-7 > [data-testid="overview.week"] .empty { min-height: 0; padding: 16px; }
+}
+
+/* 任务卡：内容纵向弹性，空态在剩余空间里垂直居中，不再紧贴标题行（真机反馈）。 */
+.task-card > .card {
+  display: flex;
+  flex-direction: column;
+}
+.task-card .empty {
+  flex: 1 1 auto;
+  justify-content: center;
+  margin-top: 8px;
+}

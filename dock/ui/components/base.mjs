@@ -1,4 +1,4 @@
-import { Fragment, h } from '../vendor/preact.module.js'
+import { Component, Fragment, h } from '../vendor/preact.module.js'
 import { useEffect, useRef, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
 import { Icon } from './icons.mjs'
@@ -6,8 +6,68 @@ import { UI_ICONS, UI_LABELS, normalizeProv, uiLabelOf } from '../../shared/prov
 
 const html = htm.bind(h)
 
+// 渲染错误兜底：任何一个页面渲染抛错都不能把整个控制台变成白屏。
+// 页面级边界（console.mjs 按页 key）让侧栏、标题栏与其它页面继续可用；
+// 顶层边界兜住 App 自身。错误同时进 window.__foxRenderErrors（环形）方便诊断包带走。
+export class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+    this.reset = this.reset.bind(this)
+  }
+  static getDerivedStateFromError(error) {
+    return { error: error || new Error('unknown render error') }
+  }
+  componentDidCatch(error, info) {
+    try {
+      const ring = (window.__foxRenderErrors = window.__foxRenderErrors || [])
+      ring.push({
+        at: Date.now(),
+        where: String(this.props.where || ''),
+        message: String((error && error.message) || error),
+        stack: String((error && error.stack) || '').slice(0, 4000),
+        componentStack: String((info && info.componentStack) || '').slice(0, 2000),
+      })
+      if (ring.length > 20) ring.shift()
+      console.error('[fox-dock] 渲染异常（' + (this.props.where || '?') + '）', error, info)
+    } catch (err) {}
+  }
+  reset() {
+    this.setState({ error: null })
+  }
+  render() {
+    const err = this.state.error
+    if (!err) return this.props.children
+    const detail = String(err.stack || err.message || err)
+    return html`<div class="card" data-testid="page.crash" style=${{ margin: '0 0 16px' }}>
+      <div class="card-head"><span class="card-title">这个页面渲染出错</span></div>
+      <div class="small muted" style=${{ marginBottom: 8 }}>
+        侧栏和其它页面仍可用；先「重新渲染」，仍然失败再「重新加载控制台」。
+      </div>
+      <pre
+        class="small"
+        style=${{ maxHeight: 220, overflow: 'auto', whiteSpace: 'pre-wrap', margin: '0 0 12px', fontFamily: 'var(--font-mono)' }}
+      >${detail.slice(0, 2000)}</pre>
+      <div class="row" style=${{ gap: 8 }}>
+        <${Button} onClick=${this.reset}>重新渲染</${Button}>
+        <${Button} variant="ghost" onClick=${() => location.reload()}>重新加载控制台</${Button}>
+        <${Button}
+          variant="ghost"
+          onClick=${() => {
+            try {
+              navigator.clipboard.writeText(detail)
+            } catch (e) {}
+          }}
+        >复制错误</${Button}>
+      </div>
+    </div>`
+  }
+}
+
 export function Button({ variant = 'secondary', icon = '', children, loading = false, ...rest }) {
-  return html`<button class=${'btn ' + variant} disabled=${rest.disabled || loading} ...${rest}>
+  // disabled 必须最后展开：旧写法先算 disabled 再展开 rest，rest 里的
+  // disabled=false 会把 loading 覆盖掉，慢请求期间可以重复提交。
+  return html`<button class=${'btn ' + variant} ...${rest} disabled=${rest.disabled || loading}>
     ${loading ? html`<${Icon} name="refresh" size=${14} />` : icon ? html`<${Icon} name=${icon} size=${16} />` : null}
     ${children}
   </button>`
@@ -28,8 +88,10 @@ export function Badge({ tone = 'neutral', children, title = '' }) {
   return html`<span class=${'badge ' + tone} title=${title || undefined}>${children}</span>`
 }
 
-export function Toggle({ checked, onChange, label, ariaLabel = '', disabled = false }) {
-  return html`<label class="toggle">
+export function Toggle({ checked, onChange, label, ariaLabel = '', disabled = false, ...rest }) {
+  // data-testid 等透传属性挂在外层 label 上（此前被静默丢弃，向导的
+  // wizard.autostart 因此在 DOM 里找不到）。
+  return html`<label class="toggle" ...${rest}>
     <input type="checkbox" aria-label=${ariaLabel || label || undefined} checked=${!!checked} disabled=${disabled} onChange=${(e) => onChange(e.currentTarget.checked)} />
     <span class="track"></span>
     ${label ? html`<span>${label}</span>` : null}
@@ -65,11 +127,14 @@ export function Select({ value, options = [], onChange, class: cls = '', label =
     if (!el) return
     const r = el.getBoundingClientRect()
     const width = Math.max(r.width, 168)
-    const est = Math.min(list.length * 34 + 8, 300)
+    const desired = Math.min(list.length * 34 + 8, 300)
+    // 弹层必须完整留在视口内：长列表靠内部滚动，不能上沿在屏里、下沿被裁掉。
+    const maxH = Math.max(120, Math.min(desired, window.innerHeight - 16))
     let top = r.bottom + 4
-    if (top + est > window.innerHeight - 8 && r.top - est - 4 >= 8) top = r.top - est - 4
+    if (top + maxH > window.innerHeight - 8 && r.top - maxH - 4 >= 8) top = r.top - maxH - 4
+    top = Math.max(8, Math.min(top, window.innerHeight - maxH - 8))
     const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8))
-    setPos({ left, top, width })
+    setPos({ left, top, width, maxH })
   }
 
   useEffect(() => {
@@ -85,6 +150,7 @@ export function Select({ value, options = [], onChange, class: cls = '', label =
     const onKey = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault()
+        // 只收起下拉，不能连带关掉外层 Dialog；Dialog 侧按 DOM 里的弹层判断。
         setOpen(false)
         if (el) el.focus()
       }
@@ -107,8 +173,23 @@ export function Select({ value, options = [], onChange, class: cls = '', label =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, value])
 
+  // 键盘移动活动项时把它滚进弹层可视区（长列表在 760 高窗口里会超出）。
+  useEffect(() => {
+    if (!open || !popRef.current) return
+    const pop = popRef.current
+    const el = pop.querySelectorAll('[role="option"]')[active]
+    if (!el) return
+    const top = el.offsetTop
+    const bottom = top + el.offsetHeight
+    if (top < pop.scrollTop) pop.scrollTop = top
+    else if (bottom > pop.scrollTop + pop.clientHeight) pop.scrollTop = bottom - pop.clientHeight
+  }, [active, open])
+
   function choose(option) {
     setOpen(false)
+    // 选完把焦点还给触发器，后续 Tab 流程不会掉到 body。
+    const el = triggerRef.current
+    if (el) setTimeout(() => el.focus(), 0)
     if (onChange && String(option.value) !== String(value)) onChange(option.value)
   }
 
@@ -143,7 +224,7 @@ export function Select({ value, options = [], onChange, class: cls = '', label =
           class="select-pop"
           role="listbox"
           tabindex="-1"
-          style=${{ left: pos.left + 'px', top: pos.top + 'px', width: pos.width + 'px' }}
+          style=${{ left: pos.left + 'px', top: pos.top + 'px', width: pos.width + 'px', maxHeight: pos.maxH + 'px' }}
           onKeyDown=${(e) => {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
@@ -160,13 +241,16 @@ export function Select({ value, options = [], onChange, class: cls = '', label =
             }
           }}
         >
-          ${list.map(
+          ${/* 用 mousemove 而不是 mouseenter：键盘上下移动会让选项在静止的
+               指针下滚动，mouseenter 会把活动项抢回鼠标位置，连续按方向键
+               就永远到不了列表末尾。只有指针真的移动才接受 hover。 */
+            list.map(
             (o, i) => html`<button
               type="button"
               role="option"
               aria-selected=${String(o.value) === String(value)}
               class=${'select-option' + (i === active ? ' active' : '') + (String(o.value) === String(value) ? ' selected' : '')}
-              onMouseEnter=${() => setActive(i)}
+              onMouseMove=${() => setActive((a) => (a === i ? a : i))}
               onClick=${() => choose(o)}
             >
               ${o.label}
@@ -459,7 +543,7 @@ export function DatePicker({
                     type="button"
                     role="gridcell"
                     id=${idRef.current + '-' + c.key}
-                    class=${'dp-day' + (c.outside ? ' outside' : '') + (isToday ? ' today' : '')}
+                    class=${'dp-day' + (c.outside ? ' outside' : '') + (isToday ? ' today' : '') + (activeKey === c.key ? ' active' : '')}
                     aria-label=${c.d + ' 日 ' + c.key + (isToday ? '，今天' : '')}
                     aria-selected=${selected}
                     aria-current=${isToday ? 'date' : undefined}
@@ -485,7 +569,15 @@ export function Segmented({ value, options, onChange, label = '视图' }) {
 }
 
 export function ProgressBar({ pct, tone = '', label = '' }) {
-  const v = Math.max(0, Math.min(100, Number(pct) || 0))
+  // 不可得不能画成 0%：0% 会被读成「额度耗尽/上下文为空」。缺失时保留
+  // 占位条但去掉 progressbar 语义，读屏与视觉都明确是「暂不可得」。
+  const known = pct != null && pct !== '' && Number.isFinite(Number(pct))
+  if (!known) {
+    return html`<div class=${'progress unavailable ' + tone} role="img" aria-label=${(label || '进度') + '：暂不可得'}>
+      <span style=${{ width: '0%' }}></span>
+    </div>`
+  }
+  const v = Math.max(0, Math.min(100, Number(pct)))
   return html`<div class=${'progress ' + tone} role="progressbar" aria-label=${label || '进度'} aria-valuenow=${v} aria-valuemin="0" aria-valuemax="100">
     <span style=${{ width: v + '%' }}></span>
   </div>`
@@ -618,6 +710,8 @@ export function Dialog({ title, children, onClose, actions = null }) {
     if (first) first.focus()
     const onKey = (e) => {
       if (e.key === 'Escape') {
+        // 内层下拉/日期弹层打开时，Esc 先收起它们；不能把整个表单一起关掉。
+        if (document.querySelector('.select-pop, .dp-pop')) return
         e.preventDefault()
         if (onClose) onClose()
         return

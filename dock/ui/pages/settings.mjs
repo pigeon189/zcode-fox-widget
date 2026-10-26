@@ -14,6 +14,29 @@ function Row({ label, hint, children, hidden = false }) {
   </div>`
 }
 
+// 数字输入在编辑期间保留用户正在敲的字符串（1. → 1.2 → 1.25），只在合法
+// 数值出现时提交。直接用受控 Number 值会在小数点/光标位置回写，逐键输入
+// 1.25 会变成 251（真机实测）。
+function NumberField({ value, onCommit, ...rest }) {
+  const [draft, setDraft] = useState(null)
+  const shown = draft == null ? (value == null || value === 0 ? '' : String(value)) : draft
+  return html`<${Input}
+    ...${rest}
+    type="number"
+    value=${shown}
+    onInput=${(v) => {
+      setDraft(v)
+      if (v === '') return onCommit(0)
+      const n = Number(v)
+      if (Number.isFinite(n)) onCommit(n)
+    }}
+    onBlur=${() => setDraft(null)}
+    onKeyDown=${(e) => {
+      if (e.key === 'Enter') e.currentTarget.blur()
+    }}
+  />`
+}
+
 export function SettingsPage({ app }) {
   const s = app.settings || {}
   const [search, setSearch] = useState('')
@@ -175,7 +198,7 @@ export function SettingsPage({ app }) {
             <${Row} label="跟随间隔" hidden=${!has('跟随间隔') || !!s.petMode}>
               <${Segmented} value=${s.followMs || 500} options=${[250, 500, 1000].map((v) => ({ value: v, label: v + ' ms' }))} onChange=${(v) => save({ followMs: Number(v) })} />
             </${Row}>
-            <${Row} label="避让滚动条" hint="开启后贴右/下边时留出滚动条宽度；关闭则紧贴窗口边缘" hidden=${!has('避让滚动条')}>
+            <${Row} label="避让滚动条" hint="吸附宿主或桌面悬浮时，右边按设定像素避开纵向滚动条；关闭则紧贴边缘（底边始终贴死）" hidden=${!has('避让滚动条')}>
               <${Toggle} checked=${s.scrollGapOn} onChange=${(v) => save({ scrollGapOn: v })} />
               <${Input} type="number" aria-label="避让滚动条宽度" value=${s.scrollGap} disabled=${!s.scrollGapOn}
                 onInput=${(v) => save({ scrollGap: Number(v) })} style=${{ width: 80, opacity: s.scrollGapOn ? 1 : 0.5 }} />
@@ -204,27 +227,27 @@ export function SettingsPage({ app }) {
             </${Row}>
             <${Row} label="今日预算" hint="0 = 关闭。金额按宿主币种；积分仅对按积分计费的宿主（如 WorkBuddy）生效" hidden=${!has('今日预算', '金额预算', '积分预算')}>
               <span class="small muted">金额</span>
-              <${Input} type="number" aria-label="今日金额预算" data-testid="settings.budgetMoney" value=${s.budgetMoney || ''} min="0" step="0.01" placeholder="0"
-                onInput=${(v) => save({ budgetMoney: Number(v) || 0 })} style=${{ width: 104 }} />
+              <${NumberField} aria-label="今日金额预算" data-testid="settings.budgetMoney" value=${s.budgetMoney || 0} min="0" step="0.01" placeholder="0"
+                onCommit=${(v) => save({ budgetMoney: v })} style=${{ width: 104 }} />
               <span class="small muted">积分</span>
-              <${Input} type="number" aria-label="今日积分预算" data-testid="settings.budgetCredit" value=${s.budgetCredit || ''} min="0" step="0.01" placeholder="0"
-                onInput=${(v) => save({ budgetCredit: Number(v) || 0 })} style=${{ width: 104 }} />
+              <${NumberField} aria-label="今日积分预算" data-testid="settings.budgetCredit" value=${s.budgetCredit || 0} min="0" step="0.01" placeholder="0"
+                onCommit=${(v) => save({ budgetCredit: v })} style=${{ width: 104 }} />
             </${Row}>
             <${Row} label="周预算 / 月预算" hidden=${!has('周预算', '月预算')}>
-              <${Input} type="number" aria-label="周预算" value=${s.weeklyBudget || ''} onInput=${(v) => save({ weeklyBudget: Number(v) || 0 })} style=${{ width: 100 }} />
-              <${Input} type="number" aria-label="月预算" value=${s.monthlyBudget || ''} onInput=${(v) => save({ monthlyBudget: Number(v) || 0 })} style=${{ width: 100 }} />
+              <${NumberField} aria-label="周预算" value=${s.weeklyBudget || 0} onCommit=${(v) => save({ weeklyBudget: v })} style=${{ width: 100 }} />
+              <${NumberField} aria-label="月预算" value=${s.monthlyBudget || 0} onCommit=${(v) => save({ monthlyBudget: v })} style=${{ width: 100 }} />
             </${Row}>
             <${Row} label="额度预警（剩余低于）" hidden=${!has('额度预警')}>
-              <${Input} type="number" value=${s.quotaWarnPct} onInput=${(v) => save({ quotaWarnPct: Number(v) })} style=${{ width: 90 }} /><span class="small muted">%</span>
+              <${NumberField} aria-label="额度预警" value=${s.quotaWarnPct} onCommit=${(v) => save({ quotaWarnPct: v })} style=${{ width: 90 }} /><span class="small muted">%</span>
             </${Row}>
             <${Row} label="余额预警（低于）" hidden=${!has('余额预警')}>
-              <${Input} type="number" value=${s.balanceWarnMoney || ''} onInput=${(v) => save({ balanceWarnMoney: Number(v) || 0 })} style=${{ width: 120 }} />
+              <${NumberField} aria-label="余额预警" value=${s.balanceWarnMoney || 0} onCommit=${(v) => save({ balanceWarnMoney: v })} style=${{ width: 120 }} />
             </${Row}>
             <${Row} label="上下文预警（占用达到）" hidden=${!has('上下文预警')}>
-              <${Input} type="number" value=${s.contextWarnPct} onInput=${(v) => save({ contextWarnPct: Number(v) })} style=${{ width: 90 }} /><span class="small muted">%</span>
+              <${NumberField} aria-label="上下文预警" value=${s.contextWarnPct} onCommit=${(v) => save({ contextWarnPct: v })} style=${{ width: 90 }} /><span class="small muted">%</span>
             </${Row}>
             <${Row} label="成本异常提醒（今日 > 7 日均值 ×）" hint="0 = 关闭" hidden=${!has('成本异常')}>
-              <${Input} type="number" value=${s.costAnomalyX || ''} onInput=${(v) => save({ costAnomalyX: Number(v) || 0 })} style=${{ width: 90 }} />
+              <${NumberField} aria-label="成本异常提醒" value=${s.costAnomalyX || 0} onCommit=${(v) => save({ costAnomalyX: v })} style=${{ width: 90 }} />
             </${Row}>
             <${Row} label="等确认提醒" hint="仅 ZCode 有 PermissionRequest 钩子；WorkBuddy 档案下不生效" hidden=${!has('等确认提醒')}>
               <${Toggle} checked=${s.confirmAlert} onChange=${(v) => save({ confirmAlert: v })} />

@@ -36,7 +36,7 @@
             "title": "WorkBuddy"
           }
         ],
-        "accent": "#22b8a0",
+        "accent": "#0cc8a4",
         "roleDefault": "xiaoke",
         "context": true
       },
@@ -51,7 +51,7 @@
             "title": "Kimi Code"
           }
         ],
-        "accent": "#b07cff",
+        "accent": "#3490f8",
         "roleDefault": "kimi",
         "context": true
       },
@@ -66,7 +66,7 @@
             "title": "DeepSeek Harness"
           }
         ],
-        "accent": "#4d6bfe",
+        "accent": "#4176e6",
         "roleDefault": "whale",
         "context": true
       }
@@ -113,7 +113,7 @@
           "title": "WorkBuddy"
         }
       ],
-      "accent": "#22b8a0",
+      "accent": "#0cc8a4",
       "roleDefault": "xiaoke",
       "context": true
     },
@@ -128,7 +128,7 @@
           "title": "Kimi Code"
         }
       ],
-      "accent": "#b07cff",
+      "accent": "#3490f8",
       "roleDefault": "kimi",
       "context": true
     },
@@ -143,7 +143,7 @@
           "title": "DeepSeek Harness"
         }
       ],
-      "accent": "#4d6bfe",
+      "accent": "#4176e6",
       "roleDefault": "whale",
       "context": true
     }

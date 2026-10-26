@@ -46,7 +46,7 @@ export const kimiAdapter = {
   name: 'Kimi Code',
   priority: 20,
   roleDefault: 'kimi',
-  accent: '#b07cff',
+  accent: '#3490f8',
   match: {
     exeBasenames: ['kimi code.exe'],
     exeIncludes: ['/kimicode/'],

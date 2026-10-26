@@ -35,7 +35,7 @@
             "title": "WorkBuddy"
           }
         ],
-        "accent": "#22b8a0",
+        "accent": "#0cc8a4",
         "roleDefault": "xiaoke"
       },
       {
@@ -43,7 +43,7 @@
         "name": "Kimi Code",
         "running": false,
         "windows": [],
-        "accent": "#8b5cf6",
+        "accent": "#3490f8",
         "roleDefault": "kimi"
       },
       {
@@ -51,7 +51,7 @@
         "name": "DeepSeek Harness",
         "running": false,
         "windows": [],
-        "accent": "#4d6bfe",
+        "accent": "#4176e6",
         "roleDefault": "whale"
       }
     ],

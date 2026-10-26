@@ -97,7 +97,13 @@ export function AreaChart({ points, limit = null, warn = 80, danger = 92, height
   if (list.length < 2) {
     return html`<div class="chart-wrap" ref=${wrapRef}><div class="empty" style=${{ minHeight: height }}><span class="small">趋势点还不够（至少两次采样）</span></div></div>`
   }
-  const maxY = Number(limit) > 0 ? Number(limit) : Math.max(...list.map((p) => Number(p.used))) * 1.1
+  const rawMax = Number(limit) > 0 ? Number(limit) : Math.max(...list.map((p) => Number(p.used))) * 1.1
+  // 全零且没有上限：没有可画的纵轴（maxY=0 会算出 NaN 坐标）。显示明确的
+  // 空态，而不是一张坏掉的 SVG。
+  if (!(Number(limit) > 0) && !(rawMax > 0)) {
+    return html`<div class="chart-wrap" ref=${wrapRef}><div class="empty" style=${{ minHeight: height }}><span class="small">暂无占用数据</span></div></div>`
+  }
+  const maxY = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 1
   const padL = 48
   const padR = 16
   const padT = 12
@@ -289,7 +295,7 @@ export function Donut({ items = [], size = 150, thickness = 18, centerLabel = ''
       offset += dash
       return node
     })}
-    <text x="50%" y="47%" text-anchor="middle" fill="var(--text)" font-size="18" font-weight="700" font-family="var(--font-num)">${valueLabel(total)}</text>
+    <text x="50%" y="47%" text-anchor="middle" fill="var(--text)" font-size="16" font-weight="700" font-family="var(--font-num)">${valueLabel(total)}</text>
     <text x="50%" y="62%" text-anchor="middle" fill="var(--text-3)" font-size="12">${centerLabel || 'tokens'}</text>
   </svg>`
 }

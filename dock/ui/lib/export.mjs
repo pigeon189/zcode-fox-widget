@@ -38,6 +38,8 @@ function quote(s) {
 }
 
 function amountText(v) {
+  // 不可得/缺失导出为空单元格，不写成 0（null 经 Number() 会变 0）。
+  if (v == null || v === '') return ''
   const n = Number(v)
   if (!Number.isFinite(n)) return ''
   return (Math.round(n * 10000) / 10000).toFixed(4)

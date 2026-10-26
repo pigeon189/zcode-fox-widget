@@ -338,16 +338,17 @@ export function StatsPage({ app }) {
   const modelErr = s ? Math.round((Number(s.modelErrorRate) || 0) * 1000) / 10 : 0
   const toolErr = s ? Math.round((Number(s.toolErrorRate) || 0) * 1000) / 10 : 0
 
+  // 工具条：左侧标签占固定 208px，日期段控件的横向位置不随宿主名长短移动；
+  // 刷新只用页头的图标按钮（这里不再放第二个「刷新」）。
   return html`<div data-testid="page.stats">
     <div class="row wrap" style=${{ marginBottom: 16 }}>
-      <span class="small muted">${selected ? agentName(selected) + ' · 应用用量' : '应用用量'}</span>
-      <span class="spacer"></span>
+      <span
+        class="small muted truncate"
+        style=${{ flex: '0 0 208px', maxWidth: 208 }}
+        title=${selected ? agentName(selected) + ' · 应用用量' : '应用用量'}
+      >${selected ? agentName(selected) + ' · 应用用量' : '应用用量'}</span>
       <${Segmented} value=${range} options=${RANGES} onChange=${setRange} />
       <span class="spacer"></span>
-      <${Button} icon="refresh" loading=${loading} onClick=${() => {
-        app.clearApiCache()
-        setReloadKey((n) => n + 1)
-      }}>刷新</${Button}>
     </div>
 
     ${range === 'custom'
@@ -390,16 +391,16 @@ export function StatsPage({ app }) {
         </div>
 
         <div class="row wrap stats-quality">
-          <span class="quality-chip">会话 <b>${fmtNum(s.totalSessions)}</b></span>
-          <span class="quality-chip">回合 <b>${fmtNum(s.totalTurns)}</b></span>
-          <span class="quality-chip">工具调用 <b>${fmtNum(s.toolCallCount)}</b></span>
-          <span class="quality-chip">Cache 命中 <b>${cachePct}%</b></span>
-          <span class="quality-chip">模型错误 <b>${modelErr}%</b></span>
-          <span class="quality-chip">工具错误 <b>${toolErr}%</b></span>
-          ${s.avgTimeToFirstTokenMs != null ? html`<span class="quality-chip">首 token <b>${Math.round(s.avgTimeToFirstTokenMs)} ms</b></span>` : null}
-          ${s.avgTurnDurationMs != null ? html`<span class="quality-chip">平均回合 <b>${durationText(s.avgTurnDurationMs)}</b></span>` : null}
-          ${stats.credits != null ? html`<span class="quality-chip">累计积分 <b>${fmtNum(stats.credits)}</b></span>` : null}
-          ${stats.cost ? html`<span class="quality-chip">累计成本 <b>${stats.cost.currency === 'CNY' ? '¥' : '$'}${Math.round(Number(stats.cost.amount) * 100) / 100}</b></span>` : null}
+          <span class="quality-chip">会话 <b>${fmtNum(s.totalSessions)}</b> <${SourceTag} prov=${stats.provenance && stats.provenance.turns} variant="dot" /></span>
+          <span class="quality-chip">回合 <b>${fmtNum(s.totalTurns)}</b> <${SourceTag} prov=${stats.provenance && stats.provenance.turns} variant="dot" /></span>
+          <span class="quality-chip">工具调用 <b>${fmtNum(s.toolCallCount)}</b> <${SourceTag} prov=${stats.provenance && stats.provenance.tools} variant="dot" /></span>
+          <span class="quality-chip">Cache 命中 <b>${cachePct}%</b> <${SourceTag} prov=${stats.provenance && stats.provenance.tokens} variant="dot" /></span>
+          <span class="quality-chip">模型错误 <b>${modelErr}%</b> <${SourceTag} prov=${stats.provenance && stats.provenance.tokens} variant="dot" /></span>
+          <span class="quality-chip">工具错误 <b>${toolErr}%</b> <${SourceTag} prov=${stats.provenance && stats.provenance.tools} variant="dot" /></span>
+          ${s.avgTimeToFirstTokenMs != null ? html`<span class="quality-chip">首 token <b>${Math.round(s.avgTimeToFirstTokenMs)} ms</b> <${SourceTag} prov=${stats.provenance && stats.provenance.tokens} variant="dot" /></span>` : null}
+          ${s.avgTurnDurationMs != null ? html`<span class="quality-chip">平均回合 <b>${durationText(s.avgTurnDurationMs)}</b> <${SourceTag} prov=${stats.provenance && stats.provenance.turns} variant="dot" /></span>` : null}
+          ${stats.credits != null ? html`<span class="quality-chip">累计积分 <b>${fmtNum(stats.credits)}</b> <${SourceTag} prov=${stats.provenance && stats.provenance.credits} variant="dot" /></span>` : null}
+          ${stats.cost ? html`<span class="quality-chip">累计成本 <b>${stats.cost.currency === 'CNY' ? '¥' : '$'}${Math.round(Number(stats.cost.amount) * 100) / 100}</b> <${SourceTag} prov=${stats.provenance && stats.provenance.cost} variant="dot" /></span>` : null}
           <span class="spacer"></span>
           <span class="small muted">${stats.source || ''}${stats.cached ? ' · 缓存' : ''}</span>
         </div>

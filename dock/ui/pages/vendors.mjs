@@ -106,8 +106,23 @@ export function VendorsPage({ app }) {
           app.toast('Access Key ID 与 Secret 需成对填写', 'bad')
           return
         }
-        await app.api('/v1/vendors/volc-access-key-id/credential', { method: 'POST', body: { key: volcAk.trim() } })
-        await app.api('/v1/vendors/volc-access-key-secret/credential', { method: 'POST', body: { key: volcSk.trim() } })
+        // 两条目写入不是原子的：第二个失败时把第一个补偿删除，避免留下
+        // 半对凭据（后续配额查询会一直 401，界面却像已配置）。
+        let firstSaved = false
+        try {
+          await app.api('/v1/vendors/volc-access-key-id/credential', { method: 'POST', body: { key: volcAk.trim() } })
+          firstSaved = true
+          await app.api('/v1/vendors/volc-access-key-secret/credential', { method: 'POST', body: { key: volcSk.trim() } })
+        } catch (err) {
+          if (firstSaved) {
+            try {
+              await app.api('/v1/vendors/volc-access-key-id/credential', { method: 'DELETE' })
+            } catch (rollbackErr) {
+              app.toast('AK 已写入但 SK 失败，回滚也未成功，请在弹窗里重新填写或删除后重试', 'bad')
+            }
+          }
+          throw err
+        }
         app.toast('已保存火山 IAM AK/SK（配额查询用，不出现在日志）')
         setEditing(null)
         setVolcAk('')

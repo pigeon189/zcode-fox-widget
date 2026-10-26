@@ -1,7 +1,7 @@
 import { h } from '../vendor/preact.module.js'
-import { useEffect, useState } from '../vendor/hooks.module.js'
+import { useEffect, useRef, useState } from '../vendor/hooks.module.js'
 import htm from '../vendor/htm.module.js'
-import { Badge, Card, EmptyState, SourceTag } from '../components/base.mjs'
+import { Badge, Button, Card, EmptyState, SourceTag } from '../components/base.mjs'
 import { AreaChart, Gauge, StackedBar } from '../charts/svg.mjs'
 import { fmtDateTime, fmtNum, fmtPct, fmtTokens, pctTone } from '../lib/format.mjs'
 
@@ -38,21 +38,41 @@ export function ContextPanel({ app, agentId = '', sessionId = '', compact = fals
   const id = agentId || app.viewAgent
   const [ctx, setCtx] = useState((app.contexts && app.contexts[id]) || null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+  // 数据归属：agent 或会话一变，上一份 context 必须立刻作废，否则会在切换
+  // 完成的瞬间把 A 的占用画在 B 上（同 agent 内切会话尤其明显）。
+  const ctxKey = id + '|' + sessionId
+  const loadedKey = useRef(ctxKey)
 
   useEffect(() => {
     let alive = true
+    const key = id + '|' + sessionId
+    const switching = loadedKey.current !== key
+    loadedKey.current = key
+    setLoading(true)
+    setError('')
+    if (switching) setCtx(null)
     const qs = new URLSearchParams({ range: 'session' })
     if (sessionId) qs.set('session', sessionId)
-    setLoading(true)
     app
       .api('/v1/agents/' + encodeURIComponent(id) + '/context?' + qs.toString())
-      .then((d) => alive && setCtx(d.context))
-      .catch(() => {})
+      .then((d) => {
+        if (!alive) return
+        setCtx(d && d.context ? d.context : null)
+        setError('')
+      })
+      .catch((e) => {
+        if (!alive) return
+        // 读取失败不能留下上一会话的数据，也不能永久停在 Skeleton。
+        setCtx(null)
+        setError(String((e && e.message) || e || '未知错误'))
+      })
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
     }
-  }, [id, sessionId, app.refreshAt])
+  }, [id, sessionId, app.refreshAt, retry])
 
   const est = ctx ? estimate(ctx) : null
 
@@ -64,9 +84,16 @@ export function ContextPanel({ app, agentId = '', sessionId = '', compact = fals
       <span class="small muted">${loading ? '更新中…' : ctx && ctx.updatedAt ? fmtDateTime(ctx.updatedAt) : ''}</span>
     </div>
 
-    ${!ctx
-      ? html`<div class="skeleton" style=${{ height: 160 }}></div>`
-      : !ctx.supported
+    ${!ctx && error
+      ? html`<${Card}>
+          <${EmptyState} icon="alert" title="上下文读取失败" hint=${error} />
+          <div class="row" style=${{ justifyContent: 'center', marginTop: 12 }}>
+            <${Button} variant="secondary" onClick=${() => setRetry((n) => n + 1)}>重试</${Button}>
+          </div>
+        </${Card}>`
+      : !ctx
+        ? html`<div class="skeleton" style=${{ height: 160 }}></div>`
+        : !ctx.supported
         ? html`<${EmptyState} icon="layers" title=${app.reasonText(ctx.reason)} hint="打开一个会话后这里会自动出现" />`
         : html`<div class="grid">
             <div class=${compact ? 'col-12' : 'col-5'}>

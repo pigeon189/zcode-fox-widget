@@ -54,6 +54,246 @@ async function open(hash, width = 1280) {
   return { ctx, p, errors }
 }
 
+async function openRouted(hash, setup, width = 1280, waitUntil = 'networkidle') {
+  const ctx = await browser.newContext({ viewport: { width, height: 820 }, reducedMotion: 'reduce' })
+  const p = await ctx.newPage()
+  const errors = []
+  p.on('pageerror', (e) => errors.push(e.message))
+  await setup(p)
+  await p.goto(BASE + '/ui/console.html#' + hash, { waitUntil })
+  await p.waitForTimeout(300)
+  return { ctx, p, errors }
+}
+
+test('e2e: 总览当前会话读 displayStatus（陈旧 working 不能冒充工作中）', async () => {
+  const items = [
+    {
+      key: 'zcode:wait',
+      agentId: 'zcode',
+      sessionId: 'wait',
+      title: '在等我输入的会话',
+      status: 'working',
+      displayStatus: 'waiting_input',
+      model: 'deepseek-v4.1-flash',
+      startedAt: Date.now() - 60_000,
+    },
+  ]
+  const { ctx, p, errors } = await openRouted('overview', async (page) => {
+    await page.route(/\/v1\/sessions\?/, (route) =>
+      route.fulfill({
+        json: { ok: true, items, counts: { working: 0, waiting_input: 1, waiting_permission: 0, idle: 0, done: 0, error: 0 }, total: 1, rootTotal: 1 },
+      })
+    )
+  })
+  try {
+    await p.waitForSelector('[data-testid="overview.current-session"]', { timeout: 10000 })
+    const text = await p.locator('[data-testid="overview.current-session"]').innerText()
+    assert.match(text, /等待输入/, '徽标应读 displayStatus：' + text)
+    assert.doesNotMatch(text, /工作中/, 'raw status=working 不能显示成工作中：' + text)
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 上下文切换失败时不残留上一会话数据，并显示重试', async () => {
+  const sessions = [
+    { key: 'zcode:sA', agentId: 'zcode', sessionId: 'sA', title: '会话 A', status: 'idle', displayStatus: 'idle', model: 'model-A' },
+    { key: 'zcode:sB', agentId: 'zcode', sessionId: 'sB', title: '会话 B', status: 'idle', displayStatus: 'idle', model: 'model-B' },
+  ]
+  const { ctx, p, errors } = await openRouted('sessions?select=zcode%3AsA&tab=context', async (page) => {
+    await page.route(/\/v1\/sessions\?/, (route) =>
+      route.fulfill({ json: { ok: true, items: sessions, counts: { idle: 2 }, total: 2, rootTotal: 2 } })
+    )
+    await page.route(/\/v1\/sessions\/[^/?]+$/, async (route) => {
+      const key = decodeURIComponent(route.request().url().split('/v1/sessions/')[1].split('?')[0])
+      const hit = sessions.find((s) => s.key === key)
+      if (!hit) return route.fulfill({ status: 404, json: { ok: false } })
+      return route.fulfill({ json: { ok: true, session: hit, turns: [], tools: [], models: [] } })
+    })
+    await page.route(/\/v1\/agents\/[^/]+\/context\?/, async (route) => {
+      const url = new URL(route.request().url())
+      if (url.searchParams.get('session') === 'sA') {
+        return route.fulfill({
+          json: { ok: true, context: { supported: true, used: 400, limit: 1000, pct: 40, model: 'model-A', points: [], breakdown: {} } },
+        })
+      }
+      return route.fulfill({ status: 500, json: { ok: false, error: 'boom' } })
+    })
+  })
+  try {
+    await p.waitForSelector('[data-testid="context.panel"]', { timeout: 10000 })
+    await p.waitForFunction(() => (document.querySelector('[data-testid="context.panel"]') || {}).textContent.indexOf('model-A') >= 0, null, { timeout: 8000 })
+    await p.evaluate(() => {
+      location.hash = '#sessions?select=zcode%3AsB&tab=context'
+    })
+    await p.waitForFunction(() => /上下文读取失败/.test((document.querySelector('[data-testid="context.panel"]') || {}).textContent || ''), null, { timeout: 8000 })
+    const text = await p.locator('[data-testid="context.panel"]').innerText()
+    assert.doesNotMatch(text, /model-A|40%/, 'B 失败时不能残留 A 的数据：' + text)
+    assert.match(text, /重试/)
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 预算逐键输入 1.25 不会被回写成 251', async () => {
+  const { ctx, p, errors } = await open('settings')
+  try {
+    await p.waitForSelector('[data-testid="settings.budgetMoney"]', { timeout: 10000 })
+    const input = p.locator('[data-testid="settings.budgetMoney"]')
+    await input.click()
+    await input.fill('')
+    await input.pressSequentially('1.25')
+    assert.equal(await input.inputValue(), '1.25', '编辑期间不能被受控回写改掉')
+    const deadline = Date.now() + 5000
+    let saved = null
+    while (Date.now() < deadline) {
+      const d = await (await fetch(BASE + '/v1/settings')).json()
+      saved = d.settings && d.settings.budgetMoney
+      if (Number(saved) === 1.25) break
+      await p.waitForTimeout(120)
+    }
+    assert.equal(Number(saved), 1.25, '服务端最终预算应为 1.25，实际 ' + saved)
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 积分周期只有 credits 时每日图仍画出柱形', async () => {
+  const d1 = '2026-10-25'
+  const d2 = '2026-10-26'
+  const { ctx, p, errors } = await openRouted('usage', async (page) => {
+    await page.route(/\/v1\/usage\/breakdown\?/, (route) =>
+      route.fulfill({
+        json: {
+          ok: true,
+          unit: 'credit',
+          range: { days: 2, from: d1, to: d2 },
+          total: { credits: 120, tokens: 0, calls: 2, errors: 0 },
+          series: [
+            {
+              key: 'commandcode',
+              label: 'CommandCode',
+              tokens: 0,
+              amount: null,
+              credits: 120,
+              calls: 2,
+              errors: 0,
+              byDay: [
+                { d: d1, tokens: 0, amount: null, credits: 50, calls: 1 },
+                { d: d2, tokens: 0, amount: null, credits: 70, calls: 1 },
+              ],
+            },
+          ],
+          provenance: {},
+        },
+      })
+    )
+  })
+  try {
+    await p.waitForSelector('[data-testid="usage.chart"] svg.chart', { timeout: 10000 })
+    const bars = await p.locator('[data-testid="usage.chart"] svg.chart rect[fill^="var(--c"]').count()
+    assert.ok(bars >= 2, '积分柱形不能为空图，实际 rect=' + bars)
+    const text = await p.locator('[data-testid="usage.chart"]').innerText()
+    assert.match(text, /积分/)
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 日期选择器方向键移动后活动日有可见焦点', async () => {
+  const { ctx, p, errors } = await open('usage')
+  try {
+    await p.getByRole('tab', { name: '自定义' }).click()
+    await p.waitForSelector('[data-testid="usage.fromDate"]', { timeout: 5000 })
+    await p.locator('[data-testid="usage.fromDate"]').click()
+    await p.waitForSelector('.dp-pop', { timeout: 5000 })
+    await p.locator('.dp-pop').press('ArrowRight')
+    const active = await p.evaluate(() => {
+      const el = document.querySelector('.dp-day.active')
+      if (!el) return null
+      const s = getComputedStyle(el)
+      return { outline: s.outlineStyle, width: s.outlineWidth, color: s.outlineColor }
+    })
+    assert.ok(active, '必须有 .dp-day.active')
+    assert.notEqual(active.outline, 'none', '活动日必须有可见 outline：' + JSON.stringify(active))
+    assert.notEqual(active.width, '0px')
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 诊断未返回时导出按钮禁用，返回后才可用', async () => {
+  let release
+  const gate = new Promise((res) => {
+    release = res
+  })
+  const { ctx, p, errors } = await openRouted('about', async (page) => {
+    await page.route(/\/v1\/diag\/bundle/, async (route) => {
+      await gate
+      return route.fulfill({ json: { ok: true, generatedAt: new Date().toISOString(), paths: { dataDir: '~\\fox-dock' } } })
+    })
+  }, 1280, 'domcontentloaded')
+  try {
+    const btn = p.getByRole('button', { name: '导出诊断包' })
+    await btn.waitFor({ timeout: 10000 })
+    assert.equal(await btn.isDisabled(), true, '诊断未返回前不能导出空包')
+    release()
+    await p.waitForFunction(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('导出诊断包'))
+      return b && !b.disabled
+    }, null, { timeout: 8000 })
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 总览待处理用服务端计数，不被前 30 条列表漏报', async () => {
+  const { ctx, p, errors } = await openRouted('overview', async (page) => {
+    await page.route(/\/v1\/sessions\?/, (route) =>
+      route.fulfill({
+        json: { ok: true, items: [], counts: { working: 0, waiting_input: 0, waiting_permission: 2, idle: 0, done: 0, error: 0 }, total: 35, rootTotal: 35 },
+      })
+    )
+  })
+  try {
+    await p.waitForSelector('[data-testid="overview.pending"]', { timeout: 10000 })
+    const text = await p.locator('[data-testid="overview.pending"]').innerText()
+    assert.match(text, /2/, '应显示全局待处理 2：' + text)
+    assert.match(text, /等待确认|待处理/)
+    assert.doesNotMatch(text, /没有待处理事项/)
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 长下拉键盘导航不被静止鼠标抢回焦点', async () => {
+  const sets = Array.from({ length: 12 }, (_, i) => ({ id: 's' + i, name: '合成音效 ' + (i + 1), builtin: false }))
+  const { ctx, p, errors } = await openRouted('roles', async (page) => {
+    await page.route(/\/v1\/sounds$/, (route) => route.fulfill({ json: { ok: true, sets } }))
+  })
+  try {
+    await p.waitForSelector('[data-testid="sounds.select"]', { timeout: 10000 })
+    await p.locator('[data-testid="sounds.select"]').click()
+    await p.waitForSelector('.select-pop', { timeout: 5000 })
+    // 指针停在首项上，之后只用键盘：旧实现会在列表滚动时被 mouseenter 抢回。
+    await p.locator('.select-pop .select-option').first().hover()
+    for (let i = 0; i < 11; i++) await p.locator('.select-pop').press('ArrowDown')
+    const active = p.locator('.select-option.active')
+    assert.equal(await active.count(), 1)
+    assert.equal((await active.innerText()).trim(), '合成音效 12', '键盘活动项不能被静止指针覆盖')
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
 test('e2e: Token 活动是填满卡片宽度的 53 周绿墙，格子为正方形', async () => {
   const { ctx, p, errors } = await open('stats')
   try {
@@ -264,6 +504,155 @@ test('e2e: Token 活动支持每日/每周/累计且气泡文案对应', async (
     await p.getByRole('tab', { name: '每日' }).click()
     await p.waitForTimeout(200)
     assert.ok((await p.locator('.heatmap-weeks .heatmap-cell').count()) >= 350, '每日模式恢复 7 行墙')
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 权限横幅「允许一次」同时要求 takeover 与 allowOnce', async () => {
+  const baseSettings = await (await fetch(BASE + '/v1/settings')).json()
+  const cases = [
+    [{ takeover: false, allowOnce: true }, false],
+    [{ takeover: true, allowOnce: false }, false],
+    [{ takeover: false, allowOnce: false }, false],
+    [{ takeover: true, allowOnce: true }, true],
+  ]
+  const actions = [{ id: 'a1', kind: 'permission', agentId: 'zcode', sessionKey: 'zcode:s1', tool: 'Bash', preview: 'ls', risk: 'normal', state: 'pending' }]
+  for (const [permission, expectAllow] of cases) {
+    for (const hash of ['overview', 'sessions']) {
+      const ctx = await browser.newContext({ viewport: { width: 960, height: 680 }, reducedMotion: 'reduce' })
+      const p = await ctx.newPage()
+      try {
+        await p.route('**/v1/actions*', (route) =>
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, actions }) })
+        )
+        // takeover 关闭后 broker 里的 pending 还有 TTL，横幅仍会显示；只校验按钮口径。
+        await p.route('**/v1/settings*', (route) => {
+          const settings = {
+            ...(baseSettings.settings || {}),
+            onboarded: true,
+            permission: { ...((baseSettings.settings || {}).permission || {}), ...permission },
+          }
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...baseSettings, settings }) })
+        })
+        await p.goto(BASE + '/ui/console.html#' + hash, { waitUntil: 'networkidle' })
+        await p.waitForSelector('[data-testid="perm.banner"]', { timeout: 5000 })
+        const labels = await p.evaluate(() =>
+          [...document.querySelectorAll('[data-testid="perm.banner"] button')].map((b) => b.textContent.trim())
+        )
+        assert.deepEqual(
+          labels,
+          expectAllow ? ['去宿主处理', '拒绝', '允许一次'] : ['去宿主处理', '拒绝'],
+          hash + ' ' + JSON.stringify(permission) + ' → ' + JSON.stringify(labels)
+        )
+      } finally {
+        await ctx.close()
+      }
+    }
+  }
+})
+
+test('e2e: 音量「静音」(soundVolume=0) 不被回落成 50%', async () => {
+  const baseSettings = await (await fetch(BASE + '/v1/settings')).json()
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 820 }, reducedMotion: 'reduce' })
+  const p = await ctx.newPage()
+  const errors = []
+  p.on('pageerror', (e) => errors.push(e.message))
+  try {
+    await p.route('**/v1/settings*', (route) => {
+      const settings = { ...(baseSettings.settings || {}), soundVolume: 0, onboarded: true }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...baseSettings, settings }) })
+    })
+    await p.goto(BASE + '/ui/console.html#roles', { waitUntil: 'networkidle' })
+    await p.waitForSelector('[data-testid="sounds.volume"]', { timeout: 10000 })
+    const text = (await p.locator('[data-testid="sounds.volume"]').innerText()).replace(/\s+/g, ' ').trim()
+    assert.match(text, /静音/, 'soundVolume=0 应显示「静音」而不是 50%：' + text)
+    assert.doesNotMatch(text, /50%/, 'soundVolume=0 被回落成 50%：' + text)
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 刷新重载 settings——外部改动后设置页不再显示启动旧值', async () => {
+  const baseSettings = await (await fetch(BASE + '/v1/settings')).json()
+  let autoStart = true
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 820 }, reducedMotion: 'reduce' })
+  const p = await ctx.newPage()
+  const errors = []
+  p.on('pageerror', (e) => errors.push(e.message))
+  try {
+    await p.route('**/v1/settings*', (route) => {
+      const settings = { ...(baseSettings.settings || {}), onboarded: true, autoStart }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...baseSettings, settings }) })
+    })
+    await p.goto(BASE + '/ui/console.html#settings', { waitUntil: 'networkidle' })
+    await p.waitForSelector('[data-testid="page.settings"]', { timeout: 10000 })
+    await p.getByRole('button', { name: '启动与更新' }).click()
+    await p.waitForTimeout(300)
+    const check = p.locator('#startup input[type="checkbox"]').first()
+    assert.equal(await check.isChecked(), true, '启动时应读到 autoStart=true')
+    // 模拟外部改设置（向导完成 / 另一个入口修改）。
+    autoStart = false
+    await p.getByRole('button', { name: '刷新' }).last().click()
+    await p.waitForFunction(() => {
+      const el = document.querySelector('#startup input[type="checkbox"]')
+      return el && !el.checked
+    }, null, { timeout: 5000 })
+    assert.equal(await check.isChecked(), false, '刷新后应重载 settings：' + (await p.locator('#startup').innerText()))
+    assert.equal(errors.length, 0, errors.join(' | '))
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('e2e: 向导完成时开机自启失败 → 不把 autoStart 写进 settings', async () => {
+  // D048：设置页的「开机自启」必须与启动文件夹里的启动件一致。autostart 失败时
+  // 只 toast，不能继续把 autoStart 写进 /v1/onboarding/complete。
+  const baseSettings = await (await fetch(BASE + '/v1/settings')).json()
+  let completeBody = null
+  let autostartCalls = 0
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 820 }, reducedMotion: 'reduce' })
+  const p = await ctx.newPage()
+  const errors = []
+  p.on('pageerror', (e) => errors.push(e.message))
+  try {
+    await p.route('**/v1/settings*', (route) => {
+      const settings = { ...(baseSettings.settings || {}), onboarded: false, autoStart: true }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...baseSettings, settings }) })
+    })
+    await p.route('**/v1/onboarding*', (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          onboarded: false,
+          hosts: [{ id: 'zcode', name: 'ZCode', running: true }],
+          legacy: { found: false, sources: [] },
+          integrationDir: '',
+        }),
+      })
+    })
+    await p.route('**/v1/maintenance/autostart', (route) => {
+      autostartCalls += 1
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'mock-fail' }) })
+    })
+    await p.route('**/v1/onboarding/complete', (route) => {
+      completeBody = route.request().postDataJSON()
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) })
+    })
+    await p.goto(BASE + '/ui/console.html#overview', { waitUntil: 'networkidle' })
+    await p.getByTestId('wizard.next').waitFor({ timeout: 10000 })
+    await p.getByTestId('wizard.next').click()
+    await p.getByTestId('wizard.next').click()
+    await p.getByTestId('wizard.finish').click()
+    await p.waitForTimeout(600)
+    assert.equal(autostartCalls, 1, '完成时应尝试设置开机自启')
+    assert.ok(completeBody, 'onboarding/complete 应被调用')
+    assert.equal('autoStart' in completeBody, false, 'autostart 失败时不得写 autoStart：' + JSON.stringify(completeBody))
     assert.equal(errors.length, 0, errors.join(' | '))
   } finally {
     await ctx.close()

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from './vendor/hooks.module.js'
 import { render } from './vendor/preact.module.js'
 import htm from './vendor/htm.module.js'
 import { Icon } from './components/icons.mjs'
-import { Badge, IconButton, Segmented, Skeleton, Toasts } from './components/base.mjs'
+import { Badge, ErrorBoundary, IconButton, Segmented, Skeleton, Toasts } from './components/base.mjs'
 import { Wizard } from './components/wizard.mjs'
 import { fmtPct, fmtReset, fmtTime, agentName, reasonText, pctTone, setHideMoney } from './lib/format.mjs'
 import { OverviewPage } from './pages/overview.mjs'
@@ -143,6 +143,11 @@ function App() {
   const [boot, setBoot] = useState(null)
   const [state, setState] = useState(null)
   const [settings, setSettings] = useState(null)
+  const settingsRef = useRef(null)
+  const settingsQueue = useRef(Promise.resolve())
+  useEffect(() => {
+    settingsRef.current = settings
+  }, [settings])
   const [roles, setRoles] = useState([])
   const [vendors, setVendors] = useState(null)
   const [snapshots, setSnapshots] = useState({})
@@ -214,6 +219,12 @@ function App() {
     setSettings(d.settings)
     return d.settings
   }
+  // 设置页直接读 app.settings（向导完成、外部改设置、刷新按钮都要能拿到新值）。
+  async function reloadSettings() {
+    const s = await loadSettings()
+    if (s) applyTheme(s.theme)
+    return s
+  }
   async function reloadRoles() {
     const r = await api('/v1/roles')
     setRoles(r.roles || [])
@@ -230,6 +241,9 @@ function App() {
     forceUntil = Date.now() + 3000
     clearApiCache()
     setRefreshAt(Date.now())
+    // settings 只在启动/保存/重置时加载过，刷新（含向导完成）必须一并重载，
+    // 否则「开机自启」等开关要重开控制台才更新。
+    reloadSettings().catch(() => {})
   }
 
   useEffect(() => {
@@ -484,18 +498,31 @@ function App() {
     } catch (err) {}
   }
 
-  async function saveSettings(patch) {
-    const prev = settings
+  function saveSettings(patch) {
+    const before = settingsRef.current || {}
     setSettings((s) => ({ ...s, ...patch }))
-    try {
-      const d = await api('/v1/settings', { method: 'PUT', body: patch })
-      setSettings(d.settings)
-      applyTheme(d.settings.theme)
-      refresh()
-    } catch (err) {
-      setSettings(prev)
-      toast('保存失败：' + String(err.message || err), 'bad')
-    }
+    // 串行保存：两个开关快速连点时，后一个的失败回滚不能把前一个已成功的
+    // 改动一起撤销（旧实现用整份 settings 快照回滚）；成功时也只合并本次
+    // patch 的字段，不拿服务端整份响应覆盖还排在队列里的乐观值。
+    settingsQueue.current = settingsQueue.current.then(async () => {
+      try {
+        const d = await api('/v1/settings', { method: 'PUT', body: patch })
+        setSettings((s) => {
+          const next = { ...s }
+          for (const k of Object.keys(patch)) if (d.settings && k in d.settings) next[k] = d.settings[k]
+          return next
+        })
+        if (patch.theme && d.settings) applyTheme(d.settings.theme)
+      } catch (err) {
+        setSettings((s) => {
+          const next = { ...s }
+          for (const k of Object.keys(patch)) next[k] = before[k]
+          return next
+        })
+        toast('保存失败：' + String(err.message || err), 'bad')
+      }
+    })
+    return settingsQueue.current
   }
 
   async function copyDiagnostics() {
@@ -583,6 +610,7 @@ function App() {
     reloadActions,
     resolveAction,
     permActions,
+    reloadSettings,
     reloadRoles,
     reloadVendors,
     saveSettings,
@@ -646,7 +674,7 @@ function App() {
         <div class="content" id="content" tabindex="0" aria-label="页面内容">
           ${!state
             ? html`<div class="card"><${Skeleton} height=${28} /><div style=${{ height: 12 }}></div><${Skeleton} height=${200} /></div>`
-            : html`<${Page} app=${app} />`}
+            : html`<${ErrorBoundary} key=${page} where=${page}><${Page} app=${app} /></${ErrorBoundary}>`}
         </div>
       </main>
     </div>
@@ -655,4 +683,4 @@ function App() {
   </${Fragment}>`
 }
 
-render(html`<${App} />`, document.getElementById('root'))
+render(html`<${ErrorBoundary} where="app"><${App} /></${ErrorBoundary}>`, document.getElementById('root'))

@@ -3,9 +3,9 @@
     "pet": { "mode": "idle", "agentId": "", "lastAgentId": "", "rect": null, "display": null },
     "agents": [
       { "id": "zcode", "name": "ZCode", "running": false, "windows": [], "accent": "#f0a04b", "roleDefault": "fox" },
-      { "id": "workbuddy", "name": "WorkBuddy", "running": false, "windows": [], "accent": "#22b8a0", "roleDefault": "xiaoke" },
-      { "id": "kimi", "name": "Kimi Code", "running": false, "windows": [], "accent": "#8b5cf6", "roleDefault": "kimi" },
-      { "id": "dsh", "name": "DeepSeek Harness", "running": false, "windows": [], "accent": "#4d6bfe", "roleDefault": "whale" }
+      { "id": "workbuddy", "name": "WorkBuddy", "running": false, "windows": [], "accent": "#0cc8a4", "roleDefault": "xiaoke" },
+      { "id": "kimi", "name": "Kimi Code", "running": false, "windows": [], "accent": "#3490f8", "roleDefault": "kimi" },
+      { "id": "dsh", "name": "DeepSeek Harness", "running": false, "windows": [], "accent": "#4176e6", "roleDefault": "whale" }
     ],
     "daemon": { "version": "2.0.0-fixture", "uptime": 0, "port": 39490 }
   },

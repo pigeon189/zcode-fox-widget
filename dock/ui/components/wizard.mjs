@@ -56,11 +56,38 @@ export function Wizard({ app, onClose }) {
     setBusy(false)
   }
 
-  async function finish() {
+  // 「跳过」只是结束向导，不碰开机自启（D048：自启只由显式开关决定）。首启机器的
+  // settings.autoStart 默认 true、启动件通常还没装，不能因为点了「跳过」就安装
+  // 启动文件夹的 VBS。「完成」才把第 3 步看到的开关值真正落到启动件。
+  async function finish(applyAutoStart) {
+    let autoStartApplied = false
+    if (applyAutoStart === true) {
+      // 开机自启只经 /v1/maintenance/autostart（D048）：这个端点才会真正安装/移除
+      // 启动文件夹里的 VBS。/v1/onboarding/complete 只写 settings.autoStart 标记，
+      // 单靠它会出现「开关打开不生效、关掉后下次开机仍自启」。
+      try {
+        await app.api('/v1/maintenance/autostart', { method: 'POST', body: { enabled: autoStart } })
+        autoStartApplied = true
+      } catch (e) {
+        // 启动件没装成/没拆掉时不要把 settings.autoStart 写过去，否则设置页显示
+        // 「已开启」而启动文件夹里没有 VBS（D048 要求开关与实际启动件一致）。
+        app.toast('开机自启设置失败，已保持原设置：' + String((e && e.message) || e), 'bad')
+      }
+    }
     try {
-      await app.api('/v1/onboarding/complete', { method: 'POST', body: { autoStart } })
-      app.refresh && app.refresh()
+      await app.api('/v1/onboarding/complete', {
+        method: 'POST',
+        body: autoStartApplied ? { autoStart } : {},
+      })
     } catch (e) {}
+    // 控制台设置页直接读 app.settings：完成向导后必须重载，否则「开机自启」
+    // 等开关还停在控制台启动时的旧值，直到重开窗口。
+    if (app.reloadSettings) {
+      try {
+        await app.reloadSettings()
+      } catch (e) {}
+    }
+    app.refresh && app.refresh()
     onClose()
   }
 
@@ -142,11 +169,11 @@ export function Wizard({ app, onClose }) {
         </div>`
       : null}
     <div class="row" style=${{ marginTop: 16, justifyContent: 'flex-end' }} role="group" aria-label="向导操作">
-      <${Button} variant="ghost" onClick=${finish}>跳过</${Button}>
+      <${Button} variant="ghost" onClick=${() => finish(false)}>跳过</${Button}>
       ${step > 0 ? html`<${Button} variant="secondary" onClick=${() => { setStep(step - 1); if (step - 1 === 0) redetect() }}>上一步</${Button}>` : null}
       ${step < 2
         ? html`<${Button} variant="primary" disabled=${!info} onClick=${() => setStep(step + 1)} data-testid="wizard.next">下一步</${Button}>`
-        : html`<${Button} variant="primary" onClick=${finish} data-testid="wizard.finish">完成</${Button}>`}
+        : html`<${Button} variant="primary" onClick=${() => finish(true)} data-testid="wizard.finish">完成</${Button}>`}
     </div>
   <//>`
 }

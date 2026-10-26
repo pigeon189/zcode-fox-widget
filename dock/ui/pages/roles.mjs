@@ -55,7 +55,10 @@ export function RolesPage({ app }) {
       .api('/v1/settings')
       .then((d) => {
         if (!alive) return
-        setSoundVolume(Math.round((Number(d.settings && d.settings.soundVolume) || 0.5) * 100) / 100)
+        // 0 = 静音，不能走 `|| 0.5` 回落（会把「静音」显示成 50%）。
+        const raw = d.settings ? d.settings.soundVolume : null
+        const n = raw == null || raw === '' ? NaN : Number(raw)
+        setSoundVolume(Number.isFinite(n) ? Math.round(Math.max(0, Math.min(1, n)) * 100) / 100 : 0.5)
         setSoundSet(String((d.settings && d.settings.soundSet) || 'duck'))
       })
       .catch(() => {})
@@ -123,10 +126,12 @@ export function RolesPage({ app }) {
     })
   }
   async function onSoundFiles(e) {
-    const files = Array.from((e.currentTarget.files || [])).slice(0, 2)
+    const all = Array.from(e.currentTarget.files || [])
     e.currentTarget.value = ''
-    if (!files.length) return
-    if (files.length > 2) app.toast('最多选 2 个文件（第 1 个按压音，第 2 个松手音）', 'bad')
+    if (!all.length) return
+    const files = all.slice(0, 2)
+    const ignored = all.length - files.length
+    if (ignored > 0) app.toast(`最多用 2 个文件（按压/松手），已忽略 ${ignored} 个多余文件`, 'bad')
     try {
       const body = { press: { name: files[0].name, dataUrl: await fileToDataUrl(files[0]) } }
       if (files[1]) body.release = { name: files[1].name, dataUrl: await fileToDataUrl(files[1]) }
