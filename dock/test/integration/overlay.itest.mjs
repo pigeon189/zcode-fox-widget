@@ -435,6 +435,10 @@ test('pet: 气泡点击推进队列，队列结束关闭', async () => {
 
 test('pet: 长气泡定位一次后不再左移', async () => {
   // 关掉本轮消耗气泡，避免后台快照刷新把测试用的长气泡替换掉。
+  // 必须同时写 daemon 设置：渲染层每 2 秒会用 /v1/settings 覆盖本地 settings，
+  // 只调 __pet.setSettings 时 turnBubble 会被轮询翻回 true，测试偶发被
+  // 「本轮 ¥0.00」替换（整跑时命中，单跑不命中）。
+  await putSettings({ turnBubble: false })
   await cdp.eval("window.__pet.setSettings({hideMoney:false,turnBubble:false})")
   await cdp.eval("window.__pet.debugAttach('zcode','0x1',{x:520,y:180,w:960,h:620},{h:'right',v:'bottom'})")
   await cdp.eval("window.__pet.showBubble('我已经一分钟没有听到Gemini 4的故事了','ZCode',{ms:0})")
@@ -452,6 +456,7 @@ test('pet: 长气泡定位一次后不再左移', async () => {
   assert.equal(x2.t, x1.t, '气泡内容被替换：' + JSON.stringify({ x1, x2 }))
   await cdp.eval('window.__pet.hideBubble()')
   await cdp.eval('window.__pet.setSettings({turnBubble:true})')
+  await putSettings({ turnBubble: true })
 })
 
 test('pet: 大浮窗打开时气泡避开浮窗', async () => {
@@ -539,16 +544,10 @@ test('pet: 台词/内容变化时快览卡 top 不动，气泡不压卡片', asy
     )
   )
   assert.equal(overlap.bubble, 0, '气泡压住快览卡：' + JSON.stringify(overlap))
-  // 台词跟人（2026-10-24 定稿）：必须停在角色正上方，允许与快览卡边缘重叠，
-  // 不再要求 ovQuick==0；上面 overlap.say 仅作记录不下断言。
-  const sayAbove = JSON.parse(
-    await cdp.eval(
-      "(function(){var s=document.getElementById('say').getBoundingClientRect();" +
-        "var f=document.getElementById('fox').getBoundingClientRect();" +
-        "return JSON.stringify({sb:s.bottom,ft:f.top,ok:s.bottom<=f.top+1})})()"
-    )
-  )
-  assert.equal(sayAbove.ok, true, '台词应在角色正上方：' + JSON.stringify(sayAbove))
+  // 台词/消耗气泡不得压快览卡或越出视口（AGENTS / UI-SPEC §1）：首选角色正上方，
+  // 与卡片冲突时移到卡片左右外侧/上下方。旧断言要求「永远停在角色正上方、
+  // 允许压住卡片边缘」，与规格冲突，按规格改为「不压卡片」。
+  assert.equal(overlap.say, 0, '台词压住快览卡：' + JSON.stringify(overlap))
   const inside = JSON.parse(
     await cdp.eval(
       "(function(){var out={};var names=['bubble','say'];" +
@@ -599,8 +598,8 @@ test('pet: 右下角兜底位长台词不出视口不压快览卡', async () => 
     )
     assert.equal(r.inVp, true, '长台词不能被裁到屏幕外：' + JSON.stringify(r))
     assert.equal(r.ovFox, 0, '台词不能压住角色本体：' + JSON.stringify(r))
-    // 台词跟人：必须在角色正上方（用户定稿——允许压快览卡边缘，但不许被卡片挤走）。
-    assert.ok(r.s.b <= r.foxTop + 1, '台词应在角色正上方：' + JSON.stringify(r))
+    // 快览卡打开时台词让位到卡片外侧（AGENTS：台词/消耗气泡不得压快览卡）。
+    assert.equal(r.ovQuick, 0, '台词不能压住快览卡：' + JSON.stringify(r))
   }
   // 关掉快览卡再验一遍：兜底位没有卡片时，长台词同样不能出视口/压角色。
   await cdp.eval('window.__pet.closeQuick()')

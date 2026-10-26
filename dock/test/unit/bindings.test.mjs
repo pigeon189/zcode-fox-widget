@@ -1,14 +1,24 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { findBinding, MAX_BINDINGS, readBindings, removeBinding, upsertBinding, writeBindings } from '../../daemon/src/bindings.mjs'
 
+const dirs = []
 function tempFile() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-dock-bind-'))
+  dirs.push(dir)
   return path.join(dir, 'bindings.json')
 }
+
+after(() => {
+  for (const dir of dirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+    } catch (err) {}
+  }
+})
 
 const sample = (n) => ({
   key: 'c:/app/zcode.exe|' + n + '|1792320000000|1a' + n,

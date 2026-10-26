@@ -29,6 +29,16 @@ contextBridge.exposeInMainWorld('foxOverlay', {
   readSound(setId, slot) {
     return ipcRenderer.invoke('read-sound', { setId: String(setId), slot: String(slot) })
   },
+  // SSE 事件（主进程持令牌代理 /v1/stream，渲染层不再直接连网）。
+  onStream(cb) {
+    const handler = (_e, payload) => {
+      try {
+        cb(payload && typeof payload === 'object' ? payload : { event: 'message', data: payload })
+      } catch (err) {}
+    }
+    ipcRenderer.on('stream-event', handler)
+    return () => ipcRenderer.removeListener('stream-event', handler)
+  },
   // 权限待办推送（M5）：主进程 2s 轮询 /v1/actions 后转发给宠物权限卡。
   onPermActions(cb) {
     ipcRenderer.on('perm-actions', (_e, actions) => {

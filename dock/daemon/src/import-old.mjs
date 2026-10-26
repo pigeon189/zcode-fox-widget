@@ -175,9 +175,14 @@ function importWidgetState(srcDir) {
   const state = readJson(path.join(srcDir, 'widget-state.json'), null)
   if (!state) return { patch: null, count: 0 }
   const patch = {}
-  for (const key of ['scale', 'sound', 'soundEnabled', 'vol', 'soundVolume', 'petMode', 'scrollGapOn', 'scrollGapPx', 'soundSet']) {
+  for (const key of ['scale', 'sound', 'soundEnabled', 'vol', 'soundVolume', 'petMode', 'soundSet']) {
     if (state[key] !== undefined) patch[key] = state[key]
   }
+  // 1.x 里宽度字段叫 scrollGapPx，dock 叫 scrollGap：直接照抄键名会被
+  // normalizeSettings 丢掉，导入后用户设的宽度静默回到默认 17。
+  if (state.scrollGapOn !== undefined) patch.scrollGapOn = state.scrollGapOn
+  if (state.scrollGap !== undefined) patch.scrollGap = state.scrollGap
+  else if (state.scrollGapPx !== undefined) patch.scrollGap = state.scrollGapPx
   if (state.alerts && typeof state.alerts === 'object') {
     patch.quotaWarnPct = Number(state.alerts.quotaPct) || undefined
     patch.balanceWarnMoney = Number(state.alerts.moneyAlert) || undefined

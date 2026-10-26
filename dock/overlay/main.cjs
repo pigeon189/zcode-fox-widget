@@ -3,6 +3,7 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, globalShortcut, nativeImage, Notification } = require('electron')
 const { overlayWorkAreaBounds } = require('./window-bounds.cjs')
+const { probeOnce, createProbeWatchdog } = require('./input-probe.cjs')
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf(name)
@@ -78,6 +79,145 @@ async function patchSettings(patch) {
     console.warn('[fox-dock] settings patch failed: ' + (err && err.message ? err.message : err))
     return null
   }
+}
+
+// ---------- SSE 代理 ----------
+
+// 渲染层不允许直接发网络请求：拖拽期间 Chromium 会挂起渲染进程网络，
+// EventSource 会断流；渲染层也拿不到 daemon 令牌。主进程持令牌订阅
+// /v1/stream，把事件原样转发给渲染层（preload 暴露 onStream）。
+// 生产环境只有这一条路径；纯浏览器测试（无 preload）才回退 EventSource。
+let streamAbort = null
+let streamRetryTimer = null
+let streamStopped = false
+
+function stopStreamProxy() {
+  streamStopped = true
+  if (streamRetryTimer) clearTimeout(streamRetryTimer)
+  streamRetryTimer = null
+  try {
+    if (streamAbort) streamAbort.abort()
+  } catch (err) {}
+  streamAbort = null
+}
+
+function startStreamProxy() {
+  if (streamStopped || streamAbort) return
+  const ctrl = new AbortController()
+  streamAbort = ctrl
+  let retry = true
+  ;(async () => {
+    const lock = lockInfo()
+    if (!lock || !lock.port) throw new Error('daemon-not-running')
+    const headers = { Accept: 'text/event-stream' }
+    if (lock.token) headers['x-fox-token'] = lock.token
+    const res = await fetch('http://127.0.0.1:' + lock.port + '/v1/stream', { headers, signal: ctrl.signal })
+    if (!res.ok || !res.body) throw new Error('stream-status-' + res.status)
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      for (;;) {
+        const m = /\r?\n\r?\n/.exec(buffer)
+        if (!m) break
+        const block = buffer.slice(0, m.index)
+        buffer = buffer.slice(m.index + m[0].length)
+        const payload = { event: 'message', data: '' }
+        for (const line of block.split(/\r?\n/)) {
+          if (line.startsWith('event:')) payload.event = line.slice(6).trim()
+          else if (line.startsWith('data:')) payload.data += (payload.data ? '\n' : '') + line.slice(5).replace(/^ /, '')
+        }
+        if (!payload.data) continue
+        try {
+          payload.data = JSON.parse(payload.data)
+        } catch (err) {}
+        if (win && !win.isDestroyed()) {
+          try {
+            win.webContents.send('stream-event', payload)
+          } catch (err) {}
+        }
+      }
+    }
+  })()
+    .catch((err) => {
+      if (ctrl.signal.aborted) retry = false
+      else console.warn('[fox-dock] stream proxy: ' + (err && err.message ? err.message : err))
+    })
+    .finally(() => {
+      if (streamAbort === ctrl) streamAbort = null
+      if (retry && !streamStopped) {
+        if (streamRetryTimer) clearTimeout(streamRetryTimer)
+        streamRetryTimer = setTimeout(() => {
+          streamRetryTimer = null
+          startStreamProxy()
+        }, 2000)
+        if (streamRetryTimer.unref) streamRetryTimer.unref()
+      }
+    })
+}
+
+// ---------- 输入链路自愈（移植 1.x issue #13） ----------
+
+// 页面活着、心跳也能答，但输入链路可能断流：setIgnoreMouseEvents 停在旧值，
+// 悬停/点击永远穿透，用户只能重启浮层。这里每 30 秒让页面用主进程算出的
+// 光标坐标做一次 DOM 命中测试，直接按结果纠正窗口的鼠标策略；连续两拍
+// 超时/异常（executeJavaScript 永久 pending 也算）才重载渲染进程。
+let inputProbeTimer = null
+
+function startInputProbe() {
+  if (noClickThrough || inputProbeTimer) return
+  const watchdog = createProbeWatchdog({
+    limit: 2,
+    onStuck: () => {
+      console.warn('[fox-dock] input probe stuck twice, reloading overlay renderer')
+      try {
+        win.webContents.reload()
+      } catch (err) {}
+    },
+  })
+  inputProbeTimer = setInterval(async () => {
+    if (!win || win.isDestroyed() || !overlayShown || manuallyHidden) return
+    if (win.webContents.isLoading()) return
+    let point = null
+    try {
+      const cpt = screen.getCursorScreenPoint()
+      const cb = win.getContentBounds()
+      point = { x: Math.round(cpt.x - cb.x), y: Math.round(cpt.y - cb.y) }
+    } catch (err) {
+      return
+    }
+    try {
+      const r = await probeOnce(
+        () =>
+          win.webContents.executeJavaScript(
+            'window.__pet && window.__pet.probeInput ? window.__pet.probeInput(' + point.x + ',' + point.y + ') : null'
+          ),
+        5000
+      )
+      if (r.timedOut) {
+        watchdog.fail()
+        return
+      }
+      const probe = r.probe
+      // 页面没完成 boot（__pet 不存在）也按失败计：30 秒后还不存在，
+      // 重载一次比永远不接管鼠标更合理。
+      if (!probe || typeof probe.hit !== 'boolean') {
+        watchdog.fail()
+        return
+      }
+      watchdog.ok()
+      // 以页面 DOM 的真实命中为准纠正穿透状态，不再依赖渲染层 IPC 是否还通。
+      try {
+        win.setIgnoreMouseEvents(!probe.hit, { forward: true })
+      } catch (err) {}
+    } catch (err) {
+      watchdog.fail()
+    }
+  }, 30000)
+  if (inputProbeTimer.unref) inputProbeTimer.unref()
 }
 
 // ---------- 角色 alpha 掩码（治「透明边挡住下面窗口点击」） ----------
@@ -288,9 +428,12 @@ async function quitDock() {
 
 function buildMenu() {
   const s = readSettings()
+  // 托盘菜单不写 accelerator：原生 Windows 菜单会为快捷键单独留一列，菜单宽度
+  // 被撑到文字的两倍。快捷键仍由 setupHotkeys 按设置注册（原硬编码的
+  // Ctrl+Alt+D/F 还与用户自定义热键不一致）。菜单按标签文字自然收紧。
   return Menu.buildFromTemplate([
-    { label: '打开控制台', accelerator: 'Ctrl+Alt+D', click: openConsole },
-    { label: win && win.isVisible() ? '隐藏角色' : '显示角色', accelerator: 'Ctrl+Alt+F', click: toggleVisible },
+    { label: '打开控制台', click: openConsole },
+    { label: win && win.isVisible() ? '隐藏角色' : '显示角色', click: toggleVisible },
     { type: 'separator' },
     {
       label: '吸附到 agent 窗口',
@@ -371,7 +514,8 @@ function setupHotkeys() {
 // 热键只在存在 pending 时注册、pending 清空即注销；高风险 pending 不注册
 // 「允许」（D036：高风险不支持热键允许）。通知文案 ≤60 字且已脱敏。
 
-const permHotkeys = new Map() // accelerator -> true
+const permHotkeys = new Map() // accelerator -> true（已向系统注册）
+const permHotkeyFns = new Map() // accelerator -> 当前回调（每次 sync 覆盖）
 const notifiedActions = new Set()
 
 function resolveAction(id, decision, via) {
@@ -386,7 +530,11 @@ function syncPermHotkeys(pending) {
   const s = readSettings()
   const hot = (s.permission && s.permission.hotkeys) || {}
   const first = pending[0] || null
-  const allowAcc = first && first.risk !== 'high' ? String(hot.allow || '') : ''
+  // 「允许」热键与卡片同口径（pet.js permAllowable / perm-banner）：只有
+  // takeover + allowOnce 都开启、且不是高风险时才注册。否则关闭「允许一次」
+  // （分支 B）后 Ctrl+Alt+Y 仍能 resolve 成 allow，绕过 UI 的开关。
+  const allowOnceOn = !!(s.permission && s.permission.takeover === true && s.permission.allowOnce === true)
+  const allowAcc = first && first.risk !== 'high' && allowOnceOn ? String(hot.allow || '') : ''
   const denyAcc = first ? String(hot.deny || '') : ''
   for (const acc of [...permHotkeys.keys()]) {
     if (acc !== allowAcc && acc !== denyAcc) {
@@ -394,12 +542,23 @@ function syncPermHotkeys(pending) {
         globalShortcut.unregister(acc)
       } catch (err) {}
       permHotkeys.delete(acc)
+      permHotkeyFns.delete(acc)
     }
   }
+  const boundNow = new Set()
   const bind = (acc, fn, label) => {
-    if (!acc || permHotkeys.has(acc)) return
+    if (!acc || boundNow.has(acc)) return
+    boundNow.add(acc)
+    // 回调每次 sync 都换成最新闭包：pending[0] 变了但快捷键没变时，已注册的
+    // globalShortcut 不能继续 resolve 旧 id（daemon 会返回 conflict，热键静默失效）。
+    permHotkeyFns.set(acc, fn)
+    if (permHotkeys.has(acc)) return
     try {
-      if (globalShortcut.register(acc, fn)) permHotkeys.set(acc, true)
+      const ok = globalShortcut.register(acc, () => {
+        const run = permHotkeyFns.get(acc)
+        if (run) run()
+      })
+      if (ok) permHotkeys.set(acc, true)
       else console.warn('[fox-dock] 权限热键被占用：' + acc + '（' + label + '）')
     } catch (err) {
       console.warn('[fox-dock] 权限热键注册失败：' + acc + ' ' + (err && err.message ? err.message : err))
@@ -423,7 +582,10 @@ function maybeNotify(pending) {
       notifiedActions.delete(firstKey)
     }
     const tool = String(a.tool || '工具').slice(0, 24)
-    const body = String(a.preview || '').slice(0, 60) || tool
+    // 通知正文不落 preview：ingest 只做密钥/主目录脱敏，命令本体仍完整保留，
+    // 短命令会整条进系统通知（AGENTS：通知里不得出现完整命令或用户路径）。
+    // 风险等级只说结论，具体内容在宠物层卡片/宿主窗口里看。
+    const body = a.risk === 'high' ? '高风险命令，请在宿主窗口处理' : '等待确认，点此切到宿主窗口处理'
     try {
       if (Notification.isSupported()) {
         const n = new Notification({ title: tool + ' · 正在等待确认（' + String(a.agentId || 'agent') + '）', body, silent: false })
@@ -527,6 +689,54 @@ app.whenReady().then(() => {
     query: { port: String(daemonPort), pid: String(process.pid), ignore: ignorePids, ct: noClickThrough ? '0' : '1', allowGeneric: allowGeneric ? '1' : '0' },
   })
   startZOrderPoll()
+  // 渲染层不再直接连 SSE：主进程持令牌代理，daemon 重启后自动重连。
+  startStreamProxy()
+  startInputProbe()
+  // 显示缩放 / 分辨率 / 工作区变化：窗口按新工作区重设；缩放变了还要重建
+  // PowerShell 桥（它的 DPI 上下文在启动时固定，旧缩放下窗口矩形会偏大
+  // 1.5/1.25 倍，角色会被放到宿主窗口下方）。重建后让渲染层立刻重读一次
+  // /rect，而不是等下一次 2 秒轮询。
+  let displayScale = chosen.scaleFactor
+  let displayRefitTimer = null
+  const refitOverlayToDisplay = () => {
+    try {
+      const primaryNow = screen.getPrimaryDisplay()
+      const picked = displayMode === 'primary' ? primaryNow : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+      const workNow = overlayWorkAreaBounds(picked.workArea, picked.bounds)
+      const cur = win.getBounds()
+      let boundsChanged = false
+      if (cur.x !== workNow.x || cur.y !== workNow.y || cur.width !== workNow.width || cur.height !== workNow.height) {
+        boundsChanged = true
+        win.setBounds(workNow)
+        console.log('[fox-dock] overlay-refit ' + JSON.stringify(win.getBounds()))
+      }
+      const scaleChanged = Number(picked.scaleFactor) !== Number(displayScale)
+      displayScale = picked.scaleFactor
+      const refitRenderer = () => {
+        try {
+          win.webContents.executeJavaScript('window.__pet && window.__pet.refit && window.__pet.refit()')
+        } catch (err) {}
+      }
+      if (scaleChanged) {
+        daemonApi('/v1/maintenance/bridge-restart', 'POST', {})
+          .then(refitRenderer)
+          .catch((err) => {
+            console.warn('[fox-dock] bridge restart failed: ' + (err && err.message ? err.message : err))
+          })
+      } else if (boundsChanged) {
+        // 只改工作区原点（任务栏换边、显示器排布变化）也必须让渲染层重读
+        // 窗口原点，否则本地坐标仍按旧 origin 偏移。
+        setTimeout(refitRenderer, 120)
+      }
+    } catch (err) {}
+  }
+  const onDisplayChanged = () => {
+    if (displayRefitTimer) clearTimeout(displayRefitTimer)
+    displayRefitTimer = setTimeout(refitOverlayToDisplay, 500)
+  }
+  screen.on('display-metrics-changed', onDisplayChanged)
+  screen.on('display-added', onDisplayChanged)
+  screen.on('display-removed', onDisplayChanged)
   // 透明窗口首帧：等页面完成加载再显示，并在显示后补一次整窗失效，
   // 避免 Windows 只合成部分脏区（真机：DOM 有、桌面上只有背景）。
   win.webContents.once('did-finish-load', () => {
@@ -679,6 +889,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit())
 app.on('will-quit', () => {
+  stopStreamProxy()
+  try {
+    if (inputProbeTimer) clearInterval(inputProbeTimer)
+  } catch (err) {}
   try {
     if (zOrderTimer) clearInterval(zOrderTimer)
   } catch (err) {}

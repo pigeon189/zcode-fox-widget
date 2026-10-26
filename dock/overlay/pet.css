@@ -301,7 +301,7 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   white-space: nowrap;
 }
 .quick-value {
-  margin-top: 12px;
+  margin-top: 10px;
   font: 700 32px/1.2 var(--font-num);
   font-variant-numeric: tabular-nums;
 }
@@ -314,7 +314,7 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 8px;
   font-size: 12px;
   color: var(--text-2);
 }
@@ -341,7 +341,7 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 10px;
   font-size: 12px;
 }
 .quick-label {
@@ -374,14 +374,14 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   white-space: nowrap;
 }
 #quick-windows {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 .quick-window {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 .quick-window .label {
   width: 46px;
@@ -410,6 +410,29 @@ body[data-corner-h="left"] #fox.mirror #pet-menu {
   text-align: right;
   color: var(--text-3);
   white-space: nowrap;
+}
+/* 按模型分桶的行（D053）：模型名比「5 小时」长，标签列放宽并省略，完整名走 title；
+   尾列显示「剩余/总量」tokens，等宽数字避免轮询时抖动。尾列按内容自适应宽度
+   （曾固定 62px，497.58M/500M 这类真实量级会把卡片撑出横向滚动、裁掉尾数）。 */
+.quick-window.bucket .label {
+  flex: 0 1 80px;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-window.bucket .bar {
+  flex: 1 1 40px;
+  min-width: 24px;
+}
+.quick-window.bucket .pct {
+  width: 36px;
+  flex: 0 0 36px;
+}
+.quick-window.bucket .reset {
+  width: auto;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
 }
 .quick-actions {
   display: flex;
@@ -606,7 +629,7 @@ body[data-corner-h="right"] #chip {
   font: 700 12px/12px var(--font-ui);
   text-align: center;
 }
-.quick-sessions { margin-top: 12px; }
+.quick-sessions { margin-top: 8px; }
 .quick-sessions .quick-label { font-size: 12px; font-weight: 600; color: var(--text-3); }
 .quick-session-row {
   display: flex;

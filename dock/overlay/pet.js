@@ -114,6 +114,9 @@ let roleCatalog = { ...FOX_ROLES }
 let appliedRoleSrc = ''
 let quickOpen = false
 let quickTop = null
+// 大浮窗的最大高度：CommandCode 这类「余额 + 3 个额度窗口 + 3 条会话」的常规内容
+// 要能一次放下。真正放不下时由 fitQuickDuringOpen 往上挪，再不行才内部滚动。
+const QUICK_MAX_H = 560
 let menuOpen = false
 let bubbleTimer = null
 let bubbleKind = ''
@@ -145,6 +148,11 @@ let autoRoleFor = ''
 let autoRoleState = emptyAutoRole()
 let lastAutoRoleByModel = null
 let lastFoxSize = 0
+// 「避让滚动条」开关/宽度的上次值：桌面悬浮时它改变的是屏幕右缘的安全距离，
+// 改完要立刻重新夹一次位置，否则用户点开关看不到任何变化（要等下次拖动）。
+let lastScrollGapKey = ''
+// SSE state 事件触发的设置刷新合并定时器（见事件订阅处）。
+let settingsPushTimer = null
 // localStorage 不可用时的降级去重：只在本进程内有效，重载会再提醒一次。
 let budgetMemorySeen = new Set()
 
@@ -198,7 +206,10 @@ let releasePlayed = false
 let releaseTimer = null
 
 function soundVolume() {
-  return Math.max(0, Math.min(1, Number(settings.soundVolume) || 0.5))
+  // 0 是合法值（静音），不能被 `|| 0.5` 回落成 50%。
+  const n = Number(settings.soundVolume)
+  if (!Number.isFinite(n)) return 0.5
+  return Math.max(0, Math.min(1, n))
 }
 
 async function playPress() {
@@ -483,6 +494,18 @@ function applySettings() {
   const size = foxSize()
   if (lastFoxSize && size !== lastFoxSize) quickTop = null
   lastFoxSize = size
+  // 桌面悬浮时「避让滚动条」改的是屏幕右缘安全距离：值一变就按新缝重夹当前
+  // 位置（ON 立即左移 17px）。从 ON 关掉时，如果角色正停在「右缘-旧缝」上，
+  // 顺手贴回屏幕右缘，开关两个方向都有可见反馈。
+  const gapKey = (settings.scrollGapOn ? '1' : '0') + ':' + (Number(settings.scrollGap) || 0)
+  if (lastScrollGapKey && gapKey !== lastScrollGapKey && state.pet.mode !== 'attached') {
+    const prevGap = Number(String(lastScrollGapKey).split(':')[1]) || 0
+    const prevOn = String(lastScrollGapKey).startsWith('1:')
+    const atOldEdge = prevOn && Math.abs(pos.x - (window.innerWidth - size - prevGap)) < 1.5
+    const nextX = atOldEdge && !settings.scrollGapOn ? window.innerWidth - size : pos.x
+    place(nextX, pos.y)
+  }
+  lastScrollGapKey = gapKey
   document.documentElement.style.setProperty('--fox-size', size + 'px')
   document.body.dataset.menuButton = settings.menuButton || 'hover'
   const theme = settings.theme === 'light' || settings.theme === 'dark' ? settings.theme : ''
@@ -534,6 +557,8 @@ function moneyText(money, unit) {
 }
 
 function pctText(v) {
+  // 缺失不是 0%：Number(null)=0 会把「不可得」显示成额度耗尽。
+  if (v == null || v === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return (Math.round(n * 10) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%'
@@ -546,6 +571,11 @@ function tokensText(n) {
   if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M'
   if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K'
   return String(Math.round(v))
+}
+
+// 配额桶行的尾列很窄：300.00M 这种两位小数读起来太吵，整数尾零收掉（300M）。
+function bucketTokensText(n) {
+  return tokensText(n).replace(/\.0+(?=[MK]$)/, '')
 }
 
 function resetText(v) {
@@ -609,8 +639,8 @@ function mainMetric(snap, agentId) {
 
 // ---------- 位置 ----------
 
-async function ensureOrigin() {
-  if (origin) return origin
+async function ensureOrigin(force = false) {
+  if (origin && !force) return origin
   try {
     const api = window.foxOverlay
     if (api && typeof api.getBounds === 'function') {
@@ -618,7 +648,11 @@ async function ensureOrigin() {
       if (b && Number.isFinite(b.x)) origin = { x: b.x, y: b.y }
     }
   } catch (err) {}
-  if (!origin) origin = { x: window.screenX || 0, y: window.screenY || 0 }
+  if (!origin || force) {
+    // 取不到窗口矩形时才退回 screenX/Y；force 时必须真的覆盖旧值，
+    // 否则工作区原点变化后仍按旧 origin 算本地坐标（偏 40/20px）。
+    if (!origin) origin = { x: window.screenX || 0, y: window.screenY || 0 }
+  }
   return origin
 }
 
@@ -631,16 +665,22 @@ function rectLocal(rect) {
   return { x: rect.x / dpr - o.x, y: rect.y / dpr - o.y, w: w / dpr, h: h / dpr }
 }
 
-function clampPos(x, y) {
+function clampPos(x, y, opts = {}) {
   const s = foxSize()
+  // 桌面悬浮（未吸附）时，屏幕右缘通常压着最大化窗口的纵向滚动条：开启「避让
+  // 滚动条」就同样留出这条缝，开关语义在桌面上也成立。吸附时的右边缝由
+  // placeAnchored 按宿主窗口矩形计算；失焦兜底角落是「贴死工作区角」的瞬时
+  // 显示状态（D044），用 noGap 绕过这条缝，否则角色会莫名内移一个滚动条宽度。
+  const mode = state.pet && state.pet.mode
+  const gap = !opts.noGap && mode !== 'attached' && settings.scrollGapOn ? Math.max(0, Number(settings.scrollGap) || 0) : 0
   return {
-    x: Math.max(0, Math.min(window.innerWidth - s, Math.round(x))),
+    x: Math.max(0, Math.min(window.innerWidth - s - gap, Math.round(x))),
     y: Math.max(0, Math.min(window.innerHeight - s, Math.round(y))),
   }
 }
 
-function place(x, y) {
-  const next = clampPos(x, y)
+function place(x, y, opts = {}) {
+  const next = clampPos(x, y, opts)
   const moved = Math.abs(next.x - pos.x) > 0.5 || Math.abs(next.y - pos.y) > 0.5
   pos = next
   // 角色真的移动了才重新给大浮窗落位；跟随定时器重复上报同一 rect 时不能重置。
@@ -665,7 +705,7 @@ function cornerPos(corner) {
   const s = foxSize()
   const x = corner.indexOf('r') >= 0 ? window.innerWidth - s - CORNER_MARGIN : CORNER_MARGIN
   const y = corner.indexOf('b') >= 0 ? window.innerHeight - s - CORNER_MARGIN : CORNER_MARGIN
-  return clampPos(x, y)
+  return clampPos(x, y, { noGap: true })
 }
 
 // 兜底朝向：站在屏幕角落时面向屏幕内侧（右侧角 → 朝左，左侧角 → 朝右）。
@@ -677,7 +717,7 @@ function placeFallbackCorner() {
   const corner = fallbackCorner()
   fallbackFacing = corner.indexOf('r') >= 0 ? 'left' : 'right'
   const target = cornerPos(corner)
-  place(target.x, target.y)
+  place(target.x, target.y, { noGap: true })
   return target
 }
 
@@ -791,7 +831,9 @@ function placeAnchored(rect) {
   const box = rectLocal(rect)
   if (!box) return
   const s = foxSize()
-  // 只有右侧/下侧需要避让滚动条；左侧/上侧与旧挂件一样紧贴窗口边缘。
+  // 避让滚动条只作用于**右侧**：与 1.x lib/widget.js 同款（只有 hAnchor==='right'
+  // 才扣 rightGap）。2.0 早期在底边也扣了一次，角色吸附后会离宿主窗口底部悬空一段
+  // （真机截图：「无法沉底」），属于行为回退。底边、上边、左边一律紧贴。
   const gap = settings.scrollGapOn ? Math.max(0, Number(settings.scrollGap) || 0) : 0
   const x =
     anchor.h === 'left'
@@ -803,7 +845,7 @@ function placeAnchored(rect) {
     anchor.v === 'top'
       ? box.y
       : anchor.v === 'bottom'
-        ? box.y + box.h - s - gap
+        ? box.y + box.h - s
         : box.y + anchor.vOff
   // 吸附后必须落在 agent 窗口矩形内；窗口缩小/自由偏移越界时夹回来，
   // 避免出现「显示已吸附，但挂件在窗口外」。
@@ -951,8 +993,11 @@ function applyRectResult(r) {
   }
 }
 
-async function refreshRect() {
+async function refreshRect(forceOrigin = false) {
   if (!bound.hwnd || dragging || pressing) return
+  // 显示缩放/工作区原点变化后，浮层窗口本身被主进程重设过；本地坐标的 origin
+  // 必须跟着重读，否则角色会按旧原点偏移（任务栏换边、跨屏后尤其明显）。
+  if (forceOrigin) await ensureOrigin(true)
   const r = await read('/rect?hwnd=' + encodeURIComponent(bound.hwnd))
   if (!r) return
   applyRectResult(r)
@@ -1048,6 +1093,10 @@ const STATUS_TEXT = {
 function statusOfCounts(row) {
   if (!row) return ''
   // 有会话在等待/工作时，不能因为另一个会话刚失败就整只狐狸显示「出错」。
+  // 拆分计数优先：waiting 是旧服务端的合并值，用它会把「等待输入」显示成
+  // 「等待确认」，给用户错误的操作指引。
+  if (row.waiting_permission > 0) return 'waiting_permission'
+  if (row.waiting_input > 0) return 'waiting_input'
   if (row.waiting > 0) return 'waiting_permission'
   if (row.working > 0) return 'working'
   if (row.error > 0) return 'error'
@@ -1126,7 +1175,11 @@ function renderChip() {
   // 角标与胶囊状态保持同一口径：绑定了宿主就只数这个宿主，悬浮未绑定才看全局。
   const scope = bound.agentId && live.byAgent ? live.byAgent[bound.agentId] : live.counts
   const counts = scope || {}
-  const active = (Number(counts.working) || 0) + (Number(counts.waiting) || 0)
+  const waitingCount = Math.max(
+    Number(counts.waiting) || 0,
+    (Number(counts.waiting_permission) || 0) + (Number(counts.waiting_input) || 0)
+  )
+  const active = (Number(counts.working) || 0) + waitingCount
   if (chipMulti) {
     chipMulti.hidden = active < 2
     chipMulti.textContent = active > 9 ? '9+' : String(active)
@@ -1199,6 +1252,34 @@ function renderQuick() {
     row.append(label, bar, pctEl, reset)
     quickWindows.appendChild(row)
   }
+  // 按模型分桶的套餐（GLM 赠送池）：汇总百分比会掩盖单桶告急，快览卡也要能直接
+  // 看到每个桶的余量（D053）。布局复用窗口行，尾列改显示「剩余/总量」tokens。
+  const buckets =
+    snapshot && snapshot.quotaCard && Array.isArray(snapshot.quotaCard.buckets) ? snapshot.quotaCard.buckets.slice(0, 3) : []
+  for (const b of buckets) {
+    const used = Number(b.usedPct)
+    if (!Number.isFinite(used)) continue
+    const row = document.createElement('div')
+    row.className = 'quick-window bucket'
+    row.title = (b.label || '') + ' · ' + tokensText(b.remaining) + ' / ' + tokensText(b.total) + ' tokens'
+    const label = document.createElement('span')
+    label.className = 'label'
+    label.textContent = b.label || ''
+    const bar = document.createElement('span')
+    bar.className = 'bar'
+    const fill = document.createElement('i')
+    fill.style.width = Math.max(0, Math.min(100, used)) + '%'
+    fill.style.background = used >= 92 ? 'var(--bad)' : used >= 80 ? 'var(--warn)' : 'var(--pet-accent)'
+    bar.appendChild(fill)
+    const pctEl = document.createElement('span')
+    pctEl.className = 'pct'
+    pctEl.textContent = pctText(b.remainingPct)
+    const abs = document.createElement('span')
+    abs.className = 'reset'
+    abs.textContent = bucketTokensText(b.remaining) + '/' + bucketTokensText(b.total)
+    row.append(label, bar, pctEl, abs)
+    quickWindows.appendChild(row)
+  }
   renderPeriod()
   quickSessionsEl.hidden = quickSessionItems.length === 0
   quickSessionList.replaceChildren()
@@ -1207,14 +1288,15 @@ function renderQuick() {
     row.type = 'button'
     row.className = 'quick-session-row'
     row.setAttribute('aria-label', '打开会话 ' + (item.title || item.key))
+    const shown = item.displayStatus || item.status
     const dot = document.createElement('span')
-    dot.className = 'status-dot ' + (item.status || 'unknown')
+    dot.className = 'status-dot ' + (shown || 'unknown')
     const title = document.createElement('span')
     title.className = 'title'
     title.textContent = item.title || item.key
     const st = document.createElement('span')
     st.className = 'state'
-    st.textContent = item.status === 'idle' ? '空闲' : STATUS_TEXT[item.status] || '状态未知'
+    st.textContent = shown === 'idle' ? '空闲' : STATUS_TEXT[shown] || '状态未知'
     row.append(dot, title, st)
     row.addEventListener('click', () => {
       toggleQuick(false)
@@ -1222,8 +1304,10 @@ function renderQuick() {
     })
     quickSessionList.appendChild(row)
   }
-  // 内容/会话/气泡变化只改卡片内部布局；位置由 positionQuick 的锚点决定，
-  // 这里绝不能重算，否则内容一变 top 就会被底部夹取推上去（表现为抽动）。
+  // 内容/会话/气泡变化只改卡片内部布局；位置由 positionQuick 的锚点决定。
+  // 唯一例外是打开后 1.5 秒内的异步内容：内容撑出滚动条时允许把 top 往上挪
+  // （fitQuickDuringOpen 只上不下），此后绝不重算，避免轮询引起抽动。
+  fitQuickDuringOpen()
 }
 
 // 角色侧边的横向位置：优先放在角色右边，放不下换左边，最后在视口内夹住。
@@ -1262,16 +1346,46 @@ function positionQuick() {
   // 台词气泡）怎么变，top 都不动：卡片向下伸展，放不下就在卡片内部滚动。
   // 唯一的例外是视口太小，锚点本身必须留在可视区里，才会被夹一次。
   if (quickTop == null) {
-    const h = quick.offsetHeight || 300
-    const reserve = Math.min(Math.max(h, 360), Math.min(480, window.innerHeight - 16))
+    // 用 scrollHeight（不受当前 max-height 压制的内容高度）算预留：offsetHeight
+    // 反映的是上一次的封顶高度，会自我强化——卡片越压越矮、内容一多就出滚动条
+    // （真机：底部锚点时 375px 内容被压到 358px，出现 17px 滚动条）。
+    // chrome = 上下边框：box-sizing 是 border-box，max-height 含边框，不加会把
+    // 内容顶出 2px，仍然长出一条滚动条。
+    const chrome = Math.max(0, (quick.offsetHeight || 0) - (quick.clientHeight || 0))
+    const contentH = Math.max(quick.offsetHeight || 0, (quick.scrollHeight || 0) + chrome) || 300
+    const cap = Math.min(QUICK_MAX_H, window.innerHeight - 16)
+    const reserve = Math.min(Math.max(contentH, 360), cap)
     quickTop = Math.max(8, Math.min(window.innerHeight - reserve - 8, pos.y + foxH / 2 - reserve / 2))
   }
   const top = Math.max(8, Math.min(quickTop, Math.max(8, window.innerHeight - 120)))
   quickTop = top
   quick.style.left = Math.round(x) + 'px'
   quick.style.top = Math.round(top) + 'px'
-  // 向下伸展的上限沿用卡片原来的 480px；超出后卡片内部滚动，不能反过来推 top。
-  quick.style.maxHeight = Math.max(120, Math.min(480, window.innerHeight - top - 8)) + 'px'
+  // 向下伸展的上限：默认 560px（CommandCode 这类「3 窗口 + 3 会话」的常规内容
+  // 一次放得下），超出后卡片内部滚动，不能反过来推 top。
+  quick.style.maxHeight = Math.max(120, Math.min(QUICK_MAX_H, window.innerHeight - top - 8)) + 'px'
+}
+
+// 内容异步到达（会话列表、额度窗口、时段、状态更新）时，只要真的出现滚动条就把
+// top 往上挪到刚好放得下（只上不下）。以前只允许打开后的 1.5 秒内调整，慢宿主
+// 的会话晚到就会一直留一条滚动条；现在按「是否溢出」判断，没有溢出绝不动，
+// 因此轮询不会引起抽动。
+function fitQuickDuringOpen() {
+  if (!quickOpen || quick.hidden) return
+  const overflow = (quick.scrollHeight || 0) > (quick.clientHeight || 0) + 1
+  if (!overflow) return
+  const chrome = Math.max(0, (quick.offsetHeight || 0) - (quick.clientHeight || 0))
+  const need = Math.min(QUICK_MAX_H, (quick.scrollHeight || 0) + chrome + 4)
+  if (!need || quickTop == null) return
+  const fitTop = Math.max(8, window.innerHeight - 8 - need)
+  if (quickTop > fitTop + 0.5) {
+    quickTop = fitTop
+    quick.style.top = Math.round(fitTop) + 'px'
+    quick.style.maxHeight = Math.max(120, Math.min(QUICK_MAX_H, window.innerHeight - fitTop - 8)) + 'px'
+    // 卡片上移后它的矩形变了，正在显示的台词要按新位置重算，否则会压在新
+    // 卡片上或留在卡片原来的位置。
+    positionSay()
+  }
 }
 
 function toggleQuick(open) {
@@ -1283,9 +1397,11 @@ function toggleQuick(open) {
   if (quickOpen) {
     closeMenu()
     renderQuick()
-    // 打开时确定一次锚点；之后 renderQuick 不再改 top。
+    // 打开时确定一次锚点；之后只有真的出现滚动条时才按内容上移（见 fitQuickDuringOpen）。
     positionQuick()
     loadQuickSessions(true)
+    // 卡片一打开就把正在显示的台词挪开，避免先出现的台词被卡片压住。
+    positionSay()
     setInteractive(true)
   } else if (!menuOpen && !dragging) {
     setInteractive(false)
@@ -1349,7 +1465,13 @@ function positionPopover(el) {
       (c.y <= margin + 1 || c.y + h >= window.innerHeight - margin - 1 ? 1 : 0)
     // 快览卡 > 角色本体 > 临时遮挡的优先级；最后才用上下偏好打破平手。
     // 完全在视口内是硬条件，宁可离角色远一点，也不能把气泡裁到屏幕外。
-    const score = overlap(c.x, c.y) * 100 + foxOverlap(c.x, c.y) * 20 + overflow * 500 + (c.below ? 0.5 : 0)
+    // 距离只作为同分时的打破项：角色贴角、快览卡占满上方/侧面时，「卡片
+    // 右侧外侧」和「卡片上方」都不压任何东西，没有距离项就会按候选顺序
+    // 选到远离角色的外侧（真机：气泡飞到角色与卡片之外）。
+    const cx = c.x + w / 2
+    const cy = c.y + h / 2
+    const dist2 = (cx - center) * (cx - center) + (cy - (pos.y + s / 2)) * (cy - (pos.y + s / 2))
+    const score = overlap(c.x, c.y) * 100 + foxOverlap(c.x, c.y) * 20 + overflow * 500 + dist2 * 0.01 + (c.below ? 0.5 : 0)
     if (score < bestScore) {
       best = c
       bestScore = score
@@ -1363,11 +1485,11 @@ function positionPopover(el) {
 }
 
 function positionSay() {
-  // 台词跟人（2026-10-24 定稿）：永远停在角色正上方，箭头指向角色，只做视口
-  // 内夹取；允许与快览卡边缘重叠。不走 positionPopover 的候选打分——它的
-  // overflow 启发式会把「贴右缘夹取」误判成溢出（x+w≥innerWidth-9 对钳制后的
-  // 候选恒真），右下角场景里正上方候选被 +500 罚分稳输，台词被挤到卡片外侧。
-  // 只有上方确实放不下（气泡比角色到顶边还高）才退到正下方。
+  // 台词跟人：首选角色正上方、其次正下方；快览卡打开时把它当成硬遮挡，
+  // 换到卡片左右外侧/上下方（UI-SPEC §1「候选包含快览卡左右外侧」）。
+  // 所有候选先夹进视口（整只气泡不出屏是硬条件），再按「压快览卡 > 压角色 >
+  // 上下偏好」打分。不走 positionPopover 的 overflow 启发式——它把钳制后的
+  // 候选恒判为溢出，右下角场景里正上方候选会被 +500 罚分挤走。
   const el = sayEl
   if (!el || el.hidden) return
   const s = foxSize()
@@ -1376,15 +1498,49 @@ function positionSay() {
   const h = el.offsetHeight || 50
   const center = pos.x + s / 2
   const clampX = (x) => Math.max(margin, Math.min(window.innerWidth - w - margin, x))
-  const aboveFits = pos.y - h - 10 >= margin
-  const y = aboveFits
-    ? pos.y - h - 10
-    : Math.min(window.innerHeight - h - margin, pos.y + s + 10)
-  const x = clampX(center - w / 2)
-  const arrow = Math.max(18, Math.min(w - 18, center - x))
-  el.style.left = Math.round(x) + 'px'
-  el.style.top = Math.round(Math.max(margin, y)) + 'px'
-  el.classList.toggle('below', !aboveFits)
+  const clampY = (y) => Math.max(margin, Math.min(window.innerHeight - h - margin, y))
+  const quickRect = quickOpen && !quick.hidden ? quick.getBoundingClientRect() : null
+  const foxRect = { left: pos.x, top: pos.y, right: pos.x + s, bottom: pos.y + s }
+  const overlapRect = (x, y, rect) => {
+    if (!rect) return 0
+    const ww = Math.max(0, Math.min(x + w, rect.right) - Math.max(x, rect.left))
+    const hh = Math.max(0, Math.min(y + h, rect.bottom) - Math.max(y, rect.top))
+    return ww * hh
+  }
+  const candidates = [
+    { x: clampX(center - w / 2), y: clampY(pos.y - h - 10), below: false },
+    { x: clampX(center - w / 2), y: clampY(pos.y + s + 10), below: true },
+  ]
+  if (quickRect) {
+    const sideY = clampY(pos.y + s / 2 - h / 2)
+    candidates.push({ x: clampX(quickRect.left - w - 10), y: sideY, below: false })
+    candidates.push({ x: clampX(quickRect.right + 10), y: sideY, below: false })
+    // 贴角时左右外侧可能被夹回卡片本体上，再补卡片上方/下方作为兜底。
+    candidates.push({ x: clampX(center - w / 2), y: clampY(quickRect.top - h - 10), below: false })
+    candidates.push({ x: clampX(center - w / 2), y: clampY(quickRect.bottom + 10), below: true })
+  }
+  let best = candidates[0]
+  let bestScore = Infinity
+  for (const c of candidates) {
+    // 距离项只用于同分打破：贴角时「卡片右侧外侧」与「卡片上方」都不压任何
+    // 东西，没有距离项就会按候选顺序选到远离角色的位置。
+    const cx = c.x + w / 2
+    const cy = c.y + h / 2
+    const dist2 = (cx - center) * (cx - center) + (cy - (pos.y + s / 2)) * (cy - (pos.y + s / 2))
+    const score =
+      overlapRect(c.x, c.y, quickRect) * 1000 +
+      overlapRect(c.x, c.y, foxRect) * 100 +
+      dist2 * 0.01 +
+      (c.below ? 1 : 0)
+    if (score < bestScore) {
+      best = c
+      bestScore = score
+    }
+  }
+  const arrow = Math.max(18, Math.min(w - 18, center - best.x))
+  el.style.left = Math.round(best.x) + 'px'
+  el.style.top = Math.round(best.y) + 'px'
+  el.classList.toggle('below', best.below)
   el.style.setProperty('--arrow-left', Math.round(arrow) + 'px')
 }
 
@@ -1409,19 +1565,36 @@ const permAllowBtn = document.getElementById('perm-allow')
 
 let permActions = []
 let permShownId = ''
+let permShownExpiresAt = 0
 let permExpiredTimer = null
 
 function permAllowable() {
   return !!(settings.permission && settings.permission.takeover === true && settings.permission.allowOnce === true)
 }
 
+function clearPermExpired() {
+  delete permEl.dataset.expiredId
+  delete permEl.dataset.expiredAgent
+  if (permExpiredTimer) {
+    clearTimeout(permExpiredTimer)
+    permExpiredTimer = null
+  }
+}
+
 function renderPerm() {
   const current = permActions.find((a) => a && a.id) || null
-  const expired = permEl.dataset.expiredId || ''
+  let expired = permEl.dataset.expiredId || ''
+  // 队列里还有真实待办时，「已超时」必须让位：上一条只是被宿主/控制台处理掉，
+  // 后面这条要能立刻点（否则按钮会被藏 4 秒）。
+  if (current && expired) {
+    clearPermExpired()
+    expired = ''
+  }
   if (!current && !expired) {
     if (permOpenCard()) {
       permEl.hidden = true
       permShownId = ''
+      permShownExpiresAt = 0
       delete permEl.dataset.expiredId
       if (!quickOpen && !menuOpen && !dragging && !pressing) setInteractive(false)
     }
@@ -1446,6 +1619,7 @@ function renderPerm() {
     }
     delete permEl.dataset.expiredId
     permShownId = current.id
+    permShownExpiresAt = Number(current.expiresAt) || 0
     permEl.classList.toggle('high', current.risk === 'high')
     permAgent.textContent = ADAPTER_NAMES[current.agentId] || current.agentId || ''
     permRisk.hidden = current.risk !== 'high'
@@ -1460,7 +1634,10 @@ function renderPerm() {
   }
   permEl.hidden = false
   positionPopover(permEl)
-  if (wasHidden) setInteractive(true)
+  // 权限卡出现不接管整块工作区：浮层与工作区等大，把 setInteractive(true) 无条件
+  // 打开会让桌面其余位置的点击全被吞掉。只有指针压在卡片上才切回可交互，
+  // 其余区域继续穿透（cursor 轮询每 50ms 会按 isOverUI 校正）。
+  if (wasHidden) setInteractive(pointer ? isOverUI(pointer.x, pointer.y) : false)
 }
 
 function permOpenCard() {
@@ -1488,18 +1665,23 @@ permAllowBtn.addEventListener('click', (e) => {
 })
 permEl.addEventListener('pointerdown', (e) => e.stopPropagation())
 
-// 主进程轮询推送：pending 变化 → 重渲染；当前展示的 id 消失 → 「已超时」提示。
+// 主进程轮询推送：pending 变化 → 重渲染。
+// 只有「这一条确实到期」且队列已空时才提示「已超时」：宿主原生弹窗/控制台处理掉
+// （未到期）属于正常处理，不该报超时；队列里还有别的待办时直接切到下一条，
+// 更不能把新的按钮藏 4 秒。
 function onPermActions(list) {
   const prevId = permShownId
+  const prevExpires = permShownExpiresAt
   permActions = Array.isArray(list) ? list : []
-  if (prevId && !permActions.some((a) => a.id === prevId) && permOpenCard() && !permEl.dataset.expiredId) {
-    const prev = prevId
-    permEl.dataset.expiredId = prev
+  const remaining = permActions.some((a) => a && a.id)
+  const shownGone = !!prevId && !permActions.some((a) => a.id === prevId)
+  const timedOut = shownGone && !remaining && prevExpires > 0 && Date.now() >= prevExpires
+  if (timedOut && permOpenCard() && !permEl.dataset.expiredId) {
+    permEl.dataset.expiredId = prevId
     permEl.dataset.expiredAgent = permAgent.textContent || ''
     if (permExpiredTimer) clearTimeout(permExpiredTimer)
     permExpiredTimer = setTimeout(() => {
-      delete permEl.dataset.expiredId
-      permExpiredTimer = null
+      clearPermExpired()
       renderPerm()
     }, 4000)
   }
@@ -1690,6 +1872,10 @@ function menuTitle(text) {
 
 function openMenu(x, y) {
   closeMenu()
+  // 用户主动打开面板时让气泡让路：面板/菜单弹出期间气泡压在上面会互相遮挡，
+  // 而气泡本来几秒后也会自动消失（1.x 同款修复）。
+  hideSay()
+  hideBubble()
   quickOpen = false
   quick.hidden = true
   menu.replaceChildren()
@@ -2026,7 +2212,8 @@ function isOverFox(x, y) {
 function isOverUI(x, y) {
   return isOverFox(x, y) || isInside(chip, x, y) || isInside(petMenuBtn, x, y) ||
     (!bubble.hidden && isInside(bubble, x, y)) || (!sayEl.hidden && isInside(sayEl, x, y)) ||
-    quickOpen && isInside(quick, x, y) || menuOpen && isInside(menu, x, y)
+    quickOpen && isInside(quick, x, y) || menuOpen && isInside(menu, x, y) ||
+    (permOpenCard() && isInside(permEl, x, y))
 }
 
 function setInteractive(on) {
@@ -2159,8 +2346,19 @@ window.addEventListener('pointerup', async (e) => {
 
 window.addEventListener('pointercancel', () => {
   if (!pressing) return
+  // 系统取消指针（触摸/手写笔/窗口失焦）时不能留下拖拽视觉态：按钮按压、
+  // 吸附候选和拖拽样式都要回到未按下状态，但不执行落点提交。
   pressing = null
+  pressUp()
+  releaseAfterPress()
   dragging = false
+  currentTarget = null
+  pointer = null
+  hitSeq++
+  fox.classList.remove('dragging', 'armed')
+  dragHint.hidden = true
+  dragHint.classList.remove('armed')
+  lastHintText = ''
   chip.style.visibility = ''
   renderChip()
   setBusy(false)
@@ -2219,7 +2417,7 @@ setInterval(async () => {
   try {
     const p = await api.getCursor()
     const o = await ensureOrigin()
-    setInteractive(quickOpen || menuOpen || permOpenCard() || isOverUI(p.x - o.x, p.y - o.y))
+    setInteractive(quickOpen || menuOpen || isOverUI(p.x - o.x, p.y - o.y))
   } catch (err) {}
 }, 50)
 
@@ -2259,23 +2457,40 @@ async function boot() {
   setInterval(renderPeriod, 1000)
   restartFollowTimer()
   setInterval(loadQueue, 15000)
-  if (BASE) {
+  // SSE 事件统一入口：生产环境由主进程代理（preload onStream），渲染层不连网；
+  // 纯浏览器测试没有 preload 时才回退 EventSource。
+  const onStreamEvent = (event, data) => {
+    if (event === 'state') {
+      try {
+        state = typeof data === 'string' ? JSON.parse(data) : data
+        refreshState()
+      } catch (err) {}
+      // 控制台改角色 / 角色大小 / 隐藏金额等设置后，daemon 会立刻广播 state；
+      // 这里随手补一次设置刷新，不用等 2s 的轮询（用户感知约 1s 延迟）。
+      // 事件很密，150ms 内合并成一次。
+      if (!settingsPushTimer) {
+        settingsPushTimer = setTimeout(() => {
+          settingsPushTimer = null
+          refreshSettings()
+        }, 150)
+      }
+    } else if (event === 'context') {
+      refreshAgentData(false)
+    } else if (event === 'sessions') {
+      if (quickOpen) loadQuickSessions()
+      renderChip()
+    } else if (event === 'session') {
+      if (quickOpen) loadQuickSessions()
+    }
+  }
+  if (window.foxOverlay && typeof window.foxOverlay.onStream === 'function') {
+    window.foxOverlay.onStream((payload) => onStreamEvent(payload.event, payload.data))
+  } else if (BASE) {
     try {
       const es = new EventSource(BASE + '/v1/stream')
-      es.addEventListener('state', (e) => {
-        try {
-          state = JSON.parse(e.data)
-          refreshState()
-        } catch (err) {}
-      })
-      es.addEventListener('context', () => refreshAgentData(false))
-      es.addEventListener('sessions', () => {
-        if (quickOpen) loadQuickSessions()
-        renderChip()
-      })
-      es.addEventListener('session', () => {
-        if (quickOpen) loadQuickSessions()
-      })
+      for (const name of ['state', 'context', 'sessions', 'session']) {
+        es.addEventListener(name, (e) => onStreamEvent(name, e.data))
+      }
       es.onerror = () => {}
     } catch (err) {}
   }
@@ -2328,6 +2543,17 @@ window.__pet = {
   },
   get currentRole() { return roleId },
   syncRole: () => syncRole(),
+  // 显示缩放/分辨率变化后由主进程调用：立刻按新 DPI 重读宿主矩形并重新吸附。
+  refit: () => refreshRect(true),
+  // 输入链路自愈探针（1.x issue #13 的 2.0 版）：主进程给光标页面坐标，
+  // 页面只做 DOM 命中测试，不依赖 IPC 反向通道。
+  probeInput(x, y) {
+    let hit = false
+    try {
+      hit = isOverUI(Number(x), Number(y))
+    } catch (err) {}
+    return { hit, interactive: lastInteractive === true }
+  },
   alphaMaskLoaded: () => !!alphaMask,
   get followEvery() { return followEvery },
   debugAttach(agentId, hwnd, rect, c) {
@@ -2394,6 +2620,8 @@ window.__pet = {
   showSay: (text) => showSay(text),
   hideSay,
   setSettings(patch) { settings = { ...settings, ...patch }; applySettings() },
+  // 纯浏览器测试（无 preload）注入主进程 2s 轮询会推送的 pending 列表。
+  debugPermActions(list) { onPermActions(list) },
   setSnapshot(s) { snapshot = s; renderChip(); if (quickOpen) renderQuick() },
   setContext(c) { context = c; renderChip(); if (quickOpen) renderQuick() },
   setLive(live) { state.live = live; renderChip(); if (quickOpen) renderQuick() },
