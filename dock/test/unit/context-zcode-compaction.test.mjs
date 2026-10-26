@@ -33,7 +33,7 @@ function makeDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-ctx-compact-'))
   dirs.push(dir)
   const file = path.join(dir, 'db.sqlite')
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (
       id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_updated INTEGER,
@@ -93,7 +93,7 @@ test('zcode context: 压缩后旧回合占用失效，used=null 让预警立即�
 test('zcode context: 压缩后的下一轮主回合恢复精确占用，标题生成不计入', { skip: !sqlite }, () => {
   const { dir, file } = makeDb()
   try {
-    const db = new sqlite.DatabaseSync(file)
+    const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
     db.prepare(
       `INSERT INTO model_usage
        (session_id,turn_id,model_id,status,query_source,started_at,completed_at,input_tokens,output_tokens,

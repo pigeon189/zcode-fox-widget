@@ -13,7 +13,7 @@ const dbFile = path.join(home, 'cli', 'db', 'db.sqlite')
 
 function setup() {
   fs.mkdirSync(path.dirname(dbFile), { recursive: true })
-  const db = new DatabaseSync(dbFile)
+  const db = new DatabaseSync(dbFile, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (
       id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_updated INTEGER,

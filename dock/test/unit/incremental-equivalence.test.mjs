@@ -102,7 +102,7 @@ test('incremental: ZCode SQL 聚合 = 明细行手算（model 维度）', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-inc-zc-'))
   try {
     const file = path.join(dir, 'db.sqlite')
-    const db = new sqlite.DatabaseSync(file)
+    const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
     db.exec(`
       CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER);
       CREATE TABLE model_usage (session_id TEXT, turn_id TEXT, provider_id TEXT, model_id TEXT, status TEXT, started_at INTEGER, completed_at INTEGER, input_tokens INTEGER, output_tokens INTEGER, reasoning_tokens INTEGER, cache_read_input_tokens INTEGER, cache_creation_input_tokens INTEGER, computed_total_tokens INTEGER);

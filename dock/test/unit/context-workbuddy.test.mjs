@@ -13,7 +13,7 @@ const dbFile = path.join(home, 'workbuddy.db')
 
 function setup() {
   fs.mkdirSync(home, { recursive: true })
-  const db = new DatabaseSync(dbFile)
+  const db = new DatabaseSync(dbFile, { timeout: 5000 })
   db.exec(`
     CREATE TABLE sessions (
       id TEXT PRIMARY KEY, title TEXT, custom_title TEXT, model TEXT,

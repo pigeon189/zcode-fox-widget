@@ -38,7 +38,7 @@ let dbFile = ''
 function seedZcode() {
   dbFile = path.join(zcodeHome, 'cli', 'db', 'db.sqlite')
   fs.mkdirSync(path.dirname(dbFile), { recursive: true })
-  const db = new DatabaseSync(dbFile)
+  const db = new DatabaseSync(dbFile, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, directory TEXT, time_created INTEGER, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
     CREATE TABLE model_usage (

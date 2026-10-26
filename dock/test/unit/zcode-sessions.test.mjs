@@ -31,7 +31,7 @@ const NOW = new Date(2026, 9, 21, 12, 0, 0).getTime()
 function makeDb(opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-zsess-'))
   const file = path.join(dir, 'db.sqlite')
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
     CREATE TABLE model_usage (
@@ -165,7 +165,7 @@ test('zcode-sessions: 最近 20s 有活动 → working(inferred)；旧会话 idl
     assert.equal(r.items.find((x) => x.sessionId === 's1').status, 'idle')
     // 把最近活动挪到 5s 前 → inferred working
     _resetZcodeSessions()
-    const db = new sqlite.DatabaseSync(file)
+    const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
     db.prepare(`UPDATE model_usage SET started_at = ?, completed_at = ? WHERE session_id = 's1' AND turn_id = 't1'`).run(NOW - 5000, NOW - 4000)
     db.prepare(`UPDATE turn_usage SET status = 'running' WHERE session_id = 's1'`).run()
     db.close()
@@ -222,7 +222,7 @@ test('zcode-sessions: getLiveStatus 只返回近期会话', { skip: !sqlite }, a
 function makePagingDb({ roots = 6, childrenPerRoot = 2, sameUpdatedAt = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-zpage-'))
   const file = path.join(dir, 'db.sqlite')
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
     CREATE TABLE model_usage (
@@ -381,7 +381,7 @@ test('zcode-sessions: status/q 只过滤根会话，子会话仍随父返回', {
   const { dir, file } = makePagingDb({ roots: 2, childrenPerRoot: 1 })
   try {
     _resetZcodeSessions()
-    const db = new sqlite.DatabaseSync(file)
+    const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
     db.prepare(`UPDATE session SET title = 'alpha 根' WHERE id = 'r0'`).run()
     db.prepare(`UPDATE session SET title = 'beta 根' WHERE id = 'r1'`).run()
     db.prepare(`UPDATE session SET title = '子会话不参与搜索' WHERE id = 'r0c0'`).run()
@@ -591,7 +591,7 @@ test('zcode-sessions: 用量明细对预付池行金额记 0（与会话/回合/
 test('zcode-sessions: 价目表未收录的模型金额 null + unavailable（不编 0）', { skip: !sqlite }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-zunpriced-'))
   const file = path.join(dir, 'db.sqlite')
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
     CREATE TABLE model_usage (

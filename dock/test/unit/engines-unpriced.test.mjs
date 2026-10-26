@@ -36,7 +36,7 @@ function writeDb(file) {
   try {
     fs.rmSync(file, { force: true })
   } catch (err) {}
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   db.exec(schema)
   return db
 }

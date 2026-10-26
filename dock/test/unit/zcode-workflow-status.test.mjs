@@ -35,7 +35,7 @@ function makeDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-zworkflow-'))
   dirs.push(dir)
   const file = path.join(dir, 'db.sqlite')
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
     CREATE TABLE model_usage (
@@ -75,7 +75,7 @@ function makeDb() {
 }
 
 function setRun(file, status, at) {
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   try {
     db.prepare('UPDATE dwf_run SET status = ?, time_updated = ? WHERE id = ?').run(status, at, 'run-1')
   } finally {
@@ -127,7 +127,7 @@ test('workflow 结束：从 run 的结束时间起算 5 分钟已完成，之后
 test('没有 workflow 表的老库：不影响原有状态与筛选', { skip: !sqlite }, async () => {
   const { file } = makeDb()
   try {
-    const db = new sqlite.DatabaseSync(file)
+    const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
     db.exec('DROP TABLE dwf_run')
     db.close()
     _resetZcodeSessions()

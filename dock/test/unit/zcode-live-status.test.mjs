@@ -33,7 +33,7 @@ function makeDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-zlive-'))
   dirs.push(dir)
   const file = path.join(dir, 'db.sqlite')
-  const db = new sqlite.DatabaseSync(file)
+  const db = new sqlite.DatabaseSync(file, { timeout: 5000 })
   db.exec(`
     CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_compacting INTEGER, time_archived INTEGER);
     CREATE TABLE model_usage (

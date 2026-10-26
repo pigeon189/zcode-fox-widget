@@ -33,7 +33,7 @@ const ZC_OUT = 1_000_000
 
 function buildZcodeDb() {
   fs.mkdirSync(path.dirname(zcodeDb), { recursive: true })
-  const db = new DatabaseSync(zcodeDb)
+  const db = new DatabaseSync(zcodeDb, { timeout: 5000 })
   db.exec(`
     CREATE TABLE model_usage (
       id TEXT, session_id TEXT, turn_id TEXT, provider_id TEXT, model_id TEXT, status TEXT,

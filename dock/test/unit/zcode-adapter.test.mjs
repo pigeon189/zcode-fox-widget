@@ -24,7 +24,7 @@ const OFFPEAK = Date.UTC(2026, 9, 18, 19, 0, 0)
 function makeDb(rows, turns = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-zcode-db-'))
   const file = path.join(dir, 'db.sqlite')
-  const db = new DatabaseSync(file)
+  const db = new DatabaseSync(file, { timeout: 5000 })
   db.exec(`
     CREATE TABLE model_usage (
       id TEXT, session_id TEXT, turn_id TEXT, provider_id TEXT, model_id TEXT, status TEXT,
@@ -226,7 +226,7 @@ test('zcode: 统计页聚合总量、模型、日与热力图', () => {
 test('zcode: 老库没有 tool_usage 时只降级统计，不影响今日/上一轮', () => {
   const { file, dir } = makeDb([bigRow()], [{ turn: 't1', startedAt: OFFPEAK, completedAt: OFFPEAK + 10_000 }])
   try {
-    const raw = new DatabaseSync(file)
+    const raw = new DatabaseSync(file, { timeout: 5000 })
     raw.exec('DROP TABLE tool_usage')
     raw.close()
     _resetConnection()
