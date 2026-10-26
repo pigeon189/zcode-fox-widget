@@ -59,6 +59,50 @@ function windowsOf(v) {
     .filter((w) => Number.isFinite(w.usedPct))
 }
 
+// 按模型分桶的进度条（D053）：GLM 赠送池这类「同一套餐、按模型分开记账」的额度，
+// 单桶见底时汇总百分比看不出来（总桶 0.2% 剩余，另一桶可能还接近满额）。样式与
+// CommandCode 的窗口条一致：名称 + 剩余百分比 + 剩余/总量 + 进度条。
+function bucketRows(list) {
+  const out = []
+  for (const b of Array.isArray(list) ? list : []) {
+    if (!b) continue
+    const total = Number(b.totalUnits != null ? b.totalUnits : b.total)
+    const remaining = Number(b.remainingUnits != null ? b.remainingUnits : b.remaining)
+    let remainingPct = b.percentRemaining != null ? Number(b.percentRemaining) : null
+    if (!Number.isFinite(remainingPct) && Number.isFinite(total) && total > 0 && Number.isFinite(remaining)) {
+      remainingPct = Math.max(0, Math.min(100, Math.round((remaining / total) * 1000) / 10))
+    }
+    if (!Number.isFinite(remainingPct)) continue
+    out.push({
+      key: String(b.model || b.key || b.label || 'bucket-' + out.length),
+      label: String(b.showName || b.label || b.model || '配额桶'),
+      remainingPct,
+      usedPct: Math.round((100 - remainingPct) * 10) / 10,
+      remaining: Number.isFinite(remaining) ? remaining : null,
+      total: Number.isFinite(total) ? total : null,
+    })
+  }
+  return out
+}
+
+function BucketBars({ list, testid }) {
+  const rows = bucketRows(list)
+  if (!rows.length) return null
+  return html`<div style=${{ marginTop: 8 }} data-testid=${testid}>
+    ${rows.map(
+      (b) => html`<div key=${b.key} style=${{ marginTop: 6 }} data-testid=${testid + '.' + b.key}>
+        <div class="row small">
+          <span class="truncate" title=${b.label}>${b.label}</span>
+          <span class="spacer"></span>
+          <span class="num">${fmtPct(b.remainingPct)} 剩余</span>
+          <span class="small muted num">${b.remaining != null ? fmtTokens(b.remaining) + ' / ' + fmtTokens(b.total) : ''}</span>
+        </div>
+        <${ProgressBar} pct=${b.usedPct} tone=${pctTone(b.usedPct)} label=${b.label + ' 已用'} />
+      </div>`
+    )}
+  </div>`
+}
+
 // 本地品牌图（官方 favicon / Simple Icons），没有图时退回首字母。
 const VENDOR_LOGOS = {
   deepseek: 'assets/vendors/deepseek.svg',
@@ -177,19 +221,7 @@ function VendorCard({ v, onCorrect }) {
       ${v.kind === 'cmdgo' && v.pool ? html`<span class="small muted">池 ${v.pool.available}/${v.pool.total} 可用</span>` : null}
     </div>
     ${split ? html`<div class="balance-split" data-testid=${'quota.balanceSplit.' + v.id}>${split}</div>` : null}
-    ${Array.isArray(v.byModel) && v.byModel.length
-      ? html`<div style=${{ marginTop: 8 }} data-testid=${'quota.byModel.' + v.id}>
-          ${v.byModel.map((b) => {
-            const pct = Number(b.totalUnits) > 0 ? (Number(b.remainingUnits) / Number(b.totalUnits)) * 100 : null
-            return html`<div class="row small" key=${b.model} style=${{ gap: 8 }}>
-              <span>${b.showName || b.model}</span>
-              <span class="spacer"></span>
-              <span class="num">${pct != null ? fmtPct(pct) + ' 剩余' : '—'}</span>
-              <span class="small muted num">${fmtTokens(b.remainingUnits)} / ${fmtTokens(b.totalUnits)}</span>
-            </div>`
-          })}
-        </div>`
-      : null}
+    <${BucketBars} list=${v.byModel} testid=${'quota.byModel.' + v.id} />
     ${windows.map((w) => html`<div style=${{ marginTop: 6 }}>
       <div class="row small">
         <span>${w.label}</span>
@@ -320,6 +352,7 @@ export function QuotaPage({ app }) {
                   <${Badge} tone="neutral">${card.plan || '套餐'}</${Badge}>
                   <span class="muted">${card.note || '没有可读的套餐额度窗口'}</span>
                 </div>`}
+      <${BucketBars} list=${card ? card.buckets : null} testid="quota.buckets" />
       ${card && card.note && card.kind !== 'plan' ? html`<div class="small muted" style=${{ marginTop: 8 }}>${card.note}</div>` : null}
     </div>
 
@@ -342,7 +375,7 @@ export function QuotaPage({ app }) {
                 const base = (label, re) => {
                   const w = windowOfLabel(windows, re)
                   if (!w) return html`<td class="win-cell" aria-label="无此窗口"><span class="small muted">—</span></td>`
-                  return html`<td class="win-cell"><div class="row small"><span class="num">${Math.round((Number(w.usedPct) || 0))}%</span></div>
+                  return html`<td class="win-cell"><div class="row small"><span class="num">${fmtPct(w.usedPct)}</span></div>
                     <${ProgressBar} pct=${w.usedPct} tone=${pctTone(w.usedPct)} label=${w.label + ' 已用'} /></td>`
                 }
                 const five = base('5h', /5\s*小时|five|5h/i)

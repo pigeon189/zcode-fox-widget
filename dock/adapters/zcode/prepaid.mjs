@@ -8,10 +8,28 @@
 // 的能力；没有它时 GLM 订阅用量会按按量价显示金额——已知偏差，记录在
 // docs/dock/DECISIONS.md（D008）。
 
+import { findProviderBaseUrl } from '../../engines/discover.mjs'
+import { resolveBillingSource } from '../../engines/source.mjs'
+
 export function isPrepaidRow(providerId) {
   const pid = String(providerId == null ? '' : providerId).toLowerCase()
   if (!pid) return false
   if (pid.includes('start-plan') || pid.includes('coding-plan') || pid.includes('zcode-plan')) return true
   if (pid.includes('cmdgo') || pid.includes('commandcode')) return true
   return false
+}
+
+// 与 usage-records / turn-cost 完全一致的口径链（D054 同日审计）：
+// providerId 关键词 + 有效 Base URL 路径（火山 /api/coding、/api/plan 是订阅池，
+// /api/v3 是按量真金白银），再叠加 GLM 订阅修正。会话列表/回合明细过去只用
+// isPrepaidRow 的名字规则，且完全没做归零——GLM start plan 的 token 被按 GLM
+// 按量价算成了「真金白银」（实测一个会话 ¥317.09 里 ¥280 是套餐池）。
+export function isPrepaidBilling(providerId, modelId) {
+  if (isPrepaidRow(providerId)) return true
+  try {
+    const src = resolveBillingSource(providerId, modelId, findProviderBaseUrl(providerId)).source
+    return src === 'plan' || src === 'cmdgo' || src === 'volc'
+  } catch (err) {
+    return false
+  }
 }

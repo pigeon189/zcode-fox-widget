@@ -883,15 +883,27 @@ export function planVendorStatus(base, plan) {
     source: ok ? plan.source : undefined,
     // 逐模型配额桶（日志源才有）：GLM 赠送池按模型分开记账（如 GLM-5.3 2 亿 +
     // GLM-5.3-Flash 3 亿），汇总数会掩盖单模型的告急，原样透出给额度页分行展示。
+    // 每个桶补 0–100 百分比（同条目 remaining/total，D046），total 不可得不给值，
+    // 让 UI 能像 CommandCode 窗口那样直接画进度条（D053）。
     byModel:
       ok && Array.isArray(plan.byModel) && plan.byModel.length
-        ? plan.byModel.map((b) => ({
-            model: b.model,
-            showName: b.showName || b.model,
-            remainingUnits: b.remainingUnits,
-            totalUnits: b.totalUnits,
-            usedUnits: b.usedUnits,
-          }))
+        ? plan.byModel.map((b) => {
+            const total = Number(b.totalUnits)
+            const remaining = Number(b.remainingUnits)
+            const remainingPct =
+              Number.isFinite(total) && total > 0 && Number.isFinite(remaining)
+                ? Math.max(0, Math.min(100, Math.round((remaining / total) * 1000) / 10))
+                : undefined
+            return {
+              model: b.model,
+              showName: b.showName || b.model,
+              remainingUnits: b.remainingUnits,
+              totalUnits: b.totalUnits,
+              usedUnits: b.usedUnits,
+              percentRemaining: remainingPct,
+              percentUsed: remainingPct == null ? undefined : Math.round((100 - remainingPct) * 10) / 10,
+            }
+          })
         : undefined,
   }
 }

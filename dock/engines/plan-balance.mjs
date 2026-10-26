@@ -310,6 +310,16 @@ export async function readPlanQuota() {
         keySource: api && api.keySource ? api.keySource : undefined,
       }
     }
+  } else if (log.percentRemaining <= 0) {
+    // 新鲜日志但剩余额度为 0：限时活动套餐（如 1024 Dev Day）用完之后仍在
+    // 有效期内，客户端会继续轮询它的 billing/balance——日志看起来「新鲜」，
+    // 却只是已废弃套餐的最后一份快照；真实可用额度在订阅接口上
+    // （individual-coding-plan 的套餐从不进日志，issue #3 的前提）。
+    // 此时补试一次直连接口：接口有剩余就改用接口，两边都空才是真用完，
+    // 保留日志的 0%。代价：切到接口源后没有 byModel，每轮消耗退成 tokens
+    // 展示——与 #3「宁可退成 tokens 也不造假数」同口径。（1.x issue #14）
+    const api = await fetchGlmPlanQuota()
+    if (api && api.ok && api.percentRemaining > 0) payload = api
   }
   readPlanQuota.cache = { at: Date.now(), payload }
   return payload

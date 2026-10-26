@@ -190,6 +190,40 @@ test('dsh: 适配器 → 余额卡 + 今日金额 + tokens', async () => {
   }
 })
 
+test('dsh: 未收录模型金额不可得（null + unavailable），不编成 ¥0.00', async () => {
+  const home = tempHome()
+  try {
+    writeSession(home, 'u', [
+      FRAME(
+        event(localMs(10), 1, 1, { inputTokens: 800, outputTokens: 200, totalTokens: 1000 }, 'unknown-gateway-model', 'deepseek')
+      ),
+    ])
+    const r = scanDshUsage({ home, now: () => localMs(12) })
+    assert.equal(r.ok, true)
+    assert.equal(r.today.amount, null, '金额不可得不是 0')
+    assert.equal(r.today.currency, '')
+    assert.deepEqual(r.today.byCurrency, {}, '不建 CNY:0 币种桶')
+    assert.equal(r.today.tokens, 1000, 'tokens 照算')
+    assert.equal(r.today.unpriced, 1)
+    assert.equal(r.lastTurn.amount, null)
+
+    const raw = await dshAdapter
+      .createBilling({ now: () => localMs(12), dshHome: home, fetchImpl: async () => balanceResponse() })
+      .snapshot({})
+    assert.equal(raw.today.amount, null)
+    assert.equal(raw.provenance.today.kind, 'unavailable', '金额不可得不能标 estimated/pricing-table')
+    assert.equal(raw.turn.amount, null)
+    assert.equal(raw.provenance.turn.kind, 'unavailable')
+
+    const snap = normalizeSnapshot(raw, { adapterId: 'dsh', adapterName: 'DeepSeek Harness' })
+    assert.equal(snap.ok, true)
+    assert.equal(snap.today, null, '金额不可得时不给 today 金额对象（UI 显示 —）')
+    assert.equal(snap.usage.todayTokens, 1000)
+  } finally {
+    cleanup(home)
+  }
+})
+
 test('dsh: 没有 key → 仍显示今日用量，余额卡降级为 plan 说明', async () => {
   const home = tempHome({ key: false })
   try {

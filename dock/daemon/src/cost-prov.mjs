@@ -39,3 +39,20 @@ export function withCostProv(costResult, ctx = {}) {
   })
   return { ...costResult, prov: provValue }
 }
+
+// 价目表未收录（costOfUsage 对 kind='none' 返回 billable:false + rates:null）。
+// 注意：kind='free' 的免费模型也有 billable:false，但它有 rates 数组、金额确实
+// 是 0；只有 rates 为 null 才是「算不出来」。这种行不能按 0 元入账。
+export function isUnpriced(costResult) {
+  return !!(costResult && costResult.billable === false && costResult.rates == null)
+}
+
+// 不可计价行的 provenance：金额为 null 时必须带 unavailable + 原因，不能继续
+// 标 estimated/pricing-table（D033：缺失不补 0）。
+export function pricingUnavailable(ctx = {}) {
+  return prov('unavailable', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE, {
+    asOf: ctx.asOf,
+    reason: 'no-data',
+    note: ctx.note || '价目快照 ' + PRICING_SNAPSHOT_DATE + ' 未收录该模型，金额不可得',
+  })
+}

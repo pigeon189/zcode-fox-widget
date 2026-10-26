@@ -60,7 +60,9 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
             at: Number(row.at) || 0,
             day: row.day || dateKeyOf(row.at),
             tokens: Number(row.tokens) || 0,
-            amount: row.unit === 'credit' ? 0 : Number(row.amount) || 0,
+            // 金额不可得（如价目表未收录的模型）保持 null，不在这里补 0；
+            // 行上的 provenance 会是 unavailable，消费方据此显示「—」。
+            amount: row.unit === 'credit' ? 0 : row.amount == null ? null : Number(row.amount) || 0,
             credits: row.unit === 'credit' ? Math.round((Number(row.credits) || 0) * 10000) / 10000 : null,
             calls: Number(row.calls) || 0,
             errors: Number(row.errors) || 0,
@@ -132,6 +134,7 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
           errors: 0,
           byDay: new Map(),
           byCurrency: {},
+          unpriced: 0,
           provs: [],
         }
         map.set(key, s)
@@ -140,18 +143,23 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
       s.calls += Number(row.calls) || 0
       s.errors += Number(row.errors) || 0
       if (row.unit === 'credit') s.credits += Number(row.credits) || 0
-      else {
+      else if (row.amount == null) {
+        // 金额不可得（价目未收录）：tokens 照算，金额不进币种桶、不补 0。
+        s.unpriced += 1
+      } else {
         const cur = row.currency || 'CNY'
         s.byCurrency[cur] = Math.round(((s.byCurrency[cur] || 0) + (Number(row.amount) || 0)) * 10000) / 10000
       }
       if (row.prov) s.provs.push(row.prov)
       const day = row.day || dateKeyOf(row.at)
-      const d = s.byDay.get(day) || { d: day, tokens: 0, amount: 0, credits: null, calls: 0, byCurrency: {} }
+      const d = s.byDay.get(day) || { d: day, tokens: 0, amount: 0, credits: null, calls: 0, byCurrency: {}, priced: 0, unpriced: 0 }
       d.tokens += Number(row.tokens) || 0
       d.calls += Number(row.calls) || 0
       if (row.unit === 'credit') d.credits = Math.round(((d.credits || 0) + (Number(row.credits) || 0)) * 10000) / 10000
+      else if (row.amount == null) d.unpriced += 1
       else {
         const dayCur = row.currency || 'CNY'
+        d.priced += 1
         d.amount = Math.round(((d.amount || 0) + (Number(row.amount) || 0)) * 10000) / 10000
         d.byCurrency[dayCur] = Math.round(((d.byCurrency[dayCur] || 0) + (Number(row.amount) || 0)) * 10000) / 10000
       }
@@ -159,11 +167,13 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
     }
     const series = [...map.values()].map((s) => {
       const cur = dominant(s.byCurrency)
+      const buckets = Object.keys(s.byCurrency).length > 0
       return {
         key: s.key,
         label: s.label,
         tokens: Math.round(s.tokens),
-        amount: s.byCurrency[cur] || 0,
+        // 没有任何可计价行且上游报不可得 → null（不是 0）。
+        amount: buckets ? s.byCurrency[cur] || 0 : s.unpriced > 0 ? null : 0,
         credits: s.credits > 0 ? Math.round(s.credits * 10000) / 10000 : null,
         calls: s.calls,
         errors: s.errors,
@@ -172,14 +182,23 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
         byDay: [...s.byDay.values()]
           .sort((a, b) => (a.d < b.d ? -1 : 1))
           .map((d) => ({
-            ...d,
+            d: d.d,
+            tokens: d.tokens,
+            credits: d.credits,
+            calls: d.calls,
+            ...(Object.keys(d.byCurrency).length ? { byCurrency: d.byCurrency } : {}),
             amount:
-              d.byCurrency && Object.keys(d.byCurrency).length
+              Object.keys(d.byCurrency).length
                 ? Math.round(((Number(d.byCurrency[cur]) || 0) * 10000)) / 10000
-                : Math.round((Number(d.amount) || 0) * 10000) / 10000,
+                : d.priced > 0
+                  ? Math.round((Number(d.amount) || 0) * 10000) / 10000
+                  : d.unpriced > 0
+                    ? null
+                    : 0,
           })),
         byCurrency: s.byCurrency,
-        currency: cur,
+        // 没有可计价金额时不给币种（不能借 CNY 冒充）。
+        currency: buckets || !s.unpriced ? cur : '',
         prov: s.provs.length ? worstOf(s.provs) : null,
       }
     })
@@ -259,6 +278,7 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
             byDay: new Map(),
             byCurrency: {},
             provs: [],
+            unpriced: false,
           }
           merged.set(k, m)
         }
@@ -273,23 +293,39 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
           const cur = s.currency || 'CNY'
           m.byCurrency[cur] = Math.round(((m.byCurrency[cur] || 0) + Number(s.amount)) * 10000) / 10000
         }
+        // 上游明确报「金额不可得」（amount=null，如价目表未收录的模型）：
+        // 保持 null，不要在后面按 0 补齐。
+        if (!Object.keys(s.byCurrency || {}).length && s.amount == null) m.unpriced = true
         if (s.prov) m.provs.push(s.prov)
         if (s.prov) provs.push(s.prov)
         for (const d of s.byDay || []) {
           const day = String(d.d || '')
-          const row = m.byDay.get(day) || { d: day, tokens: 0, amount: 0, credits: null, calls: 0, byCurrency: {} }
+          const row = m.byDay.get(day) || {
+            d: day,
+            tokens: 0,
+            amount: 0,
+            credits: null,
+            calls: 0,
+            byCurrency: {},
+            priced: 0,
+            unpriced: 0,
+          }
           row.tokens += Number(d.tokens) || 0
           row.calls += Number(d.calls) || 0
           if (d.credits != null) row.credits = Math.round(((row.credits || 0) + Number(d.credits)) * 10000) / 10000
-          if (d.amount != null) row.amount = Math.round(((row.amount || 0) + Number(d.amount)) * 10000) / 10000
-          // 金额分桶优先；上游 series 没给分桶时按它的主币种归入（0 值不建桶）。
+          // amount=null 表示上游明确报「金额不可得」：不参与合计，也不把它
+          // 当成 0 记进币种桶（priced/unpriced 只在输出时决定 amount 是 0 还是 null）。
+          if (d.amount != null) row.priced += 1
+          else row.unpriced += 1
+          // 金额只按真实币种分桶：逐日有分桶用分桶，没有时按该 series 的主币种
+          // 归入。任何情况下都不把不同币种的 d.amount 直加。
           if (d.byCurrency && Object.keys(d.byCurrency).length) {
             for (const [c, v] of Object.entries(d.byCurrency)) {
               row.byCurrency[c] = Math.round(((row.byCurrency[c] || 0) + (Number(v) || 0)) * 10000) / 10000
             }
-          } else if ((Number(d.amount) || 0) !== 0) {
+          } else if (d.amount != null) {
             const c = s.currency || 'CNY'
-            row.byCurrency[c] = Math.round(((row.byCurrency[c] || 0) + Number(d.amount)) * 10000) / 10000
+            row.byCurrency[c] = Math.round(((row.byCurrency[c] || 0) + (Number(d.amount) || 0)) * 10000) / 10000
           }
           m.byDay.set(day, row)
         }
@@ -313,8 +349,11 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
     }
     unit = units.includes('money') ? 'money' : 'credit'
     const all = [...merged.values()].map((m) => {
+      const hasBuckets = Object.keys(m.byCurrency).length > 0
       const cur = currency || dominant(m.byCurrency)
-      const amount = m.byCurrency[cur] || 0
+      // 没有任何可计价币种桶、且上游明确报「金额不可得」→ null（UI 显示 —）；
+      // 只有真的没有金额数据时才保留 0，不能把未知价模型算成免费。
+      const amount = hasBuckets ? m.byCurrency[cur] || 0 : m.unpriced ? null : 0
       return {
         key: m.key,
         label: m.label,
@@ -324,57 +363,90 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
         calls: m.calls,
         errors: m.errors,
         // 跨适配器合并后的 byDay.amount 同样归一到输出币种口径，不混加。
+        // 只有「未收录模型」的日期保持 null（不可得），不能补成 0。
         byDay: [...m.byDay.values()]
           .sort((a, b) => (a.d < b.d ? -1 : 1))
-          .map((d) => ({
-            ...d,
-            amount:
-              d.byCurrency && Object.keys(d.byCurrency).length
-                ? Math.round(((Number(d.byCurrency[cur]) || 0) * 10000)) / 10000
-                : Math.round((Number(d.amount) || 0) * 10000) / 10000,
-          })),
+          .map((d) => {
+            const buckets = d.byCurrency && Object.keys(d.byCurrency).length
+            const amount = buckets
+              ? Math.round((Number(d.byCurrency[cur]) || 0) * 10000) / 10000
+              : d.unpriced
+                ? null
+                : 0
+            return {
+              d: d.d,
+              tokens: d.tokens,
+              amount,
+              credits: d.credits,
+              calls: d.calls,
+              ...(buckets ? { byCurrency: d.byCurrency } : {}),
+            }
+          }),
         byCurrency: m.byCurrency,
-        currency: unit === 'money' ? cur : '',
+        // 没有任何可计价金额时不给币种（amount 是 null，不能借 CNY 冒充）。
+        currency: unit === 'money' ? (hasBuckets || !m.unpriced ? cur : '') : '',
         prov: m.provs.length ? worstOf(m.provs) : null,
       }
     })
     // 按日汇总（所有 series，不只 top 8）：总览的 7 天图直接消费这份数据，
-    // 与用量页的每日条形同源。金额按 series 的主币种分组，不跨币种相加。
+    // 与用量页的每日条形同源。金额按币种分桶，输出币种由全局 totals 决定，
+    // daily.amount 只取该币种口径——不再把各 series 的主币种金额直加。
+    const totalByCurrency = all.reduce((acc, x) => {
+      for (const [cur, v] of Object.entries(x.byCurrency || {})) acc[cur] = Math.round(((acc[cur] || 0) + v) * 10000) / 10000
+      return acc
+    }, {})
+    const outCurrency = currency || dominant(totalByCurrency)
     const dailyMap = new Map()
     for (const s of all) {
-      const cur = s.currency || 'CNY'
+      const seriesCur = s.currency || 'CNY'
       for (const d of s.byDay || []) {
-        const row = dailyMap.get(d.d) || { d: d.d, tokens: 0, amount: 0, credits: null, calls: 0, byCurrency: {} }
+        const row = dailyMap.get(d.d) || {
+          d: d.d,
+          tokens: 0,
+          credits: null,
+          calls: 0,
+          byCurrency: {},
+          priced: 0,
+          unpriced: 0,
+        }
         row.tokens += Number(d.tokens) || 0
         row.calls += Number(d.calls) || 0
         if (unit === 'credit') {
           row.credits = Math.round(((row.credits || 0) + (Number(d.credits) || 0)) * 10000) / 10000
         } else {
-          const amt = Number(d.amount) || 0
-          // daily.amount 保持历史口径（各 series 主币种直加，仅作总量参考）；
-          // byCurrency 优先用逐日分桶，series 没给时按 series 主币种归入。
-          row.amount += amt
+          const amt = d.amount == null ? null : Number(d.amount) || 0
+          // 金额不可得（null）的 series-day 不参与合计、不建币种桶；
+          // 有逐日分桶就按真实币种记，没有时按该 series 的主币种归入。
           if (d.byCurrency && Object.keys(d.byCurrency).length) {
             for (const [c, v] of Object.entries(d.byCurrency)) {
               row.byCurrency[c] = Math.round(((row.byCurrency[c] || 0) + (Number(v) || 0)) * 10000) / 10000
             }
+            if (amt != null) row.priced += 1
+            else row.unpriced += 1
+          } else if (amt != null) {
+            row.byCurrency[seriesCur] = Math.round(((row.byCurrency[seriesCur] || 0) + amt) * 10000) / 10000
+            row.priced += 1
           } else {
-            row.byCurrency[cur] = Math.round(((row.byCurrency[cur] || 0) + amt) * 10000) / 10000
+            row.unpriced += 1
           }
         }
         dailyMap.set(d.d, row)
       }
     }
     const daily = [...dailyMap.values()]
-      .map((x) => ({ ...x, amount: Math.round(x.amount * 10000) / 10000, tokens: Math.round(x.tokens) }))
+      .map((x) => ({
+        d: x.d,
+        tokens: Math.round(x.tokens),
+        // 一整天都没有可计价金额时 null（不可得），不是 ¥0.00；有金额时只取
+        // 输出币种（与 total.amount 同口径），不跨币种相加。
+        amount: unit === 'credit' ? 0 : x.priced ? Math.round((Number(x.byCurrency[outCurrency]) || 0) * 10000) / 10000 : x.unpriced ? null : 0,
+        credits: x.credits,
+        calls: x.calls,
+        byCurrency: x.byCurrency,
+      }))
       .sort((a, b) => (a.d < b.d ? -1 : 1))
     const metric = unit === 'credit' ? 'credits' : 'amount'
     all.sort((a, b) => (Number(b[metric]) || 0) - (Number(a[metric]) || 0) || b.tokens - a.tokens)
-    const totalByCurrency = all.reduce((acc, x) => {
-      for (const [cur, v] of Object.entries(x.byCurrency || {})) acc[cur] = Math.round(((acc[cur] || 0) + v) * 10000) / 10000
-      return acc
-    }, {})
-    const outCurrency = currency || dominant(totalByCurrency)
     const top = all.slice(0, 8)
     const rest = all.slice(8)
     const other = rest.length
@@ -405,7 +477,11 @@ export function createUsageBreakdown({ adapters, now = () => Date.now() } = {}) 
     const totals = {
       tokens: all.reduce((s, x) => s + x.tokens, 0),
       // 绝不跨币种相加：只汇总选定/主币种，其余放 byCurrency。
-      amount: totalByCurrency[outCurrency] || 0,
+      // 完全没有可计价金额、上游又报不可得时给 null（不是 0）。
+      amount:
+        unit === 'money' && !Object.keys(totalByCurrency).length && all.some((x) => x.amount === null)
+          ? null
+          : totalByCurrency[outCurrency] || 0,
       credits: unit === 'credit' ? Math.round(all.reduce((s, x) => s + (Number(x.credits) || 0), 0) * 10000) / 10000 : null,
       calls: all.reduce((s, x) => s + x.calls, 0),
       errors: all.reduce((s, x) => s + x.errors, 0),

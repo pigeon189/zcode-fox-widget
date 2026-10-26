@@ -108,8 +108,33 @@ function windowsOfVendor(v) {
   return out.filter(Boolean)
 }
 
+// 套餐按模型分桶 → 前端可直接画进度条的结构（D053）。
+// GLM 赠送池按模型分开记账（GLM-5.3 / GLM-5.3-Flash 各自总额与余量），汇总百分比
+// 会把单个桶的告急摊平（实测总桶 0.2% 剩余时另一桶还接近满额）。百分比只取同一桶
+// 的 remaining/total，total 不可得就不给——绝不补 0（D046）。
+export function bucketsOfVendor(v) {
+  if (!v || !Array.isArray(v.byModel)) return []
+  const out = []
+  for (const b of v.byModel) {
+    if (!b) continue
+    const total = Number(b.totalUnits)
+    const remaining = Number(b.remainingUnits)
+    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(remaining)) continue
+    const remainingPct = Math.max(0, Math.min(100, Math.round((remaining / total) * 1000) / 10))
+    out.push({
+      key: String(b.model || b.showName || 'bucket-' + out.length),
+      label: String(b.showName || b.model || '配额桶').slice(0, 24),
+      remainingPct,
+      usedPct: Math.round((100 - remainingPct) * 10) / 10,
+      remaining,
+      total,
+    })
+  }
+  return out.slice(0, 8)
+}
+
 // 把一条厂商状态压成前端稳定消费的卡片数据。
-function quotaCardOf(vendors, active) {
+export function quotaCardOf(vendors, active) {
   if (!active) {
     return {
       kind: 'plan',
@@ -120,6 +145,7 @@ function quotaCardOf(vendors, active) {
     }
   }
   const windows = windowsOfVendor(active)
+  const buckets = bucketsOfVendor(active)
   const plan = active.planName || (active.kind === 'local-log' ? active.name : '') || active.name
   if (windows.length) {
     return {
@@ -132,6 +158,7 @@ function quotaCardOf(vendors, active) {
       source: active.id,
       preferBalance: active.id === 'commandcode',
       windows,
+      buckets,
     }
   }
   if (active.percentRemaining != null && active.id === 'zcode-plan') {
@@ -140,8 +167,9 @@ function quotaCardOf(vendors, active) {
       title: active.name,
       subtitle: '订阅套餐',
       plan,
-      note: '剩余额度来自套餐用量接口',
+      note: buckets.length ? '总剩余只作参考；下方按模型分桶，单桶告急单独标出' : '剩余额度来自套餐用量接口',
       source: active.id,
+      buckets,
     }
   }
   if (active.balance != null) {
@@ -160,6 +188,7 @@ function quotaCardOf(vendors, active) {
     plan,
     note: active.reason || '该厂商暂无可读余额',
     source: active.id,
+    buckets,
   }
 }
 
@@ -264,6 +293,17 @@ export const zcodeAdapter = {
         }
         const byCur = r.today.byCurrency
         const cur = dominantCurrency(byCur)
+        const pricedToday = Object.keys(byCur).length > 0
+        // 价目表未收录的按量模型：金额不可得。整天都算不出金额时给 null（契约
+        // 会丢掉 today、UI 显示「—」），不把真实消耗显示成 ¥0.00。
+        const todayMissing = !pricedToday && r.today.unpriced > 0
+        const today =
+          pricedToday || !todayMissing ? { amount: pricedToday ? byCur[cur] || 0 : 0, currency: cur, byCurrency: byCur } : null
+        const todayNote = todayMissing
+          ? '价目快照 ' + PRICING_SNAPSHOT_DATE + ' 未收录今日全部模型，金额不可得'
+          : r.today.unpriced > 0
+            ? 'token × 价目表；部分模型价目未收录，金额只含可计价部分'
+            : 'token × 价目表；预付/套餐行金额记 0'
         const details = [
           { label: '今日 tokens', value: fmtTokens(r.today.tokens), hint: '按 ZCode 用量库逐次调用统计' },
           { label: '今日调用', value: String(r.today.calls) + ' 次' },
@@ -325,9 +365,11 @@ export const zcodeAdapter = {
         for (const [id, v] of vendors) {
           const vcur = dominantCurrency(v.byCurrency)
           const label = v.label || id
+          const priced = Object.keys(v.byCurrency).length > 0
           details.push({
             label: '厂商 · ' + label,
-            value: fmtMoney(v.byCurrency[vcur], vcur) + ' · ' + fmtTokens(v.tokens),
+            // 只有未收录模型时金额不可得：显示「—」，不要显示 ¥0.00。
+            value: (priced ? fmtMoney(v.byCurrency[vcur], vcur) : '—') + ' · ' + fmtTokens(v.tokens),
             hint: String(v.calls) + ' 次调用',
           })
         }
@@ -356,7 +398,7 @@ export const zcodeAdapter = {
         // 真实消耗展示；tokens 仍保留在 details 与 usage 里。
         const prepaid = active && (active.id === 'commandcode' || active.kind === 'local-log')
         const turn =
-          r.lastTurn && !(prepaid && !(Number(r.lastTurn.amount) > 0))
+          r.lastTurn && r.lastTurn.amount != null && !(prepaid && !(Number(r.lastTurn.amount) > 0))
             ? {
                 amount: r.lastTurn.amount,
                 currency: r.lastTurn.currency,
@@ -368,7 +410,7 @@ export const zcodeAdapter = {
         return {
           supported: true,
           unit: 'money',
-          today: { amount: byCur[cur] || 0, currency: cur, byCurrency: byCur },
+          today,
           turn,
           quota,
           balance,
@@ -386,10 +428,15 @@ export const zcodeAdapter = {
             turnTokens: r.lastTurn ? r.lastTurn.tokens : 0,
           },
           provenance: {
-            today: prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' zcode', {
-              asOf: now(),
-              note: 'token × 价目表；预付/套餐行金额记 0',
-            }),
+            today: todayMissing
+              ? unavailable('no-data', 'pricing:' + PRICING_SNAPSHOT_DATE + ' zcode', 'pricing-table', {
+                  asOf: now(),
+                  note: todayNote,
+                })
+              : prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' zcode', {
+                  asOf: now(),
+                  note: todayNote,
+                }),
             turn: r.lastTurn
               ? prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' zcode', {
                   asOf: now(),

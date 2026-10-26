@@ -19,11 +19,13 @@
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import { costOfUsage } from '../../engines/pricing.mjs'
-import { withCostProv } from '../../daemon/src/cost-prov.mjs'
+import { isUnpriced, pricingUnavailable, withCostProv } from '../../daemon/src/cost-prov.mjs'
+import { isPrepaidBilling } from './prepaid.mjs'
 import {
   compareSessionToCursor,
   compareSessionsForSort,
   cursorOf,
+  displayStatusOf,
   normalizeArchivedMode,
   normalizeSession,
   parseCursor,
@@ -49,11 +51,12 @@ function loadSqlite() {
 const connections = new Map()
 const MAX_CONNECTIONS = 4
 const DONE_HOLD_MS = 4000
-// 回合内保持 working 的静默阈值（问题 6「状态横跳」）：思考 / 工具执行 /
-// 工具切换的阶段间隙没有新库行是常态。与 shared/live-reduce.mjs 的
-// WORKING_IDLE_MS（expire 的 working→idle 阈值）同口径取 90s：只有终态
-// 回合行（明确结束证据）或 90s 静默才转空闲。
-const WORKING_HOLD_MS = 90_000
+// 回合内保持 working 的静默阈值（问题 6「状态横跳」）：库内没有 running 的
+// 回合行，长工具执行完到下一次模型请求落库之间可以超过 90s。带回合结束证据
+// 的路径不受这里影响；这个窗口只用于「最新 model 行晚于上一回合结束」的在跑
+// 回合，放宽到 10 分钟，避免工具刚结束、首字未到就闪成空闲。钩子可用时由
+// LiveTracker 的 turnActive 精确覆盖。
+const WORKING_HOLD_MS = 10 * 60_000
 // tool_usage 的 running 行是在途证据（宿主崩溃才会残留）。窗口从 5 分钟
 // 放宽到 10 分钟，与 live-reduce expire 的在途工具保护上限同口径：终端
 // 工具单次执行几分钟是常态，不能在 5–10 分钟之间先被误判空闲、下一次
@@ -165,6 +168,11 @@ function openDb(file) {
     }
     if (has('model_usage')) {
       conn.stmts.models = db.prepare(
+        // 按「整点桶」分组（D054 审计）：计价要看调用发生时的峰谷档位，
+        // 把整个会话/模型压成一行再用最后一笔时间计价，会让跨峰谷的用量全部
+        // 按最后那笔的档位算（实测同一会话差 3%）。DeepSeek 的峰谷边界
+        // （PEAK_HOURS 为整点、周末谷价生效分界在 UTC 16:00）都落在整点，
+        // 所以按 UTC 整点桶聚合既能逐笔精确计价，又不会退化成逐行开销。
         `SELECT session_id AS sessionId, model_id AS modelId, provider_id AS providerId,
            COALESCE(SUM(computed_total_tokens), 0) AS total,
            COALESCE(SUM(input_tokens), 0) AS input,
@@ -174,8 +182,10 @@ function openDb(file) {
            COALESCE(SUM(cache_creation_input_tokens), 0) AS cacheWrite,
            COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS errors,
            COUNT(*) AS calls,
-           MAX(started_at) AS lastAt
-         FROM model_usage GROUP BY session_id, model_id, provider_id`
+           MAX(started_at) AS lastAt,
+           MIN(started_at) AS bucketAt
+         FROM model_usage
+         GROUP BY session_id, model_id, provider_id, CAST(started_at / 3600000 AS INTEGER)`
       )
       conn.stmts.lastUsage = db.prepare(
         `SELECT session_id AS sessionId, model_id AS modelId, provider_id AS providerId, status, started_at AS at,
@@ -207,17 +217,25 @@ function openDb(file) {
            ON x.session_id = m.session_id AND x.mx = m.started_at
          WHERE 1=1${mLiveSource}`
       )
+      // 回合明细的成本必须按 (模型, provider, 整点桶) 分组后再汇总：旧实现
+      // 用 MAX(model_id) 把整轮 token 压给一个模型，混合模型回合（主模型 + 快模型、
+      // 换模型、子代理不同模型）会整体乘错价（D054 审计）。这里保留分组行，
+      // 由 getSessionDetail 逐组计价后按 turnId 汇总。
       conn.stmts.turnsFallback = db.prepare(
-        `SELECT turn_id AS turnId, session_id AS sessionId, MIN(started_at) AS startedAt,
+        `SELECT turn_id AS turnId, session_id AS sessionId, model_id AS modelId, provider_id AS providerId,
+           MIN(started_at) AS bucketAt,
+           MIN(started_at) AS startedAt,
            MAX(COALESCE(completed_at, started_at)) AS endedAt,
            COALESCE(SUM(computed_total_tokens), 0) AS tokens,
            COALESCE(SUM(input_tokens), 0) AS input, COALESCE(SUM(output_tokens), 0) AS output,
            COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
            COALESCE(SUM(cache_read_input_tokens), 0) AS cacheRead,
            COALESCE(SUM(cache_creation_input_tokens), 0) AS cacheWrite,
-           MAX(model_id) AS modelId, MAX(provider_id) AS providerId,
+           COUNT(*) AS calls,
            MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS hasError
-         FROM model_usage WHERE session_id = ?${liveSource} GROUP BY turn_id ORDER BY startedAt`
+         FROM model_usage WHERE session_id = ?${liveSource}
+         GROUP BY turn_id, model_id, provider_id, CAST(started_at / 3600000 AS INTEGER)
+         ORDER BY startedAt`
       )
       // 老库没有 turn_usage 时，回合数按 model_usage 的 turn_id 去重。一次扫描
       // 成表，避免在 sessions 的每一行里做相关子查询（200k 行会到 19s）。
@@ -341,10 +359,22 @@ function dominantCurrency(byCurrency) {
   return keys.sort((a, b) => (byCurrency[b] || 0) - (byCurrency[a] || 0))[0]
 }
 
-// 逐组定价：返回 { amount, currency, prov }；多币种只取主币种（不跨币种求和）。
+// 逐组定价：返回 { cost, market, prov }；多币种只取主币种（不跨币种求和）。
+// 组按「模型 + provider + 整点桶」划分，所以每行（含换模型后的新模型）都用
+// 自己那一小时的真实档位计价，不会把旧模型的 token 乘到新模型价上，也不会把
+// 谷时用量按峰时算。预付池（plan / cmdgo / 火山订阅）金额记 0、tokens 照算——
+// 与「今日已用」、每轮消耗、用量记录同一口径（D054）。
+// market 是同一批 token 的「等价市值」：预付池行也有值，只用于成本列显示 «≈»，
+// 不参与任何真金白银合计（用量记录的模型排名同款口径）。
+// 价目表未收录的模型（costOfUsage kind='none'，rates 为 null）不是「免费」而是
+// 「算不出来」：金额不进桶、不补 0；整批都不可计价时 cost 给 null（UI 显示 —），
+// provenance 记 unavailable，避免把真实消耗显示成 ¥0.00（D033「缺失不补 0」）。
 function priceGroups(groups, now) {
   const byCurrency = {}
+  const marketByCurrency = {}
   let provValue = null
+  let priced = 0
+  let unpriced = 0
   for (const g of groups) {
     const c = withCostProv(
       costOfUsage(
@@ -357,21 +387,41 @@ function priceGroups(groups, now) {
           cache_creation_input_tokens: g.cacheWrite,
           computed_total_tokens: g.total,
         },
-        Number(g.lastAt) || now,
+        Number(g.bucketAt || g.lastAt) || now,
         g.providerId
       ),
       { asOf: now }
     )
     if (!c || !c.tokens) continue
+    const prepaid = isPrepaidBilling(g.providerId, g.modelId)
+    // 预付池行即使价目表没收录，真实支出仍是 0（走套餐），按 0 入账；
+    // 只有「按量计费但算不出价」的行才不能补 0。
+    if (!prepaid && isUnpriced(c)) {
+      unpriced += 1
+      continue
+    }
+    priced += 1
+    const raw = Number(c.amount) || 0
+    const amount = prepaid ? 0 : raw
     const cur = c.currency || 'CNY'
-    byCurrency[cur] = (byCurrency[cur] || 0) + (Number(c.amount) || 0)
+    byCurrency[cur] = (byCurrency[cur] || 0) + amount
+    if (!isUnpriced(c)) marketByCurrency[cur] = (marketByCurrency[cur] || 0) + raw
     provValue = provValue || c.prov
   }
+  if (!priced) {
+    return { cost: null, market: null, prov: unpriced ? pricingUnavailable({ asOf: now }) : null }
+  }
   const key = dominantCurrency(byCurrency)
-  if (!Object.keys(byCurrency).length) return { cost: null, prov: null }
+  const marketKey = dominantCurrency(marketByCurrency)
   return {
     cost: { amount: Math.round((byCurrency[key] || 0) * 10000) / 10000, currency: key, unit: 'money' },
-    prov: provValue,
+    market: Object.keys(marketByCurrency).length
+      ? { amount: Math.round((marketByCurrency[marketKey] || 0) * 10000) / 10000, currency: marketKey, unit: 'money' }
+      : null,
+    prov:
+      unpriced && provValue
+        ? { ...provValue, note: [provValue.note, '部分模型价目未收录，金额只含可计价部分'].filter(Boolean).join(' · ') }
+        : provValue,
   }
 }
 
@@ -427,6 +477,14 @@ function statusOf(conn, sessionId, now, index = null, sessionAt = 0) {
       return { status: 'idle', statusSource: 'db', running: [] }
     }
     if (turnStatus === 'completed' || turnStatus === 'cancelled') {
+      // cancelled 有明确结束时刻时，最后一笔 model 行即使晚于 completed_at
+      // 也属于被停止的回合，不能用 holdModel 再撑 10 分钟「工作中」。
+      // 只有 cancelled 之后又出现新消息（用户重新发话）才按新回合推断。
+      if (turnStatus === 'cancelled' && turnEnded) {
+        return sessionActive
+          ? { status: 'working', statusSource: 'inferred', running: [] }
+          : { status: 'idle', statusSource: 'db', running: [] }
+      }
       if (sessionActive || holdModel) return { status: 'working', statusSource: 'inferred', running: [] }
       const hold = turnStatus === 'completed' && now - lastTurnDone < DONE_HOLD_MS
       return { status: hold ? 'done' : 'idle', statusSource: 'db', running: [] }
@@ -507,11 +565,41 @@ function buildIndex(conn, now) {
       running.set(id, list)
     }
   } catch (err) {}
+  // workflow 活动：动态 workflow（dwf_run）与旧 workflow_run 都带
+  // parent_session_id。只要还有 running/pending 的 run，父会话就不能显示
+  // idle/done（长跑 workflow 的编排回合可能已经结束）；全部结束时用
+  // 最近一次 run 的 time_updated 起算 5 分钟「已完成」展示窗口。
+  const workflowBusy = new Map()
+  const workflowEnd = new Map()
+  for (const table of ['dwf_run', 'workflow_run']) {
+    if (!conn.tables || !conn.tables.has(table)) continue
+    let rows = []
+    try {
+      rows = conn.db
+        .prepare(`SELECT parent_session_id AS sid, status AS status, time_updated AS at FROM ${table} WHERE parent_session_id IS NOT NULL AND parent_session_id <> ''`)
+        .all()
+    } catch (err) {
+      rows = []
+    }
+    for (const r of rows) {
+      const sid = String(r.sid || '')
+      if (!sid) continue
+      const st = String(r.status || '').toLowerCase()
+      const at = num(r.at)
+      if (st === 'running' || st === 'pending') {
+        workflowBusy.set(sid, Math.max(Number(workflowBusy.get(sid)) || 0, at))
+      } else {
+        workflowEnd.set(sid, Math.max(Number(workflowEnd.get(sid)) || 0, at))
+      }
+    }
+  }
   byId.lastModel = lastModel
   byId.lastTurn = lastTurn
   byId.running = running
   byId.turnCount = turnCount
   byId.lastMessage = lastMessage
+  byId.workflowBusy = workflowBusy
+  byId.workflowEnd = workflowEnd
   conn.cache.clear()
   conn.cache.set(key, byId)
   return byId
@@ -541,6 +629,16 @@ function sessionFromRow(conn, row, index, now) {
   const priced = priceGroups(entry.models, now)
   const statusInfo = statusOf(conn, id, now, index, Number(index.lastMessage && index.lastMessage.get(id)) || 0)
   const toolsRunning = Array.isArray(statusInfo.running) ? statusInfo.running.map((x) => ({ name: String(x.name || ''), since: num(x.since) })) : []
+  const wfBusyAt = Number(index.workflowBusy && index.workflowBusy.get(id)) || 0
+  const wfEndAt = Number(index.workflowEnd && index.workflowEnd.get(id)) || 0
+  const workflowBusy = wfBusyAt > 0
+  // 手动停止（cancelled）与异常（error）不是「完成」：前者要立刻回空闲，
+  // 不能落 doneAt 让它在 5 分钟窗口里显示「已完成」；后者按 error 处理。
+  const lastTurnInfo = index.lastTurn && index.lastTurn.get(id) || null
+  const lastTurnStatus = String(lastTurnInfo && lastTurnInfo.status || '').toLowerCase()
+  const lastTurnCompleted = lastTurnStatus === 'completed'
+  // 编排回合结束但 workflow 还在跑：父会话按 working 计，筛选/计数才不会漏掉。
+  const status = workflowBusy && (statusInfo.status === 'idle' || statusInfo.status === 'done') ? 'working' : statusInfo.status
   // 「当前模型」取最近一次真实调用，而不是该会话历史里第一个出现的模型。
   // 模型切换后（GLM → DeepSeek/CommandCode）列表必须显示现在用的那个。
   let provider = ''
@@ -571,23 +669,37 @@ function sessionFromRow(conn, row, index, now) {
     cwd: row.cwd || '',
     model,
     provider,
-    status: statusInfo.status,
-    statusSource: statusInfo.statusSource,
-    statusSince: statusInfo.status === 'done' ? Number(entry.turns && entry.turns.lastEnd) || now : updatedAt,
+    status,
+    statusSource: workflowBusy ? 'db' : statusInfo.statusSource,
+    statusSince: status === 'done' ? Number(entry.turns && entry.turns.lastEnd) || now : workflowBusy ? wfBusyAt : updatedAt,
     startedAt: Number(row.time_created) || (entry.turns && Number(entry.turns.lastStart)) || (lastAt || null),
     updatedAt: Math.min(now, updatedAt),
     // 真实宿主时间（库里的时间戳）；拿不到就是 null，不能用 now 冒充，
     // 否则轮询会被误判成「宿主已经处理完」。
     lastHostAt: baseUpdated || null,
     endedAt: entry.turns && entry.turns.lastEnd ? Number(entry.turns.lastEnd) : null,
+    // 5 分钟「已完成」展示窗口的起算点：回合结束与 workflow 结束取较晚者。
+    // 只有「完成」的回合（completed）才带 doneAt；cancelled/error/活跃状态
+    // 都不能让旧的结束时间在以后回闪成「已完成」。
+    doneAt:
+      workflowBusy || !lastTurnCompleted || status === 'working' || status === 'waiting_permission' || status === 'waiting_input' || status === 'error'
+        ? wfEndAt || null
+        : Math.max(Number(entry.turns && entry.turns.lastEnd) || 0, wfEndAt) || null,
+    workflowBusy,
+    workflowBusySince: wfBusyAt || null,
     archived: Number(row.timeArchived) > 0,
     turns: {
       count: Number(entry.turns && entry.turns.count) || Number(index.turnCount && index.turnCount.get(id)) || 0,
-      current: statusInfo.status === 'working' ? { id: '', index: null, startedAt: Number(row.time_updated) || now } : null,
+      current: status === 'working' ? { id: '', index: null, startedAt: Number(row.time_updated) || now } : null,
       avgDurationMs: entry.turns && entry.turns.avgDurationMs != null ? Math.round(Number(entry.turns.avgDurationMs)) : null,
     },
     tokens,
     cost: priced.cost,
+    // 等价市值只在真有差异（预付池行被归零）时输出，避免前端到处显示 «≈»
+    costMarket:
+      priced.market && (!priced.cost || Math.abs(Number(priced.market.amount) - Number(priced.cost.amount)) > 0.00005)
+        ? priced.market
+        : null,
     tools: {
       calls: Number(entry.tools && entry.tools.calls) || calls,
       errors: Number(entry.tools && entry.tools.errors) || errors,
@@ -723,8 +835,9 @@ export async function getSessions(opts = {}) {
   }
 
   // status / q / range 只过滤根会话；子会话只受 archived 过滤。
+  // 状态筛选用展示状态：5 分钟内的已完成、workflow 在跑的父会话都要能筛到。
   let filtered = roots.filter((s) => inRange(s, opts.range, now))
-  if (opts.status) filtered = filtered.filter((s) => s.status === opts.status)
+  if (opts.status) filtered = filtered.filter((s) => displayStatusOf(s, now) === opts.status)
   if (opts.q) {
     const q = String(opts.q).toLowerCase()
     filtered = filtered.filter((s) => (s.title + ' ' + s.cwd + ' ' + s.model).toLowerCase().includes(q))
@@ -804,18 +917,50 @@ export async function getSessionDetail(sessionId, opts = {}) {
   const session = sessionFromRow(conn, row, index, now)
   const turns = []
   // turn_usage 只有时长；token/成本按 turn 从 model_usage 归并（不把明细行拉进内存）。
+  // model_usage 的每个分组行是 (回合, 模型, provider, 整点桶)：逐组计价后再按回合
+  // 汇总，混合模型回合不会被压成单一模型的价格（D054）。
   const turnAgg = new Map()
   if (conn.stmts.turnsFallback) {
     try {
       for (const t of conn.stmts.turnsFallback.all(String(sessionId))) {
+        const turnId = String(t.turnId || '')
         const priced = priceGroups([{ ...t, lastAt: t.endedAt }], now)
-        turnAgg.set(String(t.turnId || ''), {
-          tokens: Math.round(Number(t.tokens) || 0),
-          cost: priced.cost,
-          model: String(t.modelId || ''),
-          hasError: Number(t.hasError) > 0,
-          startedAt: num(t.startedAt),
-          endedAt: num(t.endedAt),
+        const tokens = Number(t.tokens) || 0
+        let agg = turnAgg.get(turnId)
+        if (!agg) {
+          agg = { tokens: 0, byCurrency: {}, marketByCurrency: {}, model: '', modelTokens: -1, hasError: false, startedAt: 0, endedAt: 0 }
+          turnAgg.set(turnId, agg)
+        }
+        agg.tokens += tokens
+        agg.hasError = agg.hasError || Number(t.hasError) > 0
+        const started = num(t.startedAt)
+        agg.startedAt = agg.startedAt ? Math.min(agg.startedAt, started) : started
+        agg.endedAt = Math.max(agg.endedAt, num(t.endedAt))
+        if (priced.cost) agg.byCurrency[priced.cost.currency] = (agg.byCurrency[priced.cost.currency] || 0) + priced.cost.amount
+        if (priced.market) agg.marketByCurrency[priced.market.currency] = (agg.marketByCurrency[priced.market.currency] || 0) + priced.market.amount
+        // 回合主模型按 token 最大的一组展示（旧实现取 MAX(model_id)，纯字典序）
+        if (tokens > agg.modelTokens) {
+          agg.modelTokens = tokens
+          agg.model = String(t.modelId || '')
+        }
+      }
+      for (const [turnId, agg] of turnAgg) {
+        const cur = dominantCurrency(agg.byCurrency)
+        const marketCur = dominantCurrency(agg.marketByCurrency)
+        const cost = Object.keys(agg.byCurrency).length
+          ? { amount: Math.round((agg.byCurrency[cur] || 0) * 10000) / 10000, currency: cur, unit: 'money' }
+          : null
+        const market = Object.keys(agg.marketByCurrency).length
+          ? { amount: Math.round((agg.marketByCurrency[marketCur] || 0) * 10000) / 10000, currency: marketCur, unit: 'money' }
+          : null
+        turnAgg.set(turnId, {
+          tokens: Math.round(agg.tokens),
+          cost,
+          costMarket: market && (!cost || Math.abs(market.amount - cost.amount) > 0.00005) ? market : null,
+          model: agg.model,
+          hasError: agg.hasError,
+          startedAt: agg.startedAt,
+          endedAt: agg.endedAt,
         })
       }
     } catch (err) {}
@@ -832,6 +977,7 @@ export async function getSessionDetail(sessionId, opts = {}) {
           durationMs: t.durationMs == null ? null : Math.round(Number(t.durationMs)),
           tokens: agg ? agg.tokens : null,
           cost: agg ? agg.cost : null,
+          costMarket: agg ? agg.costMarket || null : null,
           status: ['completed', 'error', 'running', 'cancelled'].includes(String(t.status))
             ? String(t.status)
             : String(t.status) === 'completed'
@@ -851,6 +997,7 @@ export async function getSessionDetail(sessionId, opts = {}) {
         durationMs: agg.startedAt && agg.endedAt ? Math.max(0, agg.endedAt - agg.startedAt) : null,
         tokens: agg.tokens,
         cost: agg.cost,
+        costMarket: agg.costMarket || null,
         status: agg.hasError ? 'error' : 'completed',
         model: agg.model,
       })
@@ -870,10 +1017,21 @@ export async function getSessionDetail(sessionId, opts = {}) {
       }
     } catch (err) {}
   }
-  const models = (index.get(String(sessionId))?.models || []).map((m) => ({
+  // 索引里的模型行按「模型 + provider + 整点桶」分组，展示时要并回
+  // 「模型 + provider」一项，否则同一模型会被拆成多行（D054）。
+  const modelAgg = new Map()
+  for (const m of index.get(String(sessionId))?.models || []) {
+    const key = String(m.modelId || '') + '|' + String(m.providerId || '')
+    const cur = modelAgg.get(key) || { modelId: m.modelId, provider: m.providerId, tokens: 0, calls: 0, errors: 0 }
+    cur.tokens += Number(m.total) || 0
+    cur.calls += Number(m.calls) || 0
+    cur.errors += Number(m.errors) || 0
+    modelAgg.set(key, cur)
+  }
+  const models = [...modelAgg.values()].map((m) => ({
     modelId: String(m.modelId || ''),
-    provider: String(m.providerId || ''),
-    tokens: Math.round(Number(m.total) || 0),
+    provider: String(m.provider || ''),
+    tokens: Math.round(Number(m.tokens) || 0),
     calls: Number(m.calls) || 0,
     errors: Number(m.errors) || 0,
   }))
@@ -917,6 +1075,12 @@ export async function readUsageRows(opts = {}) {
       if (!c) continue
       const hasUsage = Number(c.tokens) > 0
       if (!hasUsage && String(r.status) !== 'error') continue
+      // 与会话列表 / 回合明细 / aggregateUsage 同一判据（D054）：预付池行
+      // 金额记 0、tokens 照算；价目表未收录的非预付行金额不可得（null +
+      // unavailable），不能按 0 元进明细表。
+      const prepaid = isPrepaidBilling(r.providerId, r.modelId)
+      const unpriced = !prepaid && isUnpriced(c)
+      const amount = unpriced ? null : prepaid ? 0 : Number(c.amount) || 0
       rows.push({
         agentId: 'zcode',
         sessionId: String(r.sessionId || ''),
@@ -929,13 +1093,13 @@ export async function readUsageRows(opts = {}) {
         day: dayKey(r.at),
         unit: 'money',
         currency: c.currency,
-        amount: Math.round((Number(c.amount) || 0) * 10000) / 10000,
+        amount: amount === null ? null : Math.round(amount * 10000) / 10000,
         credits: null,
         tokens: Number(c.tokens) || 0,
         calls: 1,
         errors: String(r.status) === 'error' ? 1 : 0,
         status: String(r.status || ''),
-        prov: c.prov,
+        prov: unpriced ? pricingUnavailable({ asOf: now }) : c.prov,
       })
     }
   } catch (err) {
@@ -1044,6 +1208,7 @@ export async function aggregateUsage(opts = {}) {
       const stmt = conn.db.prepare(
         `SELECT ${dim} AS k, model_id AS modelId, provider_id AS providerId, session_id AS sessionId,
            ${dayIndexExpr} AS dayIndex,
+           MIN(started_at) AS at,
            COALESCE(SUM(computed_total_tokens), 0) AS total,
            COALESCE(SUM(input_tokens), 0) AS input,
            COALESCE(SUM(output_tokens), 0) AS output,
@@ -1053,7 +1218,7 @@ export async function aggregateUsage(opts = {}) {
            COUNT(*) AS calls,
            COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS errors
          FROM model_usage WHERE started_at >= ? AND started_at <= ?
-         GROUP BY k, dayIndex, model_id, provider_id, session_id`
+         GROUP BY k, dayIndex, model_id, provider_id, session_id, CAST(started_at / 3600000 AS INTEGER)`
       )
       for (const r of stmt.all(offset, since, until)) {
         const s = ensure(r.k)
@@ -1068,23 +1233,46 @@ export async function aggregateUsage(opts = {}) {
               cache_creation_input_tokens: r.cacheWrite,
               computed_total_tokens: r.total,
             },
-            until,
+            // 整点桶的起始时刻：同一小时内峰谷档位相同，用桶内最早时间计价即可，
+            // 不再拿区间末端（旧实现把历史用量全按查询末端的档位算）。
+            Number(r.at) || until,
             r.providerId
           ),
           { asOf: now }
         )
         if (!c) continue
+        // 预付池金额记 0、tokens 照算（与今日已用/用量记录同口径，D054）。
+        // 价目表未收录的行（非预付、rates 为 null）金额不可得：不进金额桶、
+        // 不补 0，tokens/calls 照算；provenance 由 out 里标 unavailable。
+        const prepaid = isPrepaidBilling(r.providerId, r.modelId)
+        const unpriced = !prepaid && isUnpriced(c)
+        const amount = unpriced ? null : prepaid ? 0 : Number(c.amount) || 0
         s.tokens += Number(c.tokens) || 0
         s.calls += Number(r.calls) || 0
         s.errors += Number(r.errors) || 0
         const cur = c.currency || 'CNY'
-        s.byCurrency[cur] = Math.round(((s.byCurrency[cur] || 0) + (Number(c.amount) || 0)) * 10000) / 10000
+        if (amount === null) s.unpriced = (s.unpriced || 0) + 1
+        else s.byCurrency[cur] = Math.round(((s.byCurrency[cur] || 0) + amount) * 10000) / 10000
         s.prov = s.prov || c.prov
         const day = dateKeyOfDay(Number(r.dayIndex))
-        const d = s.byDay.get(day) || { d: day, tokens: 0, amount: 0, credits: null, calls: 0 }
+        const d = s.byDay.get(day) || { d: day, tokens: 0, amount: 0, credits: null, calls: 0, priced: 0, unpriced: 0 }
         d.tokens += Number(c.tokens) || 0
-        d.amount = Math.round(((d.amount || 0) + (Number(c.amount) || 0)) * 10000) / 10000
         d.calls += Number(r.calls) || 0
+        // 逐日金额沿用「等价市值」口径（总览 7 天图含预付等价），但必须按币种
+        // 分桶：此前把各币种金额直加再按 series 主币种归类，USD 会被算成 CNY。
+        // priced/unpriced 用来区分「已知的 0」（预付/免费）与「算不出来」，
+        // 后者在输出里是 null，不能补 0。
+        if (amount !== null) {
+          d.priced += 1
+          const raw = Number(c.amount) || 0
+          d.amount = Math.round(((d.amount || 0) + raw) * 10000) / 10000
+          if (raw !== 0) {
+            d.byCurrency = d.byCurrency || {}
+            d.byCurrency[cur] = Math.round(((d.byCurrency[cur] || 0) + raw) * 10000) / 10000
+          }
+        } else {
+          d.unpriced += 1
+        }
         s.byDay.set(day, d)
       }
     }
@@ -1093,19 +1281,46 @@ export async function aggregateUsage(opts = {}) {
   }
   const out = []
   for (const s of series.values()) {
+    const pricedCur = Object.keys(s.byCurrency)
     const cur = dominantCurrency(s.byCurrency)
+    const provValue = s.unpriced
+      ? pricedCur.length && s.prov
+        ? { ...s.prov, note: [s.prov.note, '部分模型价目未收录，金额只含可计价部分'].filter(Boolean).join(' · ') }
+        : pricingUnavailable({ asOf: now })
+      : s.prov
     out.push({
       key: s.key,
       label: s.label,
       tokens: Math.round(s.tokens),
-      amount: s.byCurrency[cur] == null ? 0 : s.byCurrency[cur],
+      amount: pricedCur.length ? s.byCurrency[cur] : null,
       credits: null,
       calls: s.calls,
       errors: s.errors,
-      byDay: [...s.byDay.values()].sort((a, b) => (a.d < b.d ? -1 : 1)),
+      // 逐日金额归一到 series 主币种口径（与 usage-breakdown 一致）；完整分桶
+      // 保留在 byDay[].byCurrency。此前这里直接混加各币种，USD 会被当 CNY。
+      // 一天只有未收录模型时 amount 必须是 null（不是 0）：usage-breakdown/UI
+      // 据此显示「—」，不会把「算不出来」画成 ¥0.00。
+      byDay: [...s.byDay.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((d) => {
+        const buckets = d.byCurrency && Object.keys(d.byCurrency).length
+        const amount = buckets
+          ? d.byCurrency[cur] || 0
+          : d.priced > 0
+            ? Math.round((Number(d.amount) || 0) * 10000) / 10000
+            : d.unpriced > 0
+              ? null
+              : 0
+        return {
+          d: d.d,
+          tokens: d.tokens,
+          amount,
+          credits: d.credits,
+          calls: d.calls,
+          ...(buckets ? { byCurrency: d.byCurrency } : {}),
+        }
+      }),
       byCurrency: s.byCurrency,
-      currency: cur,
-      prov: s.prov,
+      currency: pricedCur.length ? cur : '',
+      prov: provValue,
     })
   }
   return { ok: true, series: out, unit: 'money' }

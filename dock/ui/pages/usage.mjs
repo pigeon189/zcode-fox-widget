@@ -179,6 +179,7 @@ export function UsagePage({ app }) {
   const [breakdown, setBreakdown] = useState(null)
   const [ledger, setLedger] = useState(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
   const [rangeError, setRangeError] = useState('')
 
   const today = dayKey()
@@ -203,10 +204,18 @@ export function UsagePage({ app }) {
     if (currency) qs.set('currency', currency)
     if (timeFilter) qs.set('time', timeFilter)
     setError('')
+    setLoading(true)
     app
       .api('/v1/usage/breakdown?' + qs.toString())
       .then((d) => alive && setBreakdown(d))
-      .catch((e) => alive && setError(String(e.message || e)))
+      .catch((e) => {
+        if (!alive) return
+        // 读取失败不能继续展示上一组筛选的数据：日期标签已经换了，旧图会被
+        // 误读成当前区间。
+        setBreakdown(null)
+        setError(String(e.message || e))
+      })
+      .finally(() => alive && setLoading(false))
     return () => {
       alive = false
     }
@@ -245,7 +254,7 @@ export function UsagePage({ app }) {
   const displaySeries = unit === 'money'
     ? series.filter((s) => (!s.currency || s.currency === cur) && !(s.credits != null && !Number(s.amount)))
     : series
-  // 搜索只作用于排名与明细表；图表、磁贴、合计、导出仍按完整数据（P0-3 边界）。
+  // 搜索作用于排名、明细表和导出；图表、磁贴、合计仍按完整数据（P0-3 边界），
   // 时间过滤需要 daemon 返回的逐条明细（breakdown.detail，带 at）。
   const timeActive = !!(parsedQuery && parsedQuery.times.length)
   const timeDetail = timeActive && breakdown && Array.isArray(breakdown.detail) ? breakdown.detail : null
@@ -325,7 +334,10 @@ export function UsagePage({ app }) {
     : []
   const valueAt = (s, k) => {
     const hit = (s.byDay || []).find((x) => x.d === k)
-    return hit ? Number(isTool ? hit.calls : metric === 'tokens' ? hit.tokens : hit.amount) || 0 : 0
+    if (!hit) return 0
+    // 积分周期没有 amount（后端只给 credits）：必须按 unit 选字段，否则
+    // 有数据的积分会被画成空图。
+    return Number(isTool ? hit.calls : metric === 'tokens' ? hit.tokens : unit === 'credit' ? hit.credits : hit.amount) || 0
   }
   const chartSeries = chartSource.map((s, i) => ({
     key: s.key,
@@ -349,13 +361,18 @@ export function UsagePage({ app }) {
   }))
   const prevDaily = compare && breakdown && breakdown.prev ? (() => {
     const map = {}
-    for (const s of breakdown.prev.series || []) for (const x of s.byDay || []) map[x.d] = (map[x.d] || 0) + (Number(isTool ? x.calls : metric === 'tokens' ? x.tokens : x.amount) || 0)
+    for (const s of breakdown.prev.series || []) for (const x of s.byDay || []) {
+      map[x.d] = (map[x.d] || 0) + (Number(isTool ? x.calls : metric === 'tokens' ? x.tokens : unit === 'credit' ? x.credits : x.amount) || 0)
+    }
     return labels.map((k) => map[k] || 0)
   })() : null
 
   function exportRows() {
     const rows = []
-    for (const s of series) {
+    // 导出口径与当前筛选一致：搜索词生效时只导出命中的系列（时间过滤在
+    // 服务端已按 time 请求参数收窄）；否则界面看到的排名与导出内容会对不上。
+    const source = parsedQuery ? filteredSeries : series
+    for (const s of source) {
       const base = {
         agentId: by === 'agent' ? s.key : '',
         sessionId: by === 'session' ? s.key : '',
@@ -372,7 +389,8 @@ export function UsagePage({ app }) {
           rows.push({
             ...base,
             date: d.d,
-            amount: unit === 'money' ? Number(d.amount) || 0 : 0,
+            // 金额未收录时保持 null（CSV/JSON 都写空），不能 Number(null)=0。
+            amount: unit === 'money' ? (d.amount == null ? null : Number(d.amount)) : 0,
             credits: d.credits != null ? d.credits : unit === 'credit' ? s.credits : null,
             tokens: Number(d.tokens) || 0,
             calls: Number(d.calls) || 0,
@@ -404,8 +422,8 @@ export function UsagePage({ app }) {
       <${Toggle} checked=${compare} onChange=${setCompare} label="对比上一周期" ariaLabel="对比上一周期" />
       <span class="spacer"></span>
       <span class="row" style=${{ gap: 8, marginLeft: 'auto' }}>
-        <${Button} variant="ghost" icon="download" onClick=${() => download(filenameFor({ from: labels[0] || applied.from, to: labels[labels.length - 1] || today, by, ext: 'csv' }), toCsv(exportRows()), 'text/csv;charset=utf-8')}>CSV</${Button}>
-        <${Button} variant="ghost" icon="download" onClick=${() => download(filenameFor({ from: labels[0] || applied.from, to: labels[labels.length - 1] || today, by, ext: 'json' }), toJson({ meta: { range, by, from: labels[0], to: labels[labels.length - 1] }, rows: exportRows(), total, provenance: breakdown && breakdown.provenance }), 'application/json')}>JSON</${Button}>
+        <${Button} variant="ghost" icon="download" disabled=${!breakdown || !!error} onClick=${() => download(filenameFor({ from: labels[0] || applied.from, to: labels[labels.length - 1] || today, by, ext: 'csv' }), toCsv(exportRows()), 'text/csv;charset=utf-8')}>CSV</${Button}>
+        <${Button} variant="ghost" icon="download" disabled=${!breakdown || !!error} onClick=${() => download(filenameFor({ from: labels[0] || applied.from, to: labels[labels.length - 1] || today, by, ext: 'json' }), toJson({ meta: { range, by, from: labels[0], to: labels[labels.length - 1] }, rows: exportRows(), total, provenance: breakdown && breakdown.provenance }), 'application/json')}>JSON</${Button}>
       </span>
     </div>
 
@@ -430,11 +448,15 @@ export function UsagePage({ app }) {
 
       <div class="col-12">
         <${Card} title="每日用量" testid="usage.chart" actions=${html`<span class="small muted">${metric === 'tokens' ? 'Token' : unit === 'credit' ? '积分' : cur}</span>`}>
-          ${displaySeries.length
-            ? compare
-              ? html`<${ColumnChart} data=${dailyTotal} prev=${prevDaily} height=${240} valueLabel=${(v) => fmtValue(v)} details=${dailyTotal.map((x) => [{ label: '合计', value: fmtValue(x.value) }])} />`
-              : html`<${StackedColumnChart} labels=${chartLabels} series=${chartSeries} height=${240} valueLabel=${(v) => fmtValue(v)} />`
-            : html`<${EmptyState} title="还没有用量记录" hint="dock 只记录它观察到的时间段" />`}
+          ${loading && !breakdown
+            ? html`<div class="skeleton" style=${{ height: 240 }}></div>`
+            : displaySeries.length
+              ? compare
+                ? html`<${ColumnChart} data=${dailyTotal} prev=${prevDaily} height=${240} valueLabel=${(v) => fmtValue(v)} details=${dailyTotal.map((x) => [{ label: '合计', value: fmtValue(x.value) }])} />`
+                : html`<${StackedColumnChart} labels=${chartLabels} series=${chartSeries} height=${240} valueLabel=${(v) => fmtValue(v)} />`
+              : error
+                ? html`<${EmptyState} icon="alert" title="用量读取失败" hint=${error} />`
+                : html`<${EmptyState} title="还没有用量记录" hint="dock 只记录它观察到的时间段" />`}
           ${hasCreditsOnly ? html`<div class="small muted" style=${{ marginTop: 8 }}>其它币种与积分单独统计，不参与当前金额图；可用上方币种切换查看，积分见下方明细。</div>` : null}
         </${Card}>
       </div>
@@ -521,7 +543,12 @@ export function UsagePage({ app }) {
                   ${[...displaySeries, ...(breakdown && breakdown.other ? [breakdown.other] : [])].map(
                     (r) => html`<tr style=${{ cursor: by === 'session' ? 'pointer' : 'default' }}
                       onClick=${() => by === 'session' && app.navigate('sessions')}>
-                      <td class="truncate" title=${r.label}>${r.label}</td>
+                      <td class="truncate" title=${r.label}>${by === 'session'
+                        ? html`<button type="button" class="link-btn" onClick=${(e) => {
+                            e.stopPropagation()
+                            app.navigate('sessions')
+                          }}>${r.label}</button>`
+                        : r.label}</td>
                       <td class="right num">${isTool ? '—' : fmtTokens(r.tokens)}</td>
                       <td class="right num">${isTool ? '—' : r.credits != null && unit === 'money' ? fmtCredit(r.credits) : unit === 'credit' ? fmtCredit(r.credits) : fmtMoney(r.amount, cur)}</td>
                       <td class="right num">${fmtNum(r.calls)}</td>

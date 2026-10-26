@@ -9,6 +9,7 @@ import { readAppStats, readUsage, _resetConnection } from '../../adapters/zcode/
 import { zcodeAdapter } from '../../adapters/zcode/index.mjs'
 import { resolveAdapter } from '../../adapters/registry.mjs'
 import { createBillingService } from '../../daemon/src/billing.mjs'
+import { costOfUsage } from '../../engines/pricing.mjs'
 
 // 单测不读开发机上的厂商凭据，也不出网；快照只验证用量库聚合。
 process.env.FOX_DOCK_VENDOR_BALANCES = '0'
@@ -259,6 +260,65 @@ test('zcode: 库不存在 → db-missing；适配器返回可读错误而不是 
   } finally {
     if (prev === undefined) delete process.env.FOX_DOCK_ZCODE_DB
     else process.env.FOX_DOCK_ZCODE_DB = prev
+  }
+})
+
+test('zcode: 价目未收录的按量模型不计 0 元（今日金额桶/厂商/tokens）', () => {
+  const { file, dir } = makeDb([bigRow({ provider: 'openai', model: 'gpt-5' })])
+  try {
+    const r = readDay(file)
+    assert.equal(r.ok, true)
+    assert.equal(r.today.tokens, 2_000_000, 'tokens 照算')
+    assert.deepEqual(r.today.byCurrency, {}, '未收录模型不能建 0 金额桶')
+    assert.equal(r.today.unpriced, 1)
+    assert.equal(r.today.byVendor.openai.byCurrency.USD, undefined, '厂商桶也不能有假的 0')
+    assert.ok(r.today.byVendor.openai.tokens > 0, '厂商 tokens 仍可见')
+  } finally {
+    cleanup(dir)
+  }
+})
+
+test('zcode: 未收录模型时快照金额为 null + unavailable（不显示 ¥0.00）', async () => {
+  // 快照默认读「今天」：行必须落在当前本地日，不能复用 readDay 的固定 OFFPEAK。
+  const recent = Date.now() - 60_000
+  const onlyUnpriced = makeDb([bigRow({ provider: 'openai', model: 'gpt-5', startedAt: recent })])
+  const prev = process.env.FOX_DOCK_ZCODE_DB
+  process.env.FOX_DOCK_ZCODE_DB = onlyUnpriced.file
+  try {
+    _resetConnection()
+    const svc = createBillingService({ adapters: [zcodeAdapter] })
+    const snap = await svc.snapshot({ exe: 'C:\\Apps\\ZCode\\ZCode.exe', title: 'ZCode' })
+    assert.equal(snap.supported, true)
+    assert.equal(snap.ok, true, JSON.stringify(snap.error))
+    assert.equal(snap.today, null, '整天算不出金额时 today 为 null（UI 显示 —）')
+    assert.equal(snap.provenance.today.kind, 'unavailable')
+    assert.equal(snap.provenance.today.origin, 'pricing-table')
+    assert.match(snap.provenance.today.note, /未收录/)
+    assert.equal(snap.usage.todayTokens, 2_000_000, 'tokens 仍是精确的本机数据')
+
+    // 混合：可计价部分照常出数，provenance 说明「部分未收录」
+    const mixed = makeDb([
+      bigRow({ startedAt: recent }),
+      bigRow({ provider: 'openai', model: 'gpt-5', turn: 't2', startedAt: recent + 1000 }),
+    ])
+    process.env.FOX_DOCK_ZCODE_DB = mixed.file
+    _resetConnection()
+    svc._reset() // 3s 快照缓存不能把上一条库的结果带过来
+    const snap2 = await svc.snapshot({ exe: 'C:\\Apps\\ZCode\\ZCode.exe', title: 'ZCode' })
+    const want = costOfUsage(
+      'deepseek-flash',
+      { input_tokens: 1_000_000, output_tokens: 1_000_000, computed_total_tokens: 2_000_000 },
+      recent,
+      'deepseek'
+    ).amount
+    assert.ok(snap2.today && Math.abs(snap2.today.amount - want) < 1e-6, JSON.stringify(snap2.today))
+    assert.equal(snap2.provenance.today.kind, 'estimated')
+    assert.match(snap2.provenance.today.note, /未收录/)
+    cleanup(mixed.dir)
+  } finally {
+    if (prev === undefined) delete process.env.FOX_DOCK_ZCODE_DB
+    else process.env.FOX_DOCK_ZCODE_DB = prev
+    cleanup(onlyUnpriced.dir)
   }
 })
 

@@ -6,6 +6,7 @@
 // 口径与 ZCode 挂件线一致（这是硬要求，否则两处会显示两个数字）：
 //   · 今日 = 本地零点起、status='completed' 的行
 //   · 逐行按 pricing.costOfUsage 折算，预付池（plan / cmdgo）金额记 0、tokens 照算
+//   · 价目表未收录的按量模型（kind='none'）金额不可得：不进金额桶，tokens 照算
 //   · tokens 为 0 的行跳过
 //   · 多币种不混加：分别累计，主币种 = 金额最大的那个
 
@@ -15,7 +16,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { costOfUsage } from '../../engines/pricing.mjs'
 import { buildStats, tzOffsetMs } from '../stats.mjs'
-import { isPrepaidRow } from './prepaid.mjs'
+import { isPrepaidBilling } from './prepaid.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -138,6 +139,7 @@ function priceRows(rows) {
   const byProvider = {}
   let tokens = 0
   let calls = 0
+  let unpriced = 0
   let lastTs = 0
   let lastProvider = ''
   let lastModel = ''
@@ -156,13 +158,19 @@ function priceRows(rows) {
       r.provider_id
     )
     if (!c.tokens) continue
-    const amount = isPrepaidRow(r.provider_id) ? 0 : c.amount
+    // 名字规则 + Base URL 路径（火山订阅 /api/coding、/api/plan）统一判定（D054）
+    const prepaid = isPrepaidBilling(r.provider_id, r.model_id)
+    // 价目表未收录的按量模型（kind='none'，rates=null）算不出金额，不能补 0；
+    // 预付池行即使未收录也按 0 计（走套餐，真实支出确实是 0）。
+    const missing = !prepaid && c.billable === false && c.rates == null
+    const amount = prepaid ? 0 : c.amount
     const cur = c.currency || 'CNY'
-    byCurrency[cur] = (byCurrency[cur] || 0) + amount
+    if (missing) unpriced += 1
+    else byCurrency[cur] = (byCurrency[cur] || 0) + amount
     // 按厂商拆分：面板里的「厂商分布」直接用这个，不再只给一个总金额。
     const vendor = String(c.vendor || 'unknown')
     const v = byVendor[vendor] || (byVendor[vendor] = { label: c.vendorLabel || vendor, byCurrency: {}, tokens: 0, calls: 0 })
-    v.byCurrency[cur] = (v.byCurrency[cur] || 0) + amount
+    if (!missing) v.byCurrency[cur] = (v.byCurrency[cur] || 0) + amount
     v.tokens += c.tokens
     v.calls += 1
     // provider 是「用户实际在用哪家」的权威线索（如 commandcode / deepseek），
@@ -179,7 +187,7 @@ function priceRows(rows) {
     calls += 1
     lastTs = Math.max(lastTs, Number(r.started_at) || 0)
   }
-  return { byCurrency, byVendor, byProvider, tokens, calls, lastTs, lastProvider, lastModel }
+  return { byCurrency, byVendor, byProvider, tokens, calls, unpriced, lastTs, lastProvider, lastModel }
 }
 
 export function dominantCurrency(byCurrency) {
@@ -218,8 +226,10 @@ export function readUsage(opts = {}) {
       const tr = priceRows(stmts.turnRows.all(t.session_id, t.turn_id))
       if (tr.calls > 0) {
         const cur = dominantCurrency(tr.byCurrency)
+        const priced = Object.keys(tr.byCurrency).length > 0
         lastTurn = {
-          amount: tr.byCurrency[cur] || 0,
+          // 只有未收录模型的一轮：金额不可得（null），不是 ¥0.00。
+          amount: priced ? tr.byCurrency[cur] || 0 : tr.unpriced ? null : 0,
           currency: cur,
           tokens: tr.tokens,
           calls: tr.calls,

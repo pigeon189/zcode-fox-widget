@@ -79,6 +79,13 @@ export function getSharedDb() {
   return openDb()
 }
 
+// 测试用：关闭共享连接并清掉退避（Windows 下不关句柄删不掉临时库）。
+// 运行时不需要——连接本来就在出错时自愈。
+export function _resetTurnCostDb() {
+  closeDb()
+  lastOpenFailAt = 0
+}
+
 const LATEST_TURN_QUERY = `
   SELECT t.session_id, t.turn_id,
     COALESCE(t.completed_at, t.started_at) AS ts
@@ -186,6 +193,7 @@ function readFromDatabase() {
   let tokens = 0
   let peak = false
   let billableRows = 0
+  let unpricedRows = 0
   let lastModelId = ''
   let lastProviderId = ''
   const totals = { hit: 0, miss: 0, cacheWrite: 0, output: 0 }
@@ -209,9 +217,12 @@ function readFromDatabase() {
     const prepaid = ['cmdgo', 'volc'].includes(
       resolveBillingSource(r.provider_id, r.model_id, findProviderBaseUrl(r.provider_id)).source
     )
+    // 价目表未收录的按量模型（kind='none'，rates=null）：金额不可得，不补 0。
+    const missing = !prepaid && c.billable === false && c.rates == null
     const rowAmount = prepaid ? 0 : c.amount
     const cur = c.currency || 'CNY'
-    amounts[cur] = (amounts[cur] || 0) + rowAmount
+    if (!missing) amounts[cur] = (amounts[cur] || 0) + rowAmount
+    else unpricedRows += 1
     tokens += c.tokens
     peak = peak || c.peak
     if (c.billable && !prepaid) billableRows += 1
@@ -224,7 +235,7 @@ function readFromDatabase() {
       model: r.model_id || '',
       status: r.status || '',
       tokens: c.tokens,
-      amount: rowAmount,
+      amount: missing ? null : rowAmount,
       currency: c.currency,
       billable: prepaid ? false : c.billable,
       vendor: c.vendor,
@@ -249,7 +260,8 @@ function readFromDatabase() {
     ts: tsMs,
     model: lastModelId,
     providerId: lastProviderId,
-    amount: amounts[currency] || 0,
+    amount: Object.keys(amounts).length ? amounts[currency] || 0 : unpricedRows ? null : 0,
+    unpriced: unpricedRows,
     currency,
     amounts,
     tokens,
@@ -264,10 +276,12 @@ function readFromDatabase() {
 }
 
 // 消耗最大的模型行作为该轮的「主模型」（展示用；金额仍按行加总）
+// 未收录模型的 amount 是 null（不可得），排序时按 0 处理，不能当负值。
 function pickDominant(models) {
+  const amt = (m) => (Number.isFinite(Number(m.amount)) ? Number(m.amount) : 0)
   let best = models[0]
   for (const m of models) {
-    if (m.amount > best.amount || (m.amount === best.amount && m.tokens > best.tokens)) best = m
+    if (amt(m) > amt(best) || (amt(m) === amt(best) && m.tokens > best.tokens)) best = m
   }
   return best
 }
@@ -322,6 +336,8 @@ function readFromRollout() {
       const modelId = (o.model && o.model.modelId) || (o.response && o.response.modelId) || ''
       const providerId = (o.model && o.model.providerId) || ''
       const c = costOfUsage(modelId, usage, Date.parse(o.completedAt) || Date.now(), providerId)
+      // 与库路径同一规则：价目未收录的按量模型金额不可得（null），不补 0。
+      const missing = c.billable === false && c.rates == null
       return {
         source: 'rollout',
         sessionId: o.sessionId || '',
@@ -329,9 +345,10 @@ function readFromRollout() {
         ts: Date.parse(o.completedAt) || Date.now(),
         model: modelId,
         providerId,
-        amount: c.amount,
+        amount: missing ? null : c.amount,
+        unpriced: missing ? 1 : 0,
         currency: c.currency,
-        amounts: c.currency ? { [c.currency]: c.amount } : {},
+        amounts: !missing && c.currency ? { [c.currency]: c.amount } : {},
         tokens: c.tokens,
         peak: c.peak,
         tier: c.tier,
@@ -345,7 +362,7 @@ function readFromRollout() {
             model: modelId,
             status: 'completed',
             tokens: c.tokens,
-            amount: c.amount,
+            amount: missing ? null : c.amount,
             currency: c.currency,
             billable: c.billable,
             vendor: c.vendor,
@@ -362,9 +379,9 @@ function readFromRollout() {
   return null
 }
 
-// 返回最近一轮完成的消耗，已换算金额（不可计价供应商 amount=0、billable=false，
-// tokens 与逐模型明细仍然可用）。读不到数据时返回 ok:false 但仍是结构化结果，
-// 前端不会因此报错。
+// 返回最近一轮完成的消耗，已换算金额（价目表未收录的按量模型 amount=null、
+// 不进金额桶；预付池行 amount=0、billable=false。tokens 与逐模型明细仍然可用）。
+// 读不到数据时返回 ok:false 但仍是结构化结果，前端不会因此报错。
 // 环境/库故障的具体原因（没有故障时返回 null）。「读不到每轮消耗」有两种性质：
 // 真的还没有数据（正常），和库根本读不了（环境问题）。后者必须能区分出来，否则
 // 老 Node 上静默变成 no-turn-data，用户只看到「读不到数据」，无从判断是版本问题

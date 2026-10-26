@@ -236,12 +236,40 @@ function normalizeQuotaWindow(raw) {
   }
 }
 
+// 套餐内的按模型配额桶（D053）：与「时间窗口」语义不同，不带 resetAt，
+// 只描述单个桶的剩余/总额。百分比同条目 remaining/total，总额不可得的桶整条丢弃
+// （宁可少一行，也不给一个编造的 0%）。
+function normalizeQuotaBucket(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const label = text(raw.label, 24)
+  const total = finiteOrNull(raw.total)
+  const remaining = finiteOrNull(raw.remaining)
+  if (!label || total === null || total <= 0 || remaining === null || remaining < 0) return null
+  let remainingPct = pct(raw.remainingPct)
+  if (remainingPct === null) remainingPct = pct((remaining / total) * 100)
+  let usedPct = pct(raw.usedPct)
+  if (usedPct === null && remainingPct !== null) usedPct = pct(100 - remainingPct)
+  return {
+    key: text(raw.key || label, 40)
+      .toLowerCase()
+      .replace(/\s+/g, '-'),
+    label,
+    usedPct,
+    remainingPct,
+    remaining,
+    total,
+  }
+}
+
 export function normalizeQuotaCard(raw, ctx = {}) {
   if (!raw || typeof raw !== 'object') return null
   const kind = QUOTA_CARD_KINDS.includes(raw.kind) ? raw.kind : ''
   if (!kind) return null
   const windows = Array.isArray(raw.windows)
     ? raw.windows.map(normalizeQuotaWindow).filter(Boolean).slice(0, 8)
+    : []
+  const buckets = Array.isArray(raw.buckets)
+    ? raw.buckets.map(normalizeQuotaBucket).filter(Boolean).slice(0, 8)
     : []
   const out = {
     kind,
@@ -251,6 +279,9 @@ export function normalizeQuotaCard(raw, ctx = {}) {
     account: text(raw.account, 60),
     note: text(raw.note, 160),
     windows,
+    // 按模型分桶（GLM 赠送池等）：额度页与快览卡按桶画进度条，避免汇总百分比
+    // 掩盖单桶告急（D053）。空数组在 JSON 里就是 []，不额外造字段。
+    buckets,
     balance: normalizeMoney(raw.balance, 'money'),
     message: text(raw.message, 200),
     // 预付/套餐宿主（如 CommandCode）即使同时有窗口，也优先显示余额；

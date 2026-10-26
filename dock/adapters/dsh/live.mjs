@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { costOfUsage } from '../../engines/pricing.mjs'
-import { withCostProv } from '../../daemon/src/cost-prov.mjs'
+import { withCostProv, isUnpriced, pricingUnavailable } from '../../daemon/src/cost-prov.mjs'
 import { decodeZstdFrames, defaultSessionsDir } from './sessions.mjs'
 import { normalizeSession, summarizeSession, compareSessionToCursor, compareSessions, cursorOf, parseCursor } from '../../shared/session-model.mjs'
 import { prov, unavailable } from '../../shared/provenance.mjs'
@@ -460,6 +460,9 @@ export async function readUsageRows(opts = {}) {
         { asOf: now }
       )
       if (!c) continue
+      // 价目表未收录：tokens 照算，金额不可得（null + unavailable），
+      // 不能以 0 元进入用量明细（UI-SPEC：缺失显示「—」而不是 ¥0.00）。
+      const unpriced = isUnpriced(c)
       rows.push({
         agentId: 'dsh',
         sessionId: s.sessionId,
@@ -471,13 +474,13 @@ export async function readUsageRows(opts = {}) {
         at: e.time,
         day: dayKey(e.time),
         unit: 'money',
-        currency: c.currency || 'CNY',
-        amount: Math.round((Number(c.amount) || 0) * 10000) / 10000,
+        currency: unpriced ? '' : c.currency || 'CNY',
+        amount: unpriced ? null : Math.round((Number(c.amount) || 0) * 10000) / 10000,
         credits: null,
         tokens: Number(c.tokens) || 0,
         calls: 1,
         errors: 0,
-        prov: c.prov,
+        prov: unpriced ? pricingUnavailable({ asOf: now }) : c.prov,
       })
       if (rows.length >= 200000) return { ok: true, rows, truncated: true }
     }

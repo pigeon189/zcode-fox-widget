@@ -130,8 +130,13 @@ test('usage-breakdown: 多币种不跨币种相加，主币种单列', async () 
   assert.equal(r.total.byCurrency.USD, 2)
   assert.equal(r.total.amount, 10, '默认只汇总主币种')
   assert.equal(r.currency, 'CNY')
+  // 逐日汇总同样只按输出币种：CNY 10 + USD 2 不能报成 12
+  assert.equal(r.daily[0].amount, 10, 'daily.amount 不跨币种相加')
+  assert.equal(r.daily[0].byCurrency.CNY, 10)
+  assert.equal(r.daily[0].byCurrency.USD, 2)
   const usd = await b.get({ by: 'agent', range: '7d', currency: 'USD' })
   assert.equal(usd.total.amount, 2)
+  assert.equal(usd.daily[0].amount, 2, '指定 USD 时 daily.amount 取 USD 口径')
 })
 
 test('usage-breakdown: 积分与金额不混在同一 series', async () => {
@@ -225,4 +230,102 @@ test('usage-breakdown: 无适配器支持时 supported:false，不伪造 0', asy
   const r = await b.get({ by: 'agent', range: '7d' })
   assert.equal(r.supported, false)
   assert.equal(r.series.length, 0)
+})
+
+test('usage-breakdown: 上游 amount=null（价目未收录）不被补成 0，明细行保持 null', async () => {
+  const a = {
+    id: 'zcode',
+    name: 'ZCode',
+    capabilities: { billing: true },
+    async aggregateUsage() {
+      return {
+        ok: true,
+        unit: 'money',
+        series: [
+          {
+            key: 'gpt-5',
+            label: 'gpt-5',
+            tokens: 100,
+            amount: null,
+            currency: '',
+            byCurrency: {},
+            byDay: [{ d: '2026-10-21', tokens: 100, amount: null, credits: null, calls: 2 }],
+            prov: { kind: 'unavailable', origin: 'pricing-table', source: 'pricing:test', asOf: NOW, reason: 'no-data', note: '未收录' },
+          },
+        ],
+      }
+    },
+    async readUsageRows() {
+      return {
+        ok: true,
+        rows: [
+          {
+            agentId: 'zcode',
+            sessionId: 's1',
+            model: 'gpt-5',
+            vendor: 'openai',
+            vendorLabel: 'OpenAI',
+            tool: '',
+            at: NOW,
+            day: '2026-10-21',
+            unit: 'money',
+            currency: 'USD',
+            amount: null,
+            credits: null,
+            tokens: 100,
+            calls: 1,
+            errors: 0,
+            prov: { kind: 'unavailable', origin: 'pricing-table', source: 'pricing:test', asOf: NOW, reason: 'no-data', note: '未收录' },
+          },
+        ],
+      }
+    },
+  }
+  const b = createUsageBreakdown({ adapters: [a], now: () => NOW })
+  const r = await b.get({ by: 'model', range: '7d' })
+  assert.equal(r.series[0].amount, null, '金额不可得不是 0')
+  assert.deepEqual(r.series[0].byCurrency, {})
+  assert.equal(r.series[0].byDay[0].amount, null, '逐日金额同样不可得（不是 0）')
+  assert.equal(r.total.amount, null, '没有可计价金额时合计为 null')
+  assert.equal(r.series[0].prov.kind, 'unavailable')
+  // 逐日汇总：不把空 byCurrency 归到默认 CNY（否则总览/用量页显示 ¥0.00）
+  assert.equal(r.daily.length, 1)
+  assert.equal(r.daily[0].amount, null, 'daily.amount 不可得')
+  assert.deepEqual(r.daily[0].byCurrency, {}, 'daily 不建 CNY:0 桶')
+
+  const d = await b.get({ by: 'model', range: '7d', time: '12:00' })
+  assert.equal(d.detail.length, 1)
+  assert.equal(d.detail[0].amount, null, '明细行金额保持 null，不补 0')
+  assert.equal(d.detail[0].prov.kind, 'unavailable')
+})
+
+test('usage-breakdown: readUsageRows 的 amount=null 不被折叠成 0（dsh 未收录模型）', async () => {
+  const unavailableProv = { kind: 'unavailable', origin: 'pricing-table', source: 'pricing:test', asOf: NOW, reason: 'no-data' }
+  // 全不可得：series / byDay / daily / total 全 null，不建 CNY:0 桶
+  const onlyUnpriced = await createUsageBreakdown({
+    adapters: [adapter('dsh', [row({ agentId: 'dsh', model: 'unknown-gateway-model', amount: null, currency: '', prov: unavailableProv })])],
+    now: () => NOW,
+  }).get({ by: 'model', range: '7d' })
+  assert.equal(onlyUnpriced.series[0].amount, null)
+  assert.deepEqual(onlyUnpriced.series[0].byCurrency, {})
+  assert.equal(onlyUnpriced.series[0].byDay[0].amount, null)
+  assert.equal(onlyUnpriced.total.amount, null)
+  assert.equal(onlyUnpriced.daily[0].amount, null)
+  assert.deepEqual(onlyUnpriced.daily[0].byCurrency, {})
+  assert.equal(onlyUnpriced.daily[0].tokens, 100, 'tokens 照算')
+
+  // 混合：可计价部分照常，未收录行不把金额抬成 0 元合计
+  const mixed = await createUsageBreakdown({
+    adapters: [
+      adapter('dsh', [
+        row({ agentId: 'dsh', model: 'deepseek-chat', amount: 3, currency: 'CNY' }),
+        row({ agentId: 'dsh', model: 'unknown-gateway-model', amount: null, currency: '', prov: unavailableProv }),
+      ]),
+    ],
+    now: () => NOW,
+  }).get({ by: 'agent', range: '7d' })
+  assert.equal(mixed.series[0].amount, 3)
+  assert.equal(mixed.daily[0].amount, 3)
+  assert.deepEqual(mixed.daily[0].byCurrency, { CNY: 3 })
+  assert.equal(mixed.total.amount, 3)
 })

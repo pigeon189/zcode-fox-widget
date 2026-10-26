@@ -18,6 +18,7 @@ import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { costOfUsage } from '../../engines/pricing.mjs'
+import { isUnpriced } from '../../daemon/src/cost-prov.mjs'
 
 const ZSTD_MAGIC = 0xfd2fb528
 const SKIPPABLE_MIN = 0x184d2a50
@@ -208,6 +209,7 @@ function priceEvents(events) {
   let tokens = 0
   let calls = 0
   let priced = 0
+  let unpriced = 0
   for (const e of events) {
     const c = costOfUsage(
       e.model,
@@ -222,22 +224,30 @@ function priceEvents(events) {
       e.time,
       e.provider
     )
+    if (!c) continue
+    calls += 1
+    tokens += Number(c.tokens) || 0
+    // 价目表未收录（rates=null）是「算不出来」，不是「免费」：不进币种桶、
+    // 不补 0。kind='free' 有 rates、金额确实是 0，照常计入。
+    if (isUnpriced(c)) {
+      unpriced += 1
+      continue
+    }
+    priced += 1
     const amount = Number(c.amount) || 0
     const currency = c.currency || 'CNY'
     byCurrency[currency] = (byCurrency[currency] || 0) + amount
-    tokens += Number(c.tokens) || 0
-    calls += 1
-    if (Number(c.tokens) > 0) priced += 1
   }
   const keys = Object.keys(byCurrency).sort((a, b) => (byCurrency[b] || 0) - (byCurrency[a] || 0))
-  const currency = keys[0] || 'CNY'
   return {
-    amount: Math.round((byCurrency[currency] || 0) * 10000) / 10000,
-    currency,
-    byCurrency,
+    // 没有任何可计价行时金额不可得（null），不能借 0/CNY 冒充。
+    amount: keys.length ? Math.round((byCurrency[keys[0]] || 0) * 10000) / 10000 : unpriced > 0 ? null : 0,
+    currency: keys[0] || '',
+    byCurrency: keys.length ? byCurrency : {},
     tokens,
     calls,
     priced: priced > 0,
+    unpriced,
   }
 }
 

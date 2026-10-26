@@ -15,6 +15,8 @@ export function currencySymbol(currency) {
 
 export function fmtMoney(amount, currency = 'CNY') {
   if (HIDE_MONEY) return '•••'
+  // 缺失就是不可得：null 不能走 Number(null)=0 变成「¥0.00」（AGENTS：不编 0）。
+  if (amount == null || amount === '') return '—'
   const n = Number(amount)
   if (!Number.isFinite(n)) return '—'
   const digits = n !== 0 && Math.abs(n) < 0.01 ? 4 : 2
@@ -24,6 +26,7 @@ export function fmtMoney(amount, currency = 'CNY') {
 
 export function fmtCredit(amount) {
   if (HIDE_MONEY) return '•••'
+  if (amount == null || amount === '') return '—'
   const n = Number(amount)
   if (!Number.isFinite(n)) return '—'
   return n.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' 积分'
@@ -37,18 +40,22 @@ export function fmtUnit(money, unit) {
 }
 
 export function fmtPct(n) {
+  // 缺失不是 0%：Number(null) 是 0，会让「不可得」显示成「额度耗尽」。
+  if (n == null || n === '') return '—'
   const v = Number(n)
   if (!Number.isFinite(v)) return '—'
   return (Math.round(v * 10) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%'
 }
 
 export function fmtNum(n) {
+  if (n == null || n === '') return '—'
   const v = Number(n)
   if (!Number.isFinite(v)) return '—'
   return v.toLocaleString('en-US')
 }
 
 export function fmtTokens(n) {
+  if (n == null || n === '') return '—'
   const v = Number(n)
   if (!Number.isFinite(v)) return '—'
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 1 : 2) + 'M'

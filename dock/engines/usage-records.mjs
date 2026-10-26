@@ -13,7 +13,9 @@
 //     唯一例外在用量记录面板的「模型排名」：行级 market（等价市值）让 Plan 行
 //     参与排序与占比条（金额 0 的空进度条没法看），前端以 ≈ 标注非真实花费；
 //     今日合计/对账/厂商汇总仍只含真金白银，两条口径不混。
-//   - 网关/未知模型不可计价（pricing kind='none'/'free'）amount 同样记 0。
+//   - 价目表里确实免费的模型（pricing kind='free'）amount 记 0（真实就是 0）；
+//     网关/未收录模型（kind='none'）算不出金额 → amount=null、不进任何金额桶
+//     （D033「缺失不补 0」），tokens 照算、模型榜仍可见。
 //   例外一：MiMo Token Plan（source='mimo-plan'）没有公开配额接口，主显示保留
 //   「按今日消耗折算」的等价市值（README「MiMo 双源拆分」），是文档化的口径。
 //   CommandCode Go（source='cmdgo'）**同样不计真金白银**：它是预付 credit 池，
@@ -112,6 +114,9 @@ function priceRow(r) {
   // 托管模型（deepseek-v3 等）经 ark 出网，标签归「火山方舟 / 火山 Plan」，不并进
   // 原厂的按量合计。订阅套餐行（GLM Plan）仍按模型厂商归组。
   const reseller = billSrc.source === 'cmdgo' || billSrc.source === 'volc' || billSrc.source === 'volc-api'
+  // 价目表未收录的按量模型（kind='none'，rates=null）：不是免费，是算不出来。
+  // 金额/等价市值都给 null，汇总时不计入任何金额桶（D033「缺失不补 0」）。
+  const missing = !prepaid && c.billable === false && c.rates == null
   return {
     ts: Number(r.started_at) || 0,
     model: r.model_id || '',
@@ -119,12 +124,13 @@ function priceRow(r) {
     vendorLabel: reseller ? billSrc.label : c.vendorLabel,
     vendor: reseller ? billSrc.vendor : c.vendor,
     tokens: c.tokens,
-    amount: prepaid ? 0 : c.amount,
+    amount: missing ? null : prepaid ? 0 : c.amount,
     // 等价市值（pricing 层折算）：预付池行也有值。真金白银口径（今日合计/
     // 厂商汇总/预警）不用它；只有用量记录的「模型排名」拿它给这类行参与
     // 排名与占比条（金额 0 的空进度条没法看），前端行上以 ≈ 标注非真实花费
-    market: c.amount,
+    market: missing ? null : c.amount,
     plan: prepaid,
+    missing,
     currency: c.currency || 'CNY',
     billable: prepaid ? false : c.billable,
   }
@@ -132,8 +138,9 @@ function priceRow(r) {
 
 function blankDay() {
   // total 为各币种直接相加的数值合计（单币种时精确）；totals 按币种分列，
-  // 展示层一律用 totals，多币种不混加。
-  return { total: 0, tokens: 0, totals: {}, models: new Map() }
+  // 展示层一律用 totals，多币种不混加。priced / unpriced 用于区分「真的 0」
+  // 与「金额不可得」：只有 unpriced 的日期 total 输出 null。
+  return { total: 0, tokens: 0, totals: {}, models: new Map(), priced: 0, unpriced: 0 }
 }
 
 function addAmount(totals, currency, amount) {
@@ -142,19 +149,35 @@ function addAmount(totals, currency, amount) {
 }
 
 function addRow(day, row) {
-  day.total += row.amount
+  if (row.amount != null) {
+    day.total += row.amount
+    addAmount(day.totals, row.currency, row.amount)
+    day.priced += 1
+  } else if (row.missing) {
+    day.unpriced += 1
+  }
   day.tokens += row.tokens
-  addAmount(day.totals, row.currency, row.amount)
   const key = row.model + '|' + row.providerId
   let m = day.models.get(key)
   if (!m) {
-    m = { model: row.model, providerId: row.providerId, vendorLabel: row.vendorLabel, currency: row.currency, tokens: 0, amount: 0, market: 0, plan: false }
+    m = {
+      model: row.model,
+      providerId: row.providerId,
+      vendorLabel: row.vendorLabel,
+      currency: row.currency,
+      tokens: 0,
+      amount: null,
+      market: null,
+      plan: false,
+      unpriced: false,
+    }
     day.models.set(key, m)
   }
   m.tokens += row.tokens
-  m.amount += row.amount
-  m.market += row.market || 0
+  if (row.amount != null) m.amount = (m.amount || 0) + row.amount
+  if (row.market != null) m.market = (m.market || 0) + row.market
   if (row.plan) m.plan = true
+  if (row.missing) m.unpriced = true
 }
 
 // 金额榜的排名键：优先等价市值。Plan 套餐行 amount=0 但 market>0，靠它参与
@@ -182,12 +205,18 @@ function vendorSums(modelsMap) {
   const out = {}
   for (const m of modelsMap.values()) {
     const k = m.vendorLabel || '未知'
-    if (!out[k]) out[k] = { amount: 0, tokens: 0, currency: m.currency || 'CNY' }
-    out[k].amount += Number(m.amount) || 0
+    // priced=false 表示该厂商今天只有未收录模型：金额不可得，不给 0。
+    if (!out[k]) out[k] = { amount: 0, priced: false, unpriced: 0, tokens: 0, currency: m.currency || 'CNY' }
+    if (m.amount != null) {
+      out[k].amount += Number(m.amount) || 0
+      out[k].priced = true
+    } else if (m.unpriced) out[k].unpriced += 1
     out[k].tokens += Number(m.tokens) || 0
     if (m.currency) out[k].currency = m.currency
   }
-  for (const k of Object.keys(out)) out[k].amount = Math.round(out[k].amount * 1e6) / 1e6
+  for (const k of Object.keys(out)) {
+    out[k].amount = out[k].priced ? Math.round(out[k].amount * 1e6) / 1e6 : null
+  }
   return out
 }
 
@@ -195,6 +224,8 @@ function vendorSums(modelsMap) {
 // 这是主显示的口径来源——它按模型/按厂商看得见、不受充值干扰；账号口径
 // （大肥鱼记账 / 实时·令牌）退居「对账 + 本机无数据时的兜底」。
 // hasRows=false 表示今天本机没有该厂商的调用记录，调用方应回退账号口径。
+// 有记录但全是未收录模型时 hasRows=true、amount=null（金额不可得），调用方
+// 按 typeof amount 判定后同样回退账号口径，不显示 ¥0.00。
 // 与 usageRecords() 共用同一次聚合（见上），保证主显示和面板永远同源。
 export function todayVendorUsage(vendorLabel) {
   const want = String(vendorLabel || '')
@@ -207,7 +238,9 @@ export function todayVendorUsage(vendorLabel) {
   return {
     ok: true,
     hasRows: true,
-    amount: hit.amount,
+    // 只有未收录模型时 amount 为 null（调用方按 typeof 判定并回退账号口径），
+    // 不能把「算不出来」当成 ¥0.00。
+    amount: hit.priced ? hit.amount : null,
     tokens: hit.tokens,
     currency: hit.currency || 'CNY',
   }
@@ -216,6 +249,13 @@ export function todayVendorUsage(vendorLabel) {
 // 汇总：今日 / 近 7 天 / 最近轮次（按轮聚合的明细）。db 不可用时返回 { ok:false, reason }。
 // 记忆化：表指纹（行数+最晚时间）没变且在 TTL 内直接回缓存——见 FINGERPRINT_QUERY。
 let recCache = null
+
+// 测试用：清记忆化与语句缓存（配合 _resetTurnCostDb 释放临时库）。
+export function _resetUsageRecords() {
+  recCache = null
+  statements = null
+  statementsConn = null
+}
 
 export function usageRecords() {
   const st = getStatements()
@@ -263,30 +303,36 @@ function computeUsageRecords(st, now) {
     const tkey = r.turn_id ? (r.session_id || '') + '/' + r.turn_id : '@row-' + i + '-' + turnMap.size
     let t = turnMap.get(tkey)
     if (!t) {
-      t = { ts: priced.ts, calls: 0, amount: 0, tokens: 0, totals: {}, billable: false, models: new Map() }
+      t = { ts: priced.ts, calls: 0, amount: 0, tokens: 0, totals: {}, billable: false, priced: 0, unpriced: 0, models: new Map() }
       turnMap.set(tkey, t)
     }
     if (priced.ts < t.ts) t.ts = priced.ts
     t.calls += 1
-    t.amount += priced.amount
+    if (priced.amount != null) {
+      t.amount += priced.amount
+      addAmount(t.totals, priced.currency, priced.amount)
+      t.priced += 1
+    } else if (priced.missing) {
+      t.unpriced += 1
+    }
     t.tokens += priced.tokens
-    addAmount(t.totals, priced.currency, priced.amount)
     if (priced.billable) t.billable = true
     const mk = priced.model + '|' + priced.providerId
     let m = t.models.get(mk)
     if (!m) {
-      m = { model: priced.model, providerId: priced.providerId, vendorLabel: priced.vendorLabel, currency: priced.currency, calls: 0, amount: 0, tokens: 0 }
+      m = { model: priced.model, providerId: priced.providerId, vendorLabel: priced.vendorLabel, currency: priced.currency, calls: 0, amount: null, tokens: 0, unpriced: false }
       t.models.set(mk, m)
     }
     m.calls += 1
-    m.amount += priced.amount
+    if (priced.amount != null) m.amount = (m.amount || 0) + priced.amount
+    if (priced.missing) m.unpriced = true
     m.tokens += priced.tokens
   })
 
   const days = [...byDay.keys()].sort()
   const daysList = days.map((d) => {
     const b = byDay.get(d)
-    return { date: d, total: b.total, tokens: b.tokens, totals: b.totals }
+    return { date: d, total: b.priced ? b.total : b.unpriced ? null : 0, tokens: b.tokens, totals: b.totals }
   })
 
   // 近 7 天按模型合计（占比条数据）。除了「每日汇总」，也把两个榜一起算好：
@@ -295,17 +341,30 @@ function computeUsageRecords(st, now) {
   for (const b of byDay.values()) {
     week.total += b.total
     week.tokens += b.tokens
+    week.priced += b.priced
+    week.unpriced += b.unpriced
     for (const [cur, amt] of Object.entries(b.totals)) addAmount(week.totals, cur, amt)
     for (const [key, m] of b.models) {
       let m2 = week.models.get(key)
       if (!m2) {
-        m2 = { model: m.model, providerId: m.providerId, vendorLabel: m.vendorLabel, currency: m.currency, tokens: 0, amount: 0, market: 0, plan: false }
+        m2 = {
+          model: m.model,
+          providerId: m.providerId,
+          vendorLabel: m.vendorLabel,
+          currency: m.currency,
+          tokens: 0,
+          amount: null,
+          market: null,
+          plan: false,
+          unpriced: false,
+        }
         week.models.set(key, m2)
       }
       m2.tokens += m.tokens
-      m2.amount += m.amount
-      m2.market += m.market || 0
+      if (m.amount != null) m2.amount = (m2.amount || 0) + m.amount
+      if (m.market != null) m2.market = (m2.market || 0) + m.market
       if (m.plan) m2.plan = true
+      if (m.unpriced) m2.unpriced = true
     }
   }
 
@@ -315,7 +374,9 @@ function computeUsageRecords(st, now) {
     .map((t) => ({
       ts: t.ts,
       calls: t.calls,
-      amount: t.amount,
+      // 只有未收录模型的一轮：金额不可得（null），不是 ¥0.00。
+      amount: t.priced ? t.amount : t.unpriced ? null : 0,
+      unpriced: t.unpriced,
       currency: Object.keys(t.totals).sort((x, y) => t.totals[y] - t.totals[x])[0] || 'CNY',
       totals: t.totals,
       tokens: t.tokens,
@@ -328,7 +389,8 @@ function computeUsageRecords(st, now) {
     generatedAt: now,
     today: {
       date: dayKey(todayStart),
-      total: today.total,
+      total: today.priced ? today.total : today.unpriced ? null : 0,
+      unpriced: today.unpriced,
       tokens: today.tokens,
       totals: today.totals,
       // 金额榜排名值合计（含 Plan 行的等价市值）——占比条分母；与 total
@@ -343,7 +405,8 @@ function computeUsageRecords(st, now) {
       byVendor: vendorSums(today.models),
     },
     days7: {
-      total: week.total,
+      total: week.priced ? week.total : week.unpriced ? null : 0,
+      unpriced: week.unpriced,
       tokens: week.tokens,
       totals: week.totals,
       byDay: daysList,

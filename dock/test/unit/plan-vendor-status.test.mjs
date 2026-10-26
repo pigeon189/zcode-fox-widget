@@ -71,3 +71,35 @@ test('plan: 直连接口源（glm-plan-api，单位=额度点数）同样换算�
   // 百分比与 remaining/total 同一条目：158/2000 = 7.9%
   assert.equal(Math.round((v.remaining / v.total) * 1000) / 10, v.percentRemaining)
 })
+
+test('plan: byModel 每桶补 0–100 百分比（同桶 remaining/total，D053）', () => {
+  // 2026-10-25 本机实测：GLM 赠送池总桶 767206/500000000（0.2%），其中
+  // GLM-5.3-Flash 已用尽（0/3 亿），GLM-5.3 还剩 767206/2 亿（0.4%）。
+  // 汇总百分比看着只是「快没了」，分桶后才能看出是哪个池子见底。
+  const v = planVendorStatus(BASE, {
+    ok: true,
+    source: 'plan-log',
+    percentRemaining: 0.0015,
+    remaining: 767206,
+    total: 500000000,
+    byModel: [
+      { model: 'glm-5.3-flash', showName: 'GLM-5.3-Flash', remainingUnits: 0, totalUnits: 300000000, usedUnits: 300000000 },
+      { model: 'glm-5.3', showName: 'GLM-5.3', remainingUnits: 767206, totalUnits: 200000000, usedUnits: 199232794 },
+      { model: 'no-total', showName: '总额不可得', remainingUnits: 10, totalUnits: 0 },
+    ],
+  })
+  assert.equal(v.percentRemaining, 0.2)
+  assert.equal(v.byModel.length, 3)
+  assert.equal(v.byModel[0].percentRemaining, 0)
+  assert.equal(v.byModel[0].percentUsed, 100)
+  assert.equal(v.byModel[1].percentRemaining, 0.4)
+  assert.equal(v.byModel[1].percentUsed, 99.6)
+  // total 不可得：不给百分比（字段存在但 undefined），绝不编 0
+  assert.equal(v.byModel[2].percentRemaining, undefined)
+  assert.equal(v.byModel[2].percentUsed, undefined)
+})
+
+test('plan: 无 byModel 时不造桶字段（日志源缺失就是 undefined）', () => {
+  const v = planVendorStatus(BASE, { ok: true, source: 'glm-plan-api', percentRemaining: 0.5, remaining: 5, total: 10 })
+  assert.equal(v.byModel, undefined)
+})

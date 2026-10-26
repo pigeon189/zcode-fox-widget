@@ -58,6 +58,12 @@ test('export: 中文/emoji/超长字段/空值', () => {
   assert.ok(csv.includes('m'.repeat(500)))
 })
 
+test('export: amount=null 写成空单元格，只有真实 0 才写 0.0000', () => {
+  const line = (over) => toCsv([row(over)]).replace(/^\ufeff/, '').split('\r\n')[1]
+  assert.ok(line({ amount: null }).includes(',money,CNY,,,'), 'null 金额应为空：' + line({ amount: null }))
+  assert.ok(line({ amount: 0 }).includes(',money,CNY,0.0000,'), '真实 0 仍写 0：' + line({ amount: 0 }))
+})
+
 test('export: JSON 元信息含估算声明与固定结构', () => {
   const text = toJson({ meta: { range: { from: '2026-10-01', to: '2026-10-21' }, by: 'model' }, rows: [row()], total: { amount: 1.2346 }, provenance: { amount: { kind: 'estimated' } } })
   const json = JSON.parse(text)

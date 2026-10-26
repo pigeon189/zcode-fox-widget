@@ -18,6 +18,7 @@ import {
   readUsageRows as readDshUsageRows,
 } from './live.mjs'
 import { prov, unavailable } from '../../shared/provenance.mjs'
+import { pricingUnavailable } from '../../daemon/src/cost-prov.mjs'
 import { PRICING_SNAPSHOT_DATE } from '../../shared/pricing-meta.mjs'
 
 function fmtTokens(n) {
@@ -38,7 +39,7 @@ export const dshAdapter = {
   name: 'DeepSeek Harness',
   priority: 20,
   roleDefault: 'whale',
-  accent: '#4d6bfe',
+  accent: '#4176e6',
   match: {
     exeBasenames: ['deepseek harness.exe'],
     exeIncludes: ['/dsh-windows/'],
@@ -207,22 +208,33 @@ export const dshAdapter = {
           provenance: {
             today:
               todaySource === 'dsh:sessions'
-                ? prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' deepseek', {
-                    asOf: now(),
-                    note: 'token × 价目表（DeepSeek 峰谷）',
-                  })
+                ? !today
+                  ? unavailable('no-data', 'dsh:sessions', 'local-log')
+                  : today.amount == null
+                    ? // 会话日志里有价目未收录的模型：金额不可得（null），
+                      // provenance 必须如实标 unavailable，不能继续装 estimated。
+                      pricingUnavailable({
+                        asOf: now(),
+                        note: 'dsh 会话日志含价目未收录的模型，今日金额不可得',
+                      })
+                    : prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' deepseek', {
+                        asOf: now(),
+                        note: 'token × 价目表（DeepSeek 峰谷）',
+                      })
                 : today
                   ? prov('estimated', 'user', 'dsh:.dshw-usage.json', {
                       asOf: now(),
                       note: '旧账本余额差，仅金额、不含 tokens',
                     })
                   : unavailable('no-data', 'dsh:sessions', 'local-log'),
-            turn: turn
-              ? prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' deepseek', {
-                  asOf: now(),
-                  note: 'token × 价目表',
-                })
-              : unavailable('no-data', 'dsh:sessions', 'local-log'),
+            turn: !turn
+              ? unavailable('no-data', 'dsh:sessions', 'local-log')
+              : turn.amount == null
+                ? pricingUnavailable({ asOf: now(), note: '上一轮模型价目未收录，金额不可得' })
+                : prov('estimated', 'pricing-table', 'pricing:' + PRICING_SNAPSHOT_DATE + ' deepseek', {
+                    asOf: now(),
+                    note: 'token × 价目表',
+                  }),
             balance: balance.ok
               ? prov('exact', 'api', 'api.deepseek.com/user/balance')
               : unavailable('auth', 'api.deepseek.com/user/balance', 'api'),
