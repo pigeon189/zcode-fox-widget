@@ -4058,6 +4058,36 @@ try {
     )
   }
 
+  // 二级面板与气泡：hidePanelsForBubble() 会把六个面板设成 visibility:hidden；
+  // 用户主动打开任一面板时必须先让气泡让路，否则面板要等气泡自动关闭才可见。
+  // 六个入口统一走 dismissBubbleForPanel()，只修单个面板会让其余入口继续复现。
+  {
+    const widgetSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'widget.js'), 'utf8')
+    const panelToggles = ['toggleBookPanel', 'toggleMorePanel', 'toggleAboutPanel', 'toggleUpdatePanel']
+    const missing = panelToggles.filter(function (name) {
+      const start = widgetSrc.indexOf('function ' + name + '(')
+      if (start === -1) return true
+      return !/dismissBubbleForPanel\(\)/.test(widgetSrc.slice(start, start + 600))
+    })
+    check(
+      '打开任一二面板都先收掉当前气泡（气泡会把面板 visibility:hidden）',
+      /function dismissBubbleForPanel\(\) \{\s*if \(costBubbleActive\) hideCostBubble\(\)\s*else if \(bubbleShown\) hideBubble\(\)/.test(
+        widgetSrc
+      ) &&
+        missing.length === 0 &&
+        /if \(usageOpen\) \{\s*dismissBubbleForPanel\(\)/.test(widgetSrc) &&
+        /function toggleBubbleEditor\(\) \{[\s\S]{0,300}?dismissBubbleForPanel\(\)/.test(widgetSrc),
+      missing.join(',')
+    )
+    check(
+      '预警气泡被主动收起时一并清 alertBubbleTimer',
+      /function hideCostBubble\(\) \{[\s\S]{0,800}?if \(alertBubbleTimer\) \{\s*clearTimeout\(alertBubbleTimer\)\s*alertBubbleTimer = null/.test(
+        widgetSrc
+      ),
+      ''
+    )
+  }
+
   // ---------- 宿主更新时的让路（issue #2 后半段：更新 ZCode 时提示「无法关闭 ZCode」） ----------
   // 判定与探测抽在 desktop/update-guard.cjs（纯函数 + 一次「可执行映像是否被占用」探测）。
   // 这里测三层：纯函数三态、真机占用语义、以及**端到端**——用「跟随一个不存在的进程」模拟
