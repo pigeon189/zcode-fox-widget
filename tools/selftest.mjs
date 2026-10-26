@@ -3666,6 +3666,35 @@ try {
     )
   }
 
+  // 跨显示器跟随（移植主线 PR #15）：判定抽在 desktop/display-follow.cjs（纯函数），
+  // selftest 用合成矩形覆盖负坐标副屏、不等宽屏、窄缝与退化矩形，不依赖双屏硬件。
+  // 换屏的时序行为（700ms 静止去抖、重建、隐身让位）只能在双屏真机构造，按源码钉住接线。
+  {
+    const df = requireCjs(path.join(PLUGIN_ROOT, 'desktop', 'display-follow.cjs'))
+    const bounds = { x: 0, y: 0, width: 2560, height: 1400 }
+    const overlapOk = df.shouldHideBeforeSwitch({ x: 100, y: 100, width: 1200, height: 900 }, bounds) === false
+    const overlapNeg = df.shouldHideBeforeSwitch({ x: -1800, y: 100, width: 1200, height: 900 }, bounds) === true
+    const slit = df.shouldHideBeforeSwitch({ x: -110, y: 0, width: 1200, height: 900 }, bounds) === true
+    const degenerate = df.shouldHideBeforeSwitch({ x: 0, y: 0, width: 0, height: 0 }, bounds) === true
+    check(
+      'display-follow：面积/窄缝/退化矩形判定（大部分可见不隐身，负坐标副屏与窄缝隐身）',
+      overlapOk && overlapNeg && slit && degenerate,
+      JSON.stringify({ overlapOk, overlapNeg, slit, degenerate, ratio: df.overlapOf({ x: 100, y: 100, width: 1200, height: 900 }, bounds).ratio })
+    )
+    const mainSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'desktop', 'main.cjs'), 'utf8')
+    check(
+      '跨屏跟随接线：换屏去抖 / 中心判定 / 重建清旧消息 / 兜底复位 / 桌宠不参与',
+      mainSrc.includes("require('./display-follow.cjs')") &&
+        mainSrc.indexOf('DISPLAY_SWITCH_MS = 700') !== -1 &&
+        /getDisplayNearestPoint\?/.test(mainSrc) &&
+        /maybeSwitchDisplay\(rect\)/.test(mainSrc) &&
+        /clearPendingDisplay\(\)\n  lastFollowerMsg = null/.test(mainSrc) &&
+        mainSrc.indexOf('overlayWorkArea = null') !== -1 &&
+        /clearPendingDisplay\(\)\n    if \(msg\.fs\)/.test(mainSrc),
+      ''
+    )
+  }
+
   // 角色库：内置嘎啦嘛（默认）/大肥鱼固定在前，上传件自动启用；未指定时默认嘎啦嘛
   const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
   const upRes = await fetch('http://127.0.0.1:' + port + '/whale/role-upload.json', {
