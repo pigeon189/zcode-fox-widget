@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -6,9 +6,20 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { acquireLock, isProcessAlive, readLock, releaseLock, updateLock } from '../../daemon/src/lock.mjs'
 
+const dirs = []
 function tempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'fox-dock-lock-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-dock-lock-'))
+  dirs.push(dir)
+  return dir
 }
+
+after(() => {
+  for (const dir of dirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+    } catch (err) {}
+  }
+})
 
 test('lock: 首次获取成功，读回字段一致', () => {
   const dir = tempDir()

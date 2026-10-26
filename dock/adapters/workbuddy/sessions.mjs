@@ -134,6 +134,12 @@ function parseLine(line, fallback) {
 // 水位 + 已解析事件持久化到 cache/workbuddy-index-v1.json（M6）：daemon 重启
 // 后接着读，不用重放整个 transcript。缓存只存可重建状态——删除缓存文件后
 // 全量重算的结果必须与带缓存一致（incremental-equivalence 测试守卫）。
+//
+// 落盘事件上限 4000 条（控制缓存体积）。**事件被截断时水位不可信**：重启后
+// 断点续读会让 tokens/credits 静默少计（长 transcript 只重建最后 4000 条），
+// 而 provenance 仍标 exact。所以落盘时写 eventsComplete，重启时只有完整事件才
+// 恢复水位；不完整/旧版本缓存一律从头完整重读（读取循环到 EOF 才返回，避免
+// 「部分事件 + exact」的中间态）。
 const tails = new Map()
 let cacheIndex = null
 const MAX_PERSIST_EVENTS = 4000
@@ -154,6 +160,11 @@ export function _resetWorkbuddyCache() {
   cacheIndex = null
 }
 
+// 测试用：立即落盘（正常路径靠 2s 去抖 + 进程退出钩子）。
+export function _flushWorkbuddyCache() {
+  if (cacheIndex) cacheIndex.flushSync()
+}
+
 export function _resetWorkbuddyLive() {
   tails.clear()
   fileAggs.clear()
@@ -162,29 +173,58 @@ export function _resetWorkbuddyLive() {
 function eventsOf(file) {
   try {
     let entry = tails.get(file)
+    // 缓存不可信（缺失 / 事件被截断 / 旧版本无 eventsComplete 标记）时必须从头
+    // 完整重读；只有「事件完整」的缓存才能恢复水位做增量续读。
+    let rebuild = false
     if (!entry) {
       entry = { tail: createTailReader(file, { maxChunk: MAX_TAIL }), events: [] }
       const saved = cacheIndexOf().get('tail:' + file)
-      if (saved) {
-        entry.tail.restore(saved)
-        entry.events = Array.isArray(saved.events) ? saved.events.slice(-MAX_PERSIST_EVENTS) : []
+      // restore() 只在「水位可信」时返回 true：残行已从水位里排除，恢复后会
+      // 重新读那半行；文件被截断/重写（指纹不符）时返回 false，调用方必须
+      // 连落盘事件一起丢弃、从头重读，不能拿旧事件拼新文件尾部。
+      if (saved && saved.eventsComplete === true && Array.isArray(saved.events) && entry.tail.restore(saved)) {
+        entry.events = saved.events
+      } else {
+        rebuild = true
       }
       if (tails.size > 32) tails.delete(tails.keys().next().value)
       tails.set(file, entry)
     }
-    const p = entry.tail.poll()
-    if (!p.ok) return entry.events
-    if (p.reset) entry.events = []
-    if (p.lines.length) {
-      const fallback = path.basename(file, '.jsonl')
-      for (const line of p.lines) for (const e of parseLine(line, fallback)) entry.events.push(e)
-    }
-    if (p.lines.length || p.reset) {
+    let dirty = false
+    for (;;) {
+      const p = entry.tail.poll()
+      if (!p.ok) return entry.events
+      if (p.reset) {
+        // 文件被截断/轮转：水位作废，必须重读到 EOF。落盘状态也要跟着清掉，
+        // 否则下次启动又会拿旧水位去撞同一份新文件。
+        entry.events = []
+        rebuild = true
+        dirty = true
+      }
+      if (p.lines.length) {
+        const fallback = path.basename(file, '.jsonl')
+        for (const line of p.lines) for (const e of parseLine(line, fallback)) entry.events.push(e)
+        dirty = true
+      }
+      // 增量续读只读一拍；重建则一直读到文件末尾，避免在「部分事件」上产出
+      // exact 的 tokens/credits。用 readOffset（已读位置）判断 EOF：state.offset
+      // 是最后一个完整行之后，停在半行时会小于 size。
+      if (!rebuild) break
       const st = entry.tail.state
+      if (!st.size || st.readOffset >= st.size) break
+    }
+    if (dirty) {
+      const st = entry.tail.state
+      const complete = entry.events.length <= MAX_PERSIST_EVENTS
       cacheIndexOf().set('tail:' + file, {
+        // offset 是最后一个完整行之后（不含内存里的残行），重启后不会跳过它。
         offset: st.offset,
         ino: st.ino,
-        events: entry.events.slice(-MAX_PERSIST_EVENTS),
+        checkpoint: st.checkpoint,
+        // 事件超限只存尾部（控制缓存体积），但标记 eventsComplete=false：
+        // 下次启动会全量重读，不会拿截断的事件重建出偏小的数值。
+        events: complete ? entry.events : entry.events.slice(-MAX_PERSIST_EVENTS),
+        eventsComplete: complete,
       })
       cacheIndexOf().schedule()
     }

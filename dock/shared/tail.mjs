@@ -6,11 +6,15 @@
 //   · 单次最多读 maxChunk，剩余留给下次 tick；
 //   · 任何异常都变成 { ok:false, reason }，绝不抛到事件循环。
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import zlib from 'node:zlib'
 
 export const DEFAULT_MAX_CHUNK = 1 << 20
 export const MAX_LINE_BYTES = 1 << 20
+// 持久化水位的内容指纹窗口：恢复时对比 offset 前的这些字节，识别「文件被
+// 原地截断后重写」——只看 size/ino 发现不了（重写后可能更大、ino 不变）。
+const CHECKPOINT_BYTES = 64
 
 function safeStat(file) {
   try {
@@ -22,6 +26,26 @@ function safeStat(file) {
 
 function inoOf(st) {
   return Number(st && (st.ino || st.birthtimeMs || st.ctimeMs)) || 0
+}
+
+// offset 之前最多 CHECKPOINT_BYTES 字节的指纹。文件读不到时返回 ''（恢复方
+// 见到空指纹就放弃水位、从头重读，宁可多读也不能混读）。
+function checkpointAt(file, end) {
+  if (!end || end <= 0) return ''
+  const start = Math.max(0, end - CHECKPOINT_BYTES)
+  try {
+    const fd = fs.openSync(file, 'r')
+    try {
+      const buf = Buffer.alloc(end - start)
+      const read = fs.readSync(fd, buf, 0, buf.length, start)
+      if (!read) return ''
+      return crypto.createHash('sha1').update(buf.subarray(0, read)).digest('hex')
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch (err) {
+    return ''
+  }
 }
 
 // 普通文本尾随。poll() 返回 { ok, lines, reset, reason? }。
@@ -37,20 +61,57 @@ export function createTailReader(file, { maxChunk = DEFAULT_MAX_CHUNK } = {}) {
     ino = 0
   }
 
-  // 从持久化索引恢复水位（M6）。offset 非法或越过当前文件大小都会在下一次
-  // poll 里自然 reset（st.size < offset 分支），这里只做形态校验。
+  // 从持久化索引恢复水位（M6）。**只恢复到最后一个完整行之后**：state.offset
+  // 已经把内存里未消费的残行排除在外，恢复后重新读那半行；否则重启会把它
+  // 当成「已消费」而永久丢掉一条事件。
+  // 同时校验 ino 与 offset 前的内容指纹：文件被原地截断后重写到更大长度时
+  // 单看 size 发现不了，直接沿用旧水位会把旧事件和新文件尾部混在一起。
+  // 返回 true=已恢复；false=已 reset（调用方必须丢弃落盘的事件一起重读）。
   function restore(state) {
     const off = Number(state && state.offset)
-    if (!Number.isFinite(off) || off < 0) return reset()
-    offset = Math.floor(off)
-    ino = Number(state && state.ino) || 0
+    if (!Number.isFinite(off) || off < 0) {
+      reset()
+      return false
+    }
+    const next = Math.floor(off)
+    const st = safeStat(file)
+    if (!st || st.size < next) {
+      reset()
+      return false
+    }
+    const savedIno = Number(state && state.ino) || 0
+    const curIno = inoOf(st)
+    if (savedIno && curIno && savedIno !== curIno) {
+      reset()
+      return false
+    }
+    if (next > 0) {
+      const saved = String((state && state.checkpoint) || '')
+      if (!saved || checkpointAt(file, next) !== saved) {
+        reset()
+        return false
+      }
+    }
+    offset = next
+    ino = curIno || savedIno
     partial = Buffer.alloc(0)
     lastLineTooLong = 0
+    return true
   }
 
   return {
     get state() {
-      return { offset, size: safeStat(file)?.size || 0, ino, droppedLongLines: lastLineTooLong }
+      // offset = 可安全续读的位置（最后一个完整行之后）；readOffset 才是已经
+      // 从文件读到的位置（可能包含半行）。落盘只能用前者。
+      const committed = Math.max(0, offset - partial.length)
+      return {
+        offset: committed,
+        readOffset: offset,
+        size: safeStat(file)?.size || 0,
+        ino,
+        droppedLongLines: lastLineTooLong,
+        checkpoint: checkpointAt(file, committed),
+      }
     },
     reset,
     restore,

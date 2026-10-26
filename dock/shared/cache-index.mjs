@@ -85,24 +85,39 @@ export function createCacheIndex({
       clearTimeout(timer)
       timer = null
     }
-    if (!dirty) return
-    evictIfNeeded()
-    const payload = JSON.stringify({
-      schemaVersion,
-      appVersion,
-      savedAt: Date.now(),
-      entries: Object.fromEntries(entries),
-    })
-    fs.mkdirSync(path.dirname(file), { recursive: true })
+    if (!dirty) return true
     const tmp = file + '.' + process.pid + '.tmp'
-    fs.writeFileSync(tmp, payload)
-    fs.renameSync(tmp, file)
-    dirty = false
+    try {
+      evictIfNeeded()
+      const payload = JSON.stringify({
+        schemaVersion,
+        appVersion,
+        savedAt: Date.now(),
+        entries: Object.fromEntries(entries),
+      })
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+      fs.writeFileSync(tmp, payload)
+      fs.renameSync(tmp, file)
+      dirty = false
+      return true
+    } catch (err) {
+      // 写盘失败（Windows 文件锁 EPERM / 磁盘满 / 目标路径被占）绝不能让去抖
+      // 定时器把未捕获异常抛进事件循环——那会直接杀死 daemon，且在条件持续
+      // 存在时形成 watchdog 重启循环。保留 dirty，下次 schedule 再试。
+      try {
+        fs.rmSync(tmp, { force: true })
+      } catch (e) {}
+      return false
+    }
   }
 
   function schedule() {
     if (timer) return
-    timer = setTimeout(flushSync, Math.max(200, Number(debounceMs) || 2000))
+    timer = setTimeout(() => {
+      timer = null
+      // 失败后保留 dirty 并重新排队；单次失败不影响进程。
+      if (!flushSync()) schedule()
+    }, Math.max(200, Number(debounceMs) || 2000))
     timer.unref?.()
   }
 
