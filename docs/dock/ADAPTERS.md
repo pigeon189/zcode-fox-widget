@@ -46,6 +46,9 @@ export const myAdapter = {
             plan: '',
             account: '',
             windows: [],                 // windows 卡：{ key,label,usedPct,remainingPct,resetAt }
+            // 按模型分桶（可选，D053）：同一套餐内按模型分开记账的配额，
+            // 与时间窗口不同，不带 resetAt；{ key,label,usedPct,remainingPct,remaining,total }
+            buckets: [],
             balance: { amount: 1.23, currency: 'CNY' },
             note: '余额来自官方接口',
           },
@@ -272,6 +275,20 @@ UI 四标签：official / local / estimate / unavailable，映射规则在
 > stdout deny 不被采信；④ 原生确认卡片阻塞等待钩子（非并行）；⑤ exit 0 无输出
 > → 原生弹窗照常出现（fail-open 兜底成立）。dock-hook.mjs 已按此实现（分支 A
 > 为默认，FOX_DOCK_HOOK_ALLOW=0 可降级），`settings.permission.allowOnce` 默认 true。
+> ⑥ 高风险判定（D036）用「宿主 riskLevel（只升级、不降级）∪ 本地规则表」，且输入是
+> 更长的脱敏文本而非展示用的 400 字预览（长前缀不能掩盖危险命令尾）；MCP 工具按
+> 最后一段归一：`mcp__<server>__write_file` 等按写工具检查路径，`run_command` /
+> `execute_shell` / `shell:bash` / camelCase 的 `runCommand` 等按 shell 规则检查命令
+> 文本（保留原始大小写切词，不在判定前整体小写）；写工具的路径字段按
+> 「驼峰/分隔符切词」识别（`file_path`/`destination_file`/`dest_path`/`writePath`/
+> `savePath`/`localPath`/`pathToSave` 等都算目标路径），写入正文（content/text/…）
+> 不当路径；绝对路径直接消解 `.`/`..` 再比 cwd，相对路径先按 cwd 解析再消解
+> （`..\..\Windows\hosts` 这类可判定的越界目标不能漏判，cwd 内的普通相对路径
+> 保持 normal）；钩子侧 `PermissionRequest` 的 tool_input 按「8000 字符 + 15KB」
+> 预算上报，长前缀不能掩盖危险尾命令。
+> 钩子上报 PermissionRequest 时按「8000 字符 + 序列化后 15KB」双上限携带 tool_input
+> （ingest 仍有 16KB body 上限），不再先截到 2000 字——否则长前缀后的危险命令在
+> daemon 判定前就被切掉。
 
 | 宿主 | working | waiting_permission | waiting_input | error | done | 信号来源 | 延迟 | 可信度 |
 |---|---|---|---|---|---|---|---|---|

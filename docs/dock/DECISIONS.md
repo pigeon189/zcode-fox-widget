@@ -298,6 +298,20 @@
   降级（热键不响应、主按钮不默认聚焦）；预览服务端脱敏；超时/任何失败回落宿主
   原生弹窗（fail-open to host）；`Origin + 令牌` 双校验。
 - 代价：关闭时只做「通知 + 跳转宿主」；需要用户安装集成插件才生效。
+- 2026-10-26 终审补强：决策面收紧——`GET /v1/actions` 也要求 `x-fox-token`
+  （待办含命令预览与 requestId，不能匿名枚举）；高风险动作在 daemon 侧一律拒绝
+  `allow`（`resolve` 与伪造的 `permission_resolved` 事件都拒，审计记
+  `refused-high-risk`），只保留「拒绝」与超时 fail-open 回宿主原生弹窗；
+  `daemon.lock` 按 0600 写（POSIX 生效）。同一条待办的匿名读面
+  （`/v1/sessions`、会话详情、SSE 的 `sessions`/`action` 事件）也只保留工具名/
+  风险/截止时间等状态字段，预览与 id 仅持令牌可见；宠物层权限卡经主进程持令牌取
+  完整待办，SSE 只当刷新信号。
+- 威胁模型（必须明确记录）：令牌存在 `daemon.lock` 里，同一用户下的任意进程都能
+  读，因此 daemon **无法**从 HTTP 层区分「用户点的 UI」与「同用户冒充者」。这次
+  能守住的不变量是「高危动作绝不代答允许」；普通风险动作的放行仍可能被同用户
+  进程冒充（影响面 = UI 上「允许一次」能做的同一集合）。要彻底消除，需要把允许
+  动作绑定到同用户进程无法伪造的用户在场证明（例如一律只走宿主原生弹窗，不让
+  daemon 代答 allow）——属产品决策，未在本轮实施。
 
 ## D037 `ingest` 协议 v1 与自定义 agent（2026-10-22）
 
@@ -489,3 +503,135 @@
   给 agent）；stdout 的 deny 不被采信。dock-hook `SUPPORTS_ALLOW` 默认 true、
   `allowOnce` 默认 true（takeover 仍默认关）；原生确认卡片阻塞等待钩子，等待上限
   维持 30s。探针插件测完即从宿主卸载，不入任何发布物。
+
+## D053 套餐按模型分桶的进度条展示（2026-10-25）
+
+- 背景：GLM start plan 的赠送池按模型分开记账（实测 2026-10-25：GLM-5.3-Flash
+  0/3 亿已用尽、GLM-5.3 还剩 767206/2 亿），汇总后总桶显示 0.2% 剩余。额度页
+  此前只有一行文字列出各桶的百分比，快览卡与额度页顶部卡更是只拿汇总百分比，
+  用户看不出是哪个池子见底。
+- 选择：把「按模型分桶」做成与 CommandCode 三重窗口同款的进度条。
+  - 数据：`engines/vendors.mjs#planVendorStatus` 给 `byModel` 每桶补
+    `percentRemaining` / `percentUsed`（0–100，一位小数，同桶 remaining/total，
+    total 不可得保持 undefined，不补 0；D046）；`adapters/zcode/index.mjs`
+    `bucketsOfVendor()` 把它压成 `quotaCard.buckets`（`{key,label,usedPct,
+    remainingPct,remaining,total}`，最多 8 个）；`adapters/contracts.mjs`
+    `normalizeQuotaBucket()` 按契约净化，总额不可得/负数/空名的桶整条丢弃。
+  - 展示：控制台额度页的厂商卡把原来的文字行换成进度条（`BucketBars`），
+    顶部「当前宿主额度」卡在 `kind='plan'` 时也按桶画条；宠物层快览卡在窗口行之后
+    追加最多 3 条桶行（标签列放宽到 80px 并省略，完整名走 title，尾列显示
+    「剩余/总量」tokens）。进度条填充统一是**已用**比例，与既有窗口行同口径。
+  - 汇总百分比保留作参考，不删除（口径仍是 remaining/total），但 plan 卡 note
+    明示「总剩余只作参考；下方按模型分桶」。
+- 代价：`quotaCard` 契约多一个 `buckets` 字段（旧 daemon/夹具没有时归一化成空数组，
+  UI 按无桶渲染）；快览卡最多多 3 行，视口内滚动兜底不变。
+
+## D054 会话成本口径：真金白银 + 等价市值 + 分段计价（2026-10-25）
+
+- 背景（用户提的计费审查）：会话页成本列直接拿 `costOfUsage` 按「模型+provider」
+  分组乘价，**没有** `resolveBillingSource` 的预付池归零。实测同一会话
+  `session_875a`（1300.1M tokens）显示 ¥317.09，其中 GLM start plan 订阅池
+  ¥279.97、CommandCode credit 池 ¥25.74，真实按量只有 ¥12.31。另外两处偏差：
+  组内用「最后一笔调用时间」计价，DeepSeek 峰谷/周末档位会整体算错（实测差 ~3%）；
+  回合明细用 `MAX(model_id)` 把整轮 token 压给一个模型，混合模型回合整体乘错价。
+- 选择：
+  - 归零判据统一到 `adapters/zcode/prepaid.mjs#isPrepaidBilling(providerId, modelId)`
+    （名字规则 + 官方 Base URL 路径 + GLM 订阅修正），会话列表、回合明细、
+    `aggregateUsage`（用量页下钻）、`readUsage`（今日/上一轮）同一口径；
+    金额记 0、tokens 照算（与 usage-records 完全一致）。
+  - 分段计价：`model_usage` 按「模型 + provider + 整点桶」聚合（`started_at` 是
+    epoch ms，`CAST(started_at/3600000 AS INTEGER)`）。DeepSeek 峰谷边界与周末
+    生效分界都落在整点，所以桶内档位恒定——既逐笔精确，又不退化成逐行开销。
+    每桶用桶内最早时间计价；换模型后的 token 只按新模型的价算。
+  - 回合明细：`turnsFallback` 改为按 (回合, 模型, provider, 整点桶) 返回分组行，
+    逐组计价后按回合汇总；回合主模型按 token 最多的组展示（原来取 `MAX(model_id)`）。
+  - 等价市值：`costMarket` 与 `cost` 分开输出（多币种只取主币种），只在
+    「真实支出为 0 但确实有预付用量」时，成本列显示「≈¥x」并挂 tooltip
+    「预付池/套餐用量：tokens 照算、不计按量金额」——避免整列 ¥0.00 被当成计价坏了。
+    等价市值不参与任何真金白银合计（与用量记录模型排名的 «≈» 同款）。
+  - 缓存新鲜度：`live-tracker` 重启后恢复的 `live-sessions.json` 带着上次进程算出的
+    tokens/cost；适配器同一 `updatedAt` 的结果过去被丢弃，导致改价目后空闲会话永远显示
+    旧值。现在时间戳相等时累计量以适配器为准，实时状态（status/pending）仍用内存。
+- 代价：会话列表的金额会明显变小（预付池会话为 ¥0 / `≈市值`），与「今日已用」一致；
+  `session-model` 与 `live-tracker` 的合并规则多一条「等时间戳取适配器累计量」。
+
+## D055 控制台渲染错误兜底与崩溃自愈（2026-10-25）
+
+- 背景（用户报告）：点设置页「启动时检查更新」后控制台白屏且无法操作。用当前代码
+  在夹具与真机（不同会话状态、daemon 重启后再点）都没能复现渲染异常，但暴露了两个
+  真实的兜底缺陷：① 页面渲染抛错没有边界，整窗会白；② `recoverRenderer` 是
+  「10 秒内只重载一次，否则直接 return」——渲染进程在 10 秒内崩第二次就永久白屏。
+- 选择：
+  - `ui/components/base.mjs#ErrorBoundary`（Preact 类组件 + `getDerivedStateFromError`
+    / `componentDidCatch`）：页面内容按页 key 包一层，App 外层再包一层；出错显示
+    「重新渲染 / 重新加载控制台 / 复制错误」卡片，侧栏与其它页面继续可用；错误进
+    `window.__foxRenderErrors` 环形缓冲（最多 20 条）便于诊断。
+  - 主进程 `console/main.cjs#recoverRenderer(reason)`：滑动 60s 计数 + 退避
+    `0/1/3/10/30s` 重载，永不放弃；同时监听 `render-process-gone`、`unresponsive`、
+    `did-fail-load`（排除 -3 ERR_ABORTED）。每次崩溃追加一行到
+    `<数据目录>/console-crash.log`（时间 + 原因 + 近 60s 次数）。
+- 验证：CDP `Page.crash` 连续崩两次，两次都自动重载回可用页面，日志两条
+  （旧实现第二次会被 10s 窗口静默跳过）。
+- 代价：持续确定性崩溃时窗口会周期性重载（而不是静默白屏）；崩溃日志是纯追加文本，
+  不参与诊断包导出（后续可按需并入）。
+
+## D056 「已完成」展示窗口、回合活跃与 workflow 父会话（2026-10-26）
+
+- 背景（用户反馈）：任务结束后列表/胶囊/快览卡永远显示「空闲」，「已完成」几乎抓不到；
+  原因是 `done` 只由 `turn_end`/`session_end` 产生，4 秒后被 `expire` 降成 `idle`。
+  另有两个误判：编排回合结束但 workflow 还在跑时父会话显示空闲；工具刚结束、首字未到
+  的空档里库内没有新行，90 秒后也会被推断成空闲。
+- 选择：
+  - `doneAt`：进入 `done` 时记录时刻，4 秒降级不清除；展示层
+    `shared/session-model.mjs#displayStatusOf` 在 5 分钟（`DONE_DISPLAY_MS`）内继续给出
+    `done`。活跃状态（working/waiting/error）始终优先。
+  - `turnActive`：钩子 `turn_start`（UserPromptSubmit）/`turn_end`（Stop）维护；回合内任意
+    事件续命，整段静默超过 15 分钟（`TURN_ACTIVE_MAX_MS`）自动放开，避免 Stop 丢失后
+    「工作中」永不结束。`db done`（`statusSource='db'` 且时间晚于 turnActiveSince）是可靠的
+    回合结束证据，会清掉活跃标记；`db idle` 不会。
+  - `workflowBusy`：ZCode 适配器按 `parent_session_id` 查 `dwf_run` / `workflow_run` 的
+    running/pending 行；在跑时父会话按 working 计，结束后用 run 的 `time_updated` 起算
+    5 分钟已完成。`session_task_link.status` 可能是陈旧的，不作为权威。
+  - 根会话合并（`live-tracker#rootStatusOf`）取根 + 子会话 + workflow 的展示状态；`/v1/sessions`
+    的筛选、计数、SSE 摘要与控制台/胶囊/快览卡全部读 `displayStatus`，UI 不再自行按
+    `status==='done'` 推断。
+- 验证：`session-display-status` / `zcode-workflow-status` 单测（窗口边界、turnActive 上限、
+  合并优先级、workflow 结束起算）；`sessions-status` / `pet-status` E2E（已完成抓取、计数与
+  筛选同源、UI 不信陈旧 working、无「已超时」串台）。
+- 代价：会话结束后 5 分钟内不再显示空闲（文案可带「刚完成」区分）；无钩子的宿主在长工具
+  结束后最多多显示 10 分钟 working（`statusSource='inferred'`），换取不再闪成空闲。
+
+### D056 修订（2026-10-26 独立审查后）
+
+- **手动停止不是完成**：ZCode 手动停止会落 `turn_usage.status='cancelled'`（实测
+  `completed_at` 有值、`duration_ms` 有值）。适配器把「最后一次回合已结束」作为
+  `incoming.endedAt`，`mergeSnapshot` 在 `statusSource='db'` 且 `endedAt >= turnActiveSince`
+  时清掉钩子留下的 `turnActive`；同时 `cancelled` 不生成 `doneAt`，展示立刻回 idle。
+  旧实现只认 `db done`，导致停止后一直显示「工作中」直到 15 分钟上限。
+- **`permission_resolved` 续命**：等待确认也是回合内事件，处理完权限后回合会继续跑；
+  `live-reduce` 现在对它调用 `touchTurn`，否则长回合在第 15 分钟被 `expire` 误判空闲。
+- 验证：`session-display-status`（14/15/16/29 分钟边界、cancelled 合并）与
+  `zcode-cancelled-status`（真实 SQLite 夹具：idle、无 doneAt、筛选口径）。
+- 代价：停止后的会话立即回空闲，不再保留「已完成」5 分钟窗口；这是用户明确期望。
+
+## D057 宠物层零网络：SSE 主进程代理与输入链路自愈（2026-10-26）
+
+- 背景：独立审查指出 `overlay/pet.js` 仍直接 `new EventSource`，与「宠物层 daemon 交互
+  一律走 preload IPC」的边界不一致；拖拽期间渲染进程网络会被挂起，SSE 可能断流。
+  同时 1.x 线 issue #13 的真机结论是：页面 JS 活着也可能出现输入链路断流（
+  `setIgnoreMouseEvents` 停在旧值，悬停/点击全部穿透），只能重启浮层。
+- 选择：
+  - `overlay/main.cjs` 持 daemon 令牌订阅 `/v1/stream`，按 SSE 分帧解析后经
+    `stream-event` IPC 转发；preload 暴露 `onStream`；daemon 重启后 2 秒重连。
+    渲染层只有纯浏览器测试（无 preload）才回退 `EventSource`。
+  - 主进程每 30 秒取一次光标页面坐标，调用 `__pet.probeInput(x,y)` 做 DOM 命中测试，
+    直接按结果纠正 `setIgnoreMouseEvents`（不再依赖渲染层反向 IPC 是否还通）。
+    探针的 race 超时必须是显式失败（`overlay/input-probe.cjs#probeOnce`），不能把
+    超时返回的 `null` 当成「页面还没准备好」跳过；超时/异常/取不到 `probeInput`
+    连续两拍才重载渲染进程。永久 pending 是最需要自愈的场景，必须有测试。
+  - `__pet.refit()` 先强制重读窗口原点再读 `/rect`：工作区原点变化后不能沿用首次缓存。
+- 验证：`pet-status` E2E（有 `onStream` 时 `EventSource` 必须为零次构造、probeInput 可调用、
+  refit 后 origin 更新）；`input-probe` 单测（正常返回、永久 pending 超时、异常透传、
+  连续两拍触发/成功清零）；真机缩放/输入探针需在发版前人工复核。
+- 代价：主进程多一条长连接与每 30 秒一次 `executeJavaScript`；SSE 不再受渲染进程网络
+  挂起影响。纯浏览器测试路径仍保留 `EventSource`，不进入生产。

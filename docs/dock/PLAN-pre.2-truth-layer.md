@@ -354,7 +354,8 @@ PendingAction = { id /*requestId*/, kind:'permission', agentId, sessionKey, tool
 - `resolve(id, decision, via)`：仅 `pending→allowed|denied` 一次；重复 resolve 返回 409；`via ∈ {pet,console,hotkey,notification,timeout}` 写入审计日志（只记 id/tool/decision/via，不记预览）。
 - 到期（`expiresAt`）→ `timeout`，SSE `action` 通知 UI 收起卡片并提示「已超时，请在宿主窗口处理」。
 - daemon 重启：pending **不持久化**（钩子侧会因连接断开 fail-open）。
-- 路由：`GET /v1/actions`（当前 pending）、`POST /v1/actions/:id/resolve {decision}` 🔒、SSE `action {op:'add'|'update'|'remove', action}`。
+- 路由：`GET /v1/actions`（当前 pending）🔒、`POST /v1/actions/:id/resolve {decision}` 🔒、SSE `action {op:'add'|'update'|'remove', action}`。读接口也要令牌：待办含命令预览与 requestId，不能匿名枚举（D036 2026-10-26 补强）。
+- 高风险动作（`risk==='high'`）在 broker 侧一律拒绝 `allow`（`resolve` 与伪造的 `permission_resolved` 都拒），只允许 `deny`；超时后钩子 fail-open 回宿主原生弹窗（D036）。
 - 钩子长轮询：`POST /v1/ingest(wait)` 内部 `await broker.wait(id, timeoutMs)`；连接断开要 `AbortSignal` 清理。
 
 **钩子输出（以 M0 P-2 结论为准，两条分支都要写好并测）**
@@ -486,7 +487,7 @@ PendingAction = { id /*requestId*/, kind:'permission', agentId, sessionKey, tool
    - 头：标题 16/600（2 行省略）；下行 `Badge`（状态）+ 12 文本「{Agent} · {model}」；右上 `IconButton`（32×32）`copy` aria-label「复制会话 ID」。
    - `Segmented`：概览 / 回合 / 工具 / 上下文（`role=tablist`，宽 100%，等分）。
    - **概览**：2×2 `Stat`（总 Token / 成本 / 回合数 / 总耗时，`gap:12`，各带 `SourceTag dot`）→ 「状态时间线」小标题 13/600 + `StatusTimeline`（宽 100%）+ 时间轴端点时间 12 → 「最近错误」块（有才显示：`Badge bad` 类型 + 脱敏消息 ≤200 字，12 mono，`surface-2` 底 radius 8 padding 8 12）。
-   - **回合**：表（序号 40 / 开始 80 / 耗时 72 / Token 88 / 成本 88 / 状态 64），最多 50 行 + 「加载更多」`ghost` 按钮；错误行状态列 `Badge bad`。
+   - **回合**：表（序号 40 / 开始 80 / 耗时 72 / Token 88 / 成本 88 / 状态 64；并排布局的详情列只有 320–380px，容器 <420px 时隐藏「开始 / 耗时」两列，序号单元格 `title` 兜住这两项，成本/状态列不得被裁），最多 50 行 + 「加载更多」`ghost` 按钮；错误行状态列 `Badge bad`。
    - **工具**：表（工具 弹性 / 调用 64 / 错误率 72 / 平均耗时 88）+ 每行下方 4px 高占比条（宽 = 调用占比，色 `--c1`）。
    - **上下文**：挂 `ContextPanel`（现有占用环/构成条/趋势图），Gauge 尺寸 120；该会话无上下文数据时 `EmptyState`（沿用 D029 文案）。
    - **底栏**（sticky bottom，上 1px 分隔线，padding 12 0 0）：`Button primary`「跳转到宿主窗口」(icon `externalLink`，宽 100%，高 32)；找不到窗口时 `disabled` + `title="宿主窗口未运行或未被发现"`；成功后 Toast「已切换到 ZCode」；仅闪烁时 Toast「已提醒 ZCode 窗口（系统限制，未能直接切换）」。

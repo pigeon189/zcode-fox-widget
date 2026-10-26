@@ -14,7 +14,9 @@
 价目是唯一跨线例外（源头 `lib/pricing.mjs`，见下）。
 1.x 的版本号来源是根 `.zcode-plugin/plugin.json`；2.0 的版本号来源是 `dock/package.json`，两者互不影响。
 当前状态：pre.2 **已于 2026-10-24 发布**（`dock-v2.0.0-pre.2`）；**pre.3 已开发完成但未发版**
-（`dock-pre` 最新提交 `6792106`，版本号已升 `2.0.0-pre.3`，等人工放行）。pre.3 = M5 权限接管
+（`dock-pre` 最新提交 `6792106`，版本号已升 `2.0.0-pre.3`，等人工放行；2026-10-26 完成
+三线审查收敛——前端/后端/安全 + 换人终审全 APPROVE，`ci` / `ui-check` / `e2e` 全绿，
+并新增 D056、显示缩放自愈与快览卡高度修复，工作树仍未提交）。pre.3 = M5 权限接管
 （ActionBroker / dock-hook / 集成插件 / 权限卡 / 热键 / 通知）+ M6 接入向导、WB 增量索引持久化、
 便携包 + 1.x v1.16.3 语音库迁移（小黄鸭/嘀嘟/猫娘 + 自定义导入）。发版前剩：soak 过夜、
 Edge 155 固定环境补跑视觉基线、人工放行。**P-2 探针已真机定案（2026-10-25）**：钩子 stdout
@@ -62,6 +64,14 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   `risk.mjs` + `risk-rules.mjs` 高风险表；`sounds.mjs` 音效库；`cache-index` 的消费者）。
   UI 不得直接读宿主文件，所有数据走本机 HTTP（`x-fox-token`）。会话 `counts` 与胶囊状态
   按**根会话**统计，子任务状态归并到父会话，不能把子会话重复计数。
+  展示状态统一由 `shared/session-model#displayStatusOf` 派生（D056）：`doneAt` 撑 5 分钟
+  「已完成」，`turnActive`（钩子回合边界，15 分钟上限）与 `workflowBusy`
+  （`dwf_run`/`workflow_run` 仍在跑）压制 done/idle；筛选、计数、SSE 摘要同源。
+  ZCode 手动停止落 `turn_usage.status='cancelled'`：适配器按「回合结束」清 `turnActive`
+  但不记 `doneAt`，停止后回空闲而不是「工作中/已完成」；`permission_resolved` 等回合内
+  事件也要续命 `turnActive`（否则长回合第 15 分钟被误判空闲）。
+  `POST /v1/maintenance/bridge-restart` 仅供浮层在显示缩放变化后重建 Win32 桥（写接口，
+  需令牌），不要拿它当通用重启开关。
   `POST /v1/ingest` 是公开协议（内置 shim 与自定义 agent）；`permission_request` 在 takeover
   开启时一律登记进 broker，带 `wait` 的客户端再走 `broker.wait` 长轮询；`/v1/actions` +
   `POST /v1/actions/:id/resolve` + SSE `action` 是权限卡的数据源。
@@ -70,7 +80,8 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   Pre/PostToolUse（D035）。`integrations/.../hooks/dock-hook.mjs` 是**副本**，必须与源头
   逐字节一致（`hook-sync.test.mjs` 守卫）；插件目录必须同时有 `.zcode-plugin/plugin.json`
   与根级 `marketplace.json`（自引用 `source: "."`），否则 ZCode 本地市场识别不到。
-- `dock/shared/`：daemon 与 UI 共用的纯模块（`session-model`、`live-reduce`、`provenance`、
+- `dock/shared/`：daemon 与 UI 共用的纯模块（`session-model`（含 `displayStatusOf` /
+  `DONE_DISPLAY_MS`）、`live-reduce`（含 `turnActive` / `TURN_ACTIVE_MAX_MS`）、`provenance`、
   `redact`、`tail`、`cache-index` 等）。新增跨层逻辑放这里，不要把宿主读取塞进 UI。
 - `dock/ui/`：Preact + htm（vendored）无构建渲染层；数据入口是 `ui/console.mjs`；
   图表是 `ui/charts/svg.mjs` 手写 SVG。不要引入打包器、Chart.js、React。
@@ -80,15 +91,24 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   （`window.foxOverlay.read/write/hit/readSound` + `onPermActions` 推送，主进程
   `daemon-read`/`daemon-write`/`read-sound` 处理器持令牌、仅 127.0.0.1:lock 端口）。
   渲染层 fetch 会被 Mimosa Git 门禁判 SSRR/SSRF 高危**强制拦截提交**，
-  且拖拽期间渲染进程网络被挂起会卡轮询。`test:pet`（纯浏览器、无 preload）靠
-  `window.__pet.setSnapshot/setSettings/debugAttach` 注入数据。
+  且拖拽期间渲染进程网络被挂起会卡轮询。SSE 也走主进程代理：`main.cjs` 持令牌订阅
+  `/v1/stream`，经 preload `onStream` 推送；渲染层只有纯浏览器测试（无 preload）才回退
+  `EventSource`。`test:pet`（纯浏览器、无 preload）靠
+  `window.__pet.setSnapshot/setSettings/debugAttach` 注入数据。显示缩放/分辨率/工作区
+  变化由主进程监听 `display-metrics-changed`（含 added/removed）重设窗口；缩放变化时
+  调用 `/v1/maintenance/bridge-restart` 重建 PowerShell 桥，再执行 `window.__pet.refit()`
+  让渲染层立刻重读 `/rect`（同时重读窗口原点，不能沿用首次缓存）。改显示缩放不需要
+  重启 fox-dock。主进程每 30 秒用光标位置调用 `__pet.probeInput` 做一次 DOM 命中探测，
+  输入穿透卡死时直接纠正 `setIgnoreMouseEvents`；连续两拍无响应才重载渲染进程
+  （移植 1.x issue #13）。
 - `dock/engines/`：厂商模板与计价。`pricing.mjs`、`cmdgo.mjs`、`relays.mjs` 是
   `../lib/` 同名文件的**逐字节副本**，禁止手改；`npm run check:sync` 会失败。
   需要改价目时，源头在 `lib/`（会影响 1.x 线，先与维护者确认），再用
   `node tools/check-pricing-sync.mjs --fix` 同步副本。GLM Plan / 赠送额度走
   `engines/plan-balance.mjs` + `engines/glm-plan-api.mjs`，不要另起一套套餐配额。
   赠送池按模型分桶（日志里的 `balances[]` × `plans[].entitlements[].capabilities` →
-  `byModel`），额度页按模型分行展示；汇总数不得掩盖单模型告急。GLM 账号同时有赠送池与
+  `byModel`），额度页厂商卡与顶部额度卡按桶画进度条、快览卡追加最多 3 条桶行（D053）；
+  汇总数不得掩盖单模型告急。GLM 账号同时有赠送池与
   订阅时：直连接口（需 bigmodel key）给订阅窗口，日志兜底给赠送池——两个来源不互相冒充。
 
 ## 硬性约束
@@ -98,7 +118,8 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   （`bash`/`shell` 类命中危险模式、写路径出 cwd、敏感凭据路径）**不注册热键允许**、
   「允许一次」不设默认焦点、卡片挂「高风险」徽标。
 - 权限钩子时序红线：非权限事件 300ms 预算；权限事件等待 `min(settings.permission.waitMs,
-  钩子超时-3s)`；`pending` 不持久化，daemon 重启即全部 fail-open；审计只记
+  30s 总预算扣掉已用时间后的剩余)`（stdin 兜底与读设置都算在内，总时长不越过宿主 30s）；
+  `pending` 不持久化，daemon 重启即全部 fail-open；审计只记
   id/tool/decision/via，绝不记预览原文；通知文案脱敏且 ≤60 字。
 - 凭据顺序：环境变量 → DPAPI 保险库 → 宿主只读发现 → 旧配置导入。密钥只显示掩码；
   日志、诊断包、导出、通知里不得出现完整 key、完整命令或用户路径。
@@ -116,6 +137,9 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   口径由官方 Base URL 路径裁定（`/api/coding`、`/api/plan`），providerId 字样不作数
   （D047）。总览 7 天图与用量页
   共用 `/v1/usage/breakdown` 的 `daily`，预付日按等价市值并在 tooltip 标注「含预付等价」。
+  会话列表/回合明细/用量下钻同一判据（`adapters/zcode/prepaid.mjs#isPrepaidBilling`），
+  整段预付用量的成本显示「≈等价市值」；会话与回合成本按「模型 + provider + 整点桶」
+  分段计价（换模型、峰谷/周末、混合模型回合各算各的，D054）。
 - 运行时零 npm 依赖。不要在 `dock/package.json` 加依赖；确需测试工具时只加到
   `dock/test/package.json`。
 
@@ -127,6 +151,10 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   上下文是「会话」详情的标签，不是独立页。
 - 交互元素必须有可访问名称；图表必须有 `role="img"` + `aria-label`；装饰图标
   `aria-hidden`。新增页面/关键控件要带稳定 `data-testid`。
+- 控制台壳层定高：document 不得纵向滚动，滚动只在 `.content` / `.sidebar` 内。
+  `.content` 必须保持 `min-height: 0` + `position: relative`（滚动容器同时是定位祖先），
+  否则绝对定位控件锚到初始包含块会把 document 撑高，聚焦控件（如「避让滚动条」开关）
+  时整页被滚上去。`npm run test:ui` 有 document 纵向滚动断言。
 - 动画红线（D039）：只允许状态存续期间的功能性动画（`fd-spin`、一次性 `fd-nudge`）；
   空闲场景不得有无限动画，`prefers-reduced-motion` 下全部关闭。
 - 宠物层交互：隐藏金额时隐藏整个小胶囊（不是把金额改成 `•••`）；快览卡不放
@@ -135,7 +163,10 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   「失焦兜底位置」（`fallbackCorner` 四角可选，默认右下）、**直接贴住工作区角落并面向
   屏幕内侧**、回前台自动恢复吸附；浮层窗口与工作区精确重合，仅任务栏自动隐藏时留
   1 DIP 不可见缝防压滑出热区（D043 修订）；不要恢复「宿主不在最上层就整体 opacity 0」
-  的 z-order 隐身。角色名跟 `overlay/roles.js`（嘎啦嘛/大肥鱼/GPT娘/kimi娘/小克/哈基米），
+  的 z-order 隐身。「避让滚动条」（`scrollGapOn`/`scrollGap`）只作用于右边：吸附时按
+  宿主窗口右缘留缝，桌面悬浮时按屏幕（工作区）右缘留缝（最大化窗口的滚动条就在
+  屏幕右缘）；底/顶/左边必须贴死（1.x `lib/widget.js` 同款；在底边也扣会让角色悬空）。
+  角色名跟 `overlay/roles.js`（嘎啦嘛/大肥鱼/GPT娘/kimi娘/小克/哈基米），
   文档与提示不要用「狐狸/大鱼」等代称。
 - 权限卡（`#perm`，宠物层）：`alertdialog`，只有「允许一次 / 拒绝 / 去宿主处理」；
   高风险无「允许一次」；`allowOnce` 关闭或分支 B 时只剩拒绝与跳转；超时显示
@@ -159,6 +190,14 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
   `hook-script`（子进程六断言：fail-open、deny exit 2、分支 A 严格 JSON、开关降级）、
   `hook-sync`（副本逐字节 + 市场清单形态）、`sounds`（内置三套/导入/魔数/回落/旧集复制）、
   `cache-index`（版本失配丢弃/LRU/原子写/tail restore/删缓存等价性）。
+  D056 相关：`session-display-status`（5 分钟窗口边界、turnActive 上限、db done/idle 合并、
+  `permission_resolved` 续命、计数同源）、`zcode-workflow-status`（`dwf_run` 在跑/结束起算、
+  无 workflow 表的老库）、`zcode-cancelled-status`（手动停止 = idle、不落 doneAt、筛选口径），
+  以及 e2e `sessions-status`（已完成行/计数/筛选、UI 不信陈旧 working）与
+  `pet-status`（快览卡 displayStatus、胶囊计数回落、CommandCode 无滚动条、1.8s 晚到内容、
+  贴角气泡不被快览卡挤飞、refit 重读原点、失焦兜底贴角、pointercancel、preload onStream）。
+  `ui-regressions` 另覆盖：总览读 displayStatus、上下文切换失败不残留旧数据、预算逐键
+  输入、积分图、日期键盘焦点、诊断导出禁用、待处理全局计数。
 - 已知偶发失败：`anchor: 绑定后狐狸停在放下的位置`、`pet: 单击角色打开快览卡`、
   `大浮窗打开时气泡避开浮窗`、`restore.itest` 的恢复绑定用例受窗口动画/前台焦点影响；
   `npm run test:all` 首跑与机器高负载时的整跑也可能级联命中更多焦点类用例。
@@ -182,11 +221,23 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
 - `node:sqlite` 需要 Node ≥22.5；Windows 文件锁会让测试偶发 EPERM，DB 句柄要关，
   测试清理要留重试。
 - 浮层 / PowerShell Win32 桥是长生命周期进程，桥退出后 daemon 应能自动重启；
-  排障看 `/v1/health` 与 `doctor`，不要只看缓存状态。
+  排障看 `/v1/health` 与 `doctor`，不要只看缓存状态。显示缩放/分辨率/工作区变化
+  由浮层监听 `display-metrics-changed`（含 added/removed）自动重设窗口；缩放变化时
+  浮层调用 `POST /v1/maintenance/bridge-restart` 重建桥（桥的 DPI 上下文在启动时
+  固定，旧缩放会让 `/rect` 偏大 1.5/1.25 倍、角色落到宿主窗口下方），再让渲染层
+  立即 `refit()` 重读矩形。不要靠「重启 fox-dock」来修这类问题。
+- 会话状态展示统一读服务端 `displayStatus`（D056）：`done` 只是回合结束后 4 秒的机器状态，
+  `doneAt` 撑住 5 分钟「已完成」；`turnActive`（钩子回合边界，15 分钟上限）与
+  `workflowBusy`（`dwf_run`/`workflow_run` 仍在跑）压制 done/idle；根会话合并子会话与
+  workflow 状态。状态筛选、计数、SSE 摘要与控制台/胶囊/快览卡都不得自己按
+  `status==='done'` 或旧 `working` 推断。
 - 会话模型/厂商显示取最近一次调用；会话计数按根会话。浮层不要用 `/hit` 的
   “宿主不在最上层”来决定整体显隐，否则输入法辅助窗/QQ/全屏播放器会让角色吸附后消失。
   失去吸附时统一落右下角，并写回 `floating.rect`，避免下次轮询把角色拉回宿主坐标。
 - SSE 正常 EOF 也必须重连；控制台「连接中断」先查重连循环与 daemon 重启窗口。
+- 控制台白屏先看 `<数据目录>/console-crash.log`（渲染进程崩溃原因与近 60s 次数）：
+  主进程按 0/1/3/10/30s 退避重载，页面渲染错误由 `ErrorBoundary` 兜成错误卡（D055）。
+  改 UI 后必须重开控制台窗口才会加载新 DOM。
 - 旧的兼容入口（旧挂件把 `Notification/PermissionRequest` 转发到 `POST /v1/events`）必须保留。
 - ZCode 头部给了**双别名**字段（`tool_name`/`toolName`、`tool_input`/`toolInput`、
   `session_id`/`sessionId`、`hook_event_name`/`hookEventName`），还有 `requestId`、
@@ -204,6 +255,11 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
 ## 发版纪律（务必遵守）
 
 - 未经明确人工批准，**不要**改版本号、打 tag、签名或修改 `docs/dock/update.json`。
+- `docs/dock/release-notes-pre.3.html` 是本版对外的图文更新说明，不是一次性产物：
+  任何用户可感知的新功能、行为变化或修复，都要判断是否补进去（改文案、加修复条目、
+  必要时补图），不要只在 `CHANGELOG.md` 记录而忽略该文件；只改说明，不因此改版本号或发版。
+  更新说明页的图示红线见 `docs/dock/release-notes-*.html` 的既有样式与
+  `release-notes-html-diagram-rules` 记忆（wobble 不上文字组、箭头贴边、角色名跟 roles.js）。
 - 2.0 只发 `dock-v*` GitHub prerelease（`dock-pre` 线）；1.x 的 `v*` / `wb-v*` 不在本线。
 - 版本号按 `chore(release)` 独立提交；tag 打在「版本号已更新」的提交链上（pre.2 实操：
   tag 最终落在含签名清单的最后一个提交）。
@@ -223,8 +279,11 @@ node tools/probe-zcode-hook.mjs :: 生成 P-2 探针插件（模式切换式：a
 ## 动手前建议阅读
 
 - `docs/dock/PLAN-pre.2-truth-layer.md`：当前方案与不可碰清单
-- `docs/dock/DECISIONS.md`：D001–D052，冲突时以决策记录为准（D050 权限接管与分支 A 结论、
-  D051 语音库迁移、D052 向导/增量缓存/便携包）
+- `docs/dock/DECISIONS.md`：D001–D057，冲突时以决策记录为准（D050 权限接管与分支 A 结论、
+  D051 语音库迁移、D052 向导/增量缓存/便携包、D053 套餐按模型分桶进度条、
+  D054 会话成本口径与分段计价、D055 控制台渲染错误兜底与崩溃自愈、
+  D056 已完成展示窗口/回合活跃/workflow 父会话与手动停止修订、
+  D057 宠物层零网络 SSE 代理与输入链路自愈）
 - `docs/dock/ADAPTERS.md`：适配器契约、失败语义与实时信号矩阵（含 P-2 真机结论）
 - `docs/dock/TESTING.md`：分层测试、夹具、已知偶发失败、pre.3 增量
 - `docs/dock/UI-SPEC.md`：页面结构、设计令牌、验收清单

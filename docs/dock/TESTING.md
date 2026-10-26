@@ -97,7 +97,7 @@
 | 注入协议 | `ingest-validate` | 字段边界 + 5000 个随机 JSON 模糊测试 + 令牌桶 |
 | 安全 | `redact` | 12 类密钥形态 + 误伤样本；1MB 文本 <50ms |
 | 页面 | `npm run test:ui` | 9 页（`context` → `sessions`）× 双主题 × 三视口（1280/960/760）；axe 严重/致命为 0 |
-| 页面 E2E | `npm run test:e2e:pages` | Playwright + 夹具：导航/详情四标签/计数筛选/键盘/子任务/SSE/25 条分页 + 加载更多/归档筛选/跳转宿主/权限横幅/自定义范围不误发（自绘 DatePicker）/工具下钻/设置 PUT/53 周绿墙与每日每周累计/图表自适应/hash 切页/长区间标签不重叠/GET 缓存/柱图 hover 气泡/视角切换可见性 |
+| 页面 E2E | `npm run test:e2e:pages` | Playwright + 夹具：导航/详情四标签/计数筛选/键盘/子任务/SSE/25 条分页 + 加载更多/归档筛选/跳转宿主/权限横幅/自定义范围不误发（自绘 DatePicker）/工具下钻/设置 PUT/53 周绿墙与每日每周累计/图表自适应/hash 切页/长区间标签不重叠/GET 缓存/柱图 hover 气泡/视角切换可见性/并排窄详情栏回合表不裁列/音量静音不回落 50%/刷新重载 settings；`pet-perm` 纯浏览器渲染宠物层，覆盖权限卡「仍有待办不误报超时」「未到期处理直接收起 / 真到期才提示」 |
 | 视觉 | `npm run visual` / `visual:update` | 9 页 × 双主题 × 两视口 = 36 张 + 92 张 pre.2 场景基线（合计 128）；`sessions` 取代 `context` |
 | 宠物 | `npm run test:pet` | 80 张状态截图（chip-working/waiting/error/done/multi、quick-sessions 等）；角色本体不再叠加状态徽标 |
 | 集成 | `npm run test:all` | 真 daemon / 真 Electron / 合成宿主库（本机 418 项全绿） |
@@ -197,3 +197,11 @@
 - 单元：`risk.test.mjs`（73 条正反例 + 规则覆盖审计）、`actions.test.mjs`（幂等/上限/一次性 resolve/超时/断连/审计）、`hook-script.test.mjs`（子进程六断言：daemon 不在、坏 JSON、deny exit 2、分支 B 静默、分支 A 严格 JSON、takeover 关闭不等待）、`hook-sync.test.mjs`（集成插件副本逐字节同步 + 只挂 4 个低频钩子）、`sounds.test.mjs`（内置三套、导入/魔数/2MB/删除回落 duck/旧集复制去重）、`cache-index.test.mjs`（版本失配丢弃、LRU、原子写、tail restore、WB 删缓存等价性守卫）。
 - 集成：`actions.itest.mjs`（takeover 开关两态、pending 登记 + 高风险标注、resolve 403/400/409、wait 超时、permission_resolved 联动）。注意：同一测试进程并发两个 wait 长轮询会触发 undici 响应配对错乱（daemon 侧逐条核实过发送正确），测试与钩子都按「一次只挂一个长轮询」使用。
 - 已知不稳定性：权限横幅/权限卡用例依赖焦点与窗口时序，按 §5 定责方法单文件复跑。- 真机 P-2 探针（2026-10-25）已定分支 A：stdout `{"continue":true,"decision":"approve"}` 允许、exit 2 拒绝、原生卡片阻塞等待。已知客户端坑：本地市场安装 directory 插件时「复制进插件缓存」一步可能静默失败（安装记录在、缓存目录空、界面回弹无提示）——补齐缓存文件后重启客户端即恢复；本地目录型插件必须带根级 `marketplace.json`（自引用 source "."），否则市场识别不到。
+
+### 9.1 独立审查后的增量（2026-10-26）
+
+- 状态：`session-display-status.test.mjs` 增加「`permission_resolved` 续命（14/15/16/29 分钟边界）」与「`cancelled` 清 `turnActive` 且不落 doneAt」；新增 `zcode-cancelled-status.test.mjs`（真实 SQLite 夹具：cancelled → idle、endedAt、completed 5 分钟窗口、status 筛选）。
+- UI E2E：`ui-regressions` 增加总览读 `displayStatus`、上下文切换失败不残留 + 重试、预算逐键 `1.25`、积分图柱形、日期键盘焦点、诊断导出禁用、待处理全局计数、长下拉键盘导航不被静止鼠标抢回；`pet-status` 增加 `waiting_input` 胶囊文案、贴角气泡不被快览卡挤飞、`refit` 重读原点、失焦兜底贴角、`pointercancel` 清理、preload `onStream`（有 onStream 时渲染层不得构造 EventSource）。
+- 输入自愈：`input-probe.test.mjs` 覆盖正常返回、`executeJavaScript` 永久 pending 超时、异常透传、连续两拍触发 reload 且成功会清零。
+- 静态：`check-syntax` 覆盖 `.cjs`；`lint` 仍检查渲染层 `fetch`、危险 DOM、Electron 安全配置；`check:sync` / `parity:engines` 不受本轮改动影响。
+- 测试卫生：`lock` / `bindings` / `cache-index` 增加 `after()` 递归清理临时目录，`npm test` 不再向 `%TEMP%` 累积 `fox-dock-lock-*` / `fox-dock-bind-*`。
