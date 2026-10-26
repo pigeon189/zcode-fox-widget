@@ -38,6 +38,51 @@ test('redact: 多段混合，全部遮蔽后截断', () => {
   assert.ok(!out.includes('a'.repeat(32)))
 })
 
+test('redact: 命令行凭据参数（--password / --token / -p 紧贴值）也遮蔽', () => {
+  const cases = [
+    ['mysql -u root -pS3cr3t db', 'S3cr3t'],
+    ['tool --password hunter2 --user a', 'hunter2'],
+    ['deploy --token abcdef123456 --yes', 'abcdef123456'],
+    ['x --api-key "quoted secret" y', 'quoted secret'],
+    ['x --pwd=letmein y', 'letmein'],
+  ]
+  for (const [s, secret] of cases) {
+    const out = redact(s)
+    assert.ok(out.includes(MASK), 'should mask: ' + s)
+    assert.ok(!out.includes(secret), 'secret leaked: ' + s + ' → ' + out)
+  }
+  // 普通命令与普通词不误伤
+  assert.equal(redact('git push origin main'), 'git push origin main')
+  assert.equal(redact('password manager'), 'password manager')
+  // `-p` 紧贴值只遮「像凭据」的紧凑值：纯字母长选项（find -print / -pretty /
+  // -path）不是凭据，不能被整段吞掉。
+  assert.equal(redact('find . -print'), 'find . -print')
+  assert.equal(redact('rg --files -pretty'), 'rg --files -pretty')
+  assert.equal(redact('find . -path ./node_modules -prune'), 'find . -path ./node_modules -prune')
+  // 更不能吞 shell 语法/引号：危险词必须留给风险判定
+  assert.equal(redact('bash -p<<<"rm -rf /"'), 'bash -p<<<"rm -rf /"')
+  assert.equal(redact('bash -p<<<"dd if=/dev/zero of=/dev/sda"'), 'bash -p<<<"dd if=/dev/zero of=/dev/sda"')
+})
+
+test('redact: JSON 形态的凭据字段也遮蔽（钩子 JSON.stringify 的 tool_input）', () => {
+  const cases = [
+    ['{"token":"tok_live_9f8e7d6c5b4a","api_key":"AKIAZZZZZZZZZZZZZZZZ","password":"hunter2"}', ['tok_live_9f8e7d6c5b4a', 'hunter2']],
+    ['{"password": "hunter2"}', ['hunter2']],
+    ['{"access_token":"abc123secretvalue"}', ['abc123secretvalue']],
+    ['{"client_secret":"s3cr3t-value"}', ['s3cr3t-value']],
+    ['{"apiKey":"plainKeyValue123"}', ['plainKeyValue123']],
+    // 值被截断在半截（预览 400 字边界）：也要遮到字符串末尾
+    ['{"token":"abc123secretvalue', ['abc123secretvalue']],
+  ]
+  for (const [s, secrets] of cases) {
+    const out = redact(s)
+    assert.ok(out.includes(MASK), 'should mask: ' + s)
+    for (const secret of secrets) assert.ok(!out.includes(secret), 'secret leaked: ' + s + ' → ' + out)
+  }
+  // 键名只是包含 token/path 等词的不误伤
+  assert.equal(redact('{"tokenizer":"x","path":"D:/proj/a.mjs"}'), '{"tokenizer":"x","path":"D:/proj/a.mjs"}')
+})
+
 test('redact: 主目录替换为 ~（反斜杠/正斜杠/大小写）', () => {
   const home = process.env.USERPROFILE || os.homedir()
   if (!home) return

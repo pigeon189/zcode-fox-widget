@@ -8,6 +8,7 @@ import {
   resetIngestState,
   validateIngest,
 } from '../../daemon/src/ingest.mjs'
+import { assessRisk } from '../../daemon/src/risk.mjs'
 
 const base = (over = {}) => ({
   v: 1,
@@ -24,6 +25,44 @@ test('ingest: 合法事件通过并归一化字段', () => {
   assert.equal(r.event.title.length, 200)
   assert.ok(!r.event.preview.includes('sk-'))
   assert.equal(r.event.at, 1000)
+})
+
+test('ingest: JSON 形态的凭据字段在 preview 与 riskPreview 里都已遮蔽', () => {
+  resetIngestState()
+  const r = validateIngest(
+    base({
+      event: 'permission_request',
+      requestId: 'j'.repeat(16),
+      tool: 'Bash',
+      toolInput: JSON.stringify({ token: 'tok_live_9f8e7d6c5b4a', password: 'hunter2', command: 'echo ok' }),
+    }),
+    { now: 1000 }
+  )
+  assert.equal(r.ok, true)
+  assert.ok(!r.event.preview.includes('tok_live_9f8e7d6c5b4a'), 'preview 不得含 token 值')
+  assert.ok(!r.event.preview.includes('hunter2'), 'preview 不得含密码值')
+  assert.ok(!r.event.riskPreview.includes('tok_live_9f8e7d6c5b4a'), 'riskPreview 不得含 token 值')
+  assert.ok(r.event.preview.includes('echo ok'), '非凭据内容保留')
+})
+
+test('ingest: 风险判定文本用未脱敏原文（脱敏吞词不得降级 high）', () => {
+  resetIngestState()
+  // `--password "$(rm -rf /)"` 是可执行的高危命令（命令替换先执行），但脱敏
+  // 规则会把整段带引号的参数替换成「已隐藏」，拿它判定会漏报。
+  const raw = 'bash --password "$(rm -rf /)"'
+  const r = validateIngest(
+    base({ event: 'permission_request', requestId: 'k'.repeat(16), tool: 'Bash', toolInput: raw }),
+    { now: 1000 }
+  )
+  assert.equal(r.ok, true, JSON.stringify(r))
+  assert.ok(r.riskText.includes('rm -rf /'), '判定文本必须是未脱敏原文')
+  assert.equal(r.event.riskText, undefined, '判定文本不挂在 event 上（不写库、不进 UI）')
+  assert.ok(!r.event.preview.includes('rm -rf /'), '展示用 preview 仍然脱敏')
+  assert.equal(assessRisk({ tool: r.event.tool, preview: r.riskText, cwd: 'D:\\p' }).level, 'high')
+  // 对照组：拿脱敏文本判定会漏报（v1 因此必须用 riskText）
+  assert.equal(assessRisk({ tool: r.event.tool, preview: r.event.riskPreview, cwd: 'D:\\p' }).level, 'normal')
+  // 非权限事件不产生判定文本
+  assert.equal(validateIngest(base({ toolInput: 'rm -rf /' }), { now: 2000 }).riskText, '')
 })
 
 test('ingest: v / agent / event / sessionId / requestId 的边界', () => {

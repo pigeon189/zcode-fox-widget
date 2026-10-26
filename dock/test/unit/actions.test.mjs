@@ -69,6 +69,23 @@ test('actions: resolve 一次性；重复 resolve 冲突；未知 id not-found',
   assert.equal(broker.listPending().length, 0)
 })
 
+test('actions: 高风险 pending 不能经 resolve / 宿主 resolved 放行', () => {
+  const { broker } = makeBroker()
+  broker.create({ requestId: REQ(1), agentId: 'zcode', sessionId: 's1', tool: 'Bash', preview: 'rm -rf /', risk: 'high' })
+  const refused = broker.resolve(REQ(1), 'allow', 'pet')
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error, 'high-risk-host-only')
+  assert.equal(broker.get(REQ(1)).state, 'pending', '拒绝后 pending 保持，等宿主原生兜底')
+  assert.equal(broker.listAudit()[0].decision, 'refused-high-risk', '审计要能看出被拒的放行尝试')
+  // 伪造的「宿主已允许」事件也不能放行（真宿主放行时它自己的结论已生效）
+  assert.equal(broker.noteExternalResolved(REQ(1), 'allow').ok, true)
+  assert.equal(broker.get(REQ(1)).state, 'timeout')
+  // 拒绝仍然可用
+  broker.create({ requestId: REQ(2), agentId: 'zcode', sessionId: 's1', tool: 'Bash', preview: 'rm -rf /', risk: 'high' })
+  assert.equal(broker.resolve(REQ(2), 'deny', 'pet').ok, true)
+  assert.equal(broker.get(REQ(2)).state, 'denied')
+})
+
 test('actions: wait 长轮询拿到决策并清理 waiter', async () => {
   const { broker } = makeBroker()
   broker.create({ requestId: REQ(1), agentId: 'zcode', sessionId: 's1', tool: 'Bash', preview: 'ls', ttlMs: 30000 })

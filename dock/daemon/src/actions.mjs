@@ -26,7 +26,12 @@ export function createActionBroker({ sse = null, log = () => {}, now = () => Dat
   function broadcast(op, action) {
     if (!sse) return
     try {
-      sse.broadcast('action', { op, action: publicView(action) })
+      // SSE 匿名可订阅：只推送「有变化」的信号，不带命令预览与 requestId；
+      // 需要完整待办（含 preview/id）的 UI 走持令牌的 GET /v1/actions。
+      const view = publicView(action)
+      delete view.preview
+      delete view.id
+      sse.broadcast('action', { op, action: view })
     } catch (err) {
       log('action sse broadcast failed: ' + (err && err.message ? err.message : err))
     }
@@ -191,6 +196,14 @@ export function createActionBroker({ sse = null, log = () => {}, now = () => Dat
       if (!action) return { ok: false, error: 'not-found' }
       if (action.state !== 'pending') return { ok: false, error: 'conflict' }
       if (!DECISIONS.includes(decision)) return { ok: false, error: 'bad-decision' }
+      // 高风险动作没有任何「允许」通道（D036：高风险不给热键允许，UI 也不出
+      // 「允许一次」）。这个不变量必须由 daemon 守：UI 侧隐藏按钮不算数，否则
+      // 任何持令牌的本机进程都能 POST resolve 把高危请求放行。拒绝后 pending
+      // 保持，钩子等到超时自然 fail-open 回宿主原生弹窗。
+      if (decision === 'allow' && action.risk === 'high') {
+        auditPush({ at: now(), id, tool: action.tool, decision: 'refused-high-risk', via })
+        return { ok: false, error: 'high-risk-host-only' }
+      }
       auditPush({ at: now(), id, tool: action.tool, decision, via })
       finish(action, decision === 'allow' ? 'allowed' : 'denied')
       return { ok: true, action: publicView(action) }
@@ -203,6 +216,13 @@ export function createActionBroker({ sse = null, log = () => {}, now = () => Dat
       const d = decision === 'allow' ? 'allow' : decision === 'deny' ? 'deny' : null
       if (!d) {
         auditPush({ at: now(), id, tool: action.tool, decision: String(decision || 'unknown'), via: 'host' })
+        finish(action, 'timeout')
+        return { ok: true, action: publicView(action) }
+      }
+      // 同一个不变量：高风险也不能靠伪造的「宿主已允许」事件放行。用户真在原生
+      // 弹窗里放行时，宿主自己的结论已经生效，这里只把卡片按超时收起。
+      if (d === 'allow' && action.risk === 'high') {
+        auditPush({ at: now(), id, tool: action.tool, decision: 'refused-high-risk', via: 'host' })
         finish(action, 'timeout')
         return { ok: true, action: publicView(action) }
       }

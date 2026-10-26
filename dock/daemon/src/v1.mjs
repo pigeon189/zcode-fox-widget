@@ -26,6 +26,7 @@ import { assessRisk } from './risk.mjs'
 import { RESOLVE_VIAS } from './actions.mjs'
 import { deleteSoundSet, listSounds, resolveSoundBytes, saveSoundSet } from './sounds.mjs'
 import { prov } from '../../shared/provenance.mjs'
+import { redactHome } from '../../shared/redact.mjs'
 
 const DOCK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -112,21 +113,36 @@ function writeJsonFile(file, value) {
   fs.renameSync(tmp, file)
 }
 
-function redactHome(value) {
-  const home = process.env.USERPROFILE || process.env.HOME || ''
-  if (!home) return String(value)
-  let out = String(value)
-  const variants = [home, home.replace(/\\/g, '/'), home.toLowerCase(), home.replace(/\\/g, '/').toLowerCase()]
-  for (const v of variants) if (v) out = out.split(v).join('~')
-  return out
-}
-
 function rolesIndexFile(paths) {
   return path.join(paths.dir, 'roles.json')
 }
 
 // 会话响应统一脱敏：cwd 只保留 ~ 起头的写法；标题/错误消息不含主目录。
-function sanitizeSession(s) {
+//
+// 待办（pending）里带命令预览与 requestId，等同于权限决策的读取面（D036）。
+// GET /v1/actions 已经要求令牌；会话列表/详情是匿名读面，只有持有
+// x-fox-token 的调用方（控制台经主进程转发）才能拿到 preview/id，匿名方
+// 只保留能安全展示的状态字段（工具名/风险/截止时间）。
+function sanitizePending(p, { authorized } = {}) {
+  if (!p || typeof p !== 'object') return p
+  const out = {
+    kind: p.kind,
+    agentId: p.agentId,
+    sessionKey: p.sessionKey,
+    tool: p.tool,
+    risk: p.risk,
+    createdAt: p.createdAt,
+    expiresAt: p.expiresAt,
+    state: p.state,
+  }
+  if (authorized) {
+    out.id = p.id
+    out.preview = redactHome(p.preview ? p.preview : '')
+  }
+  return out
+}
+
+function sanitizeSession(s, opts = {}) {
   if (!s || typeof s !== 'object') return s
   return {
     ...s,
@@ -136,9 +152,7 @@ function sanitizeSession(s) {
       s.errors && s.errors.last && s.errors.last.message
         ? { ...s.errors, last: { ...s.errors.last, message: redactHome(s.errors.last.message) } }
         : s.errors,
-    pending: Array.isArray(s.pending)
-      ? s.pending.map((p) => ({ ...p, preview: redactHome(p && p.preview ? p.preview : '') }))
-      : s.pending,
+    pending: Array.isArray(s.pending) ? s.pending.map((p) => sanitizePending(p, opts)) : s.pending,
   }
 }
 
@@ -262,7 +276,7 @@ export function createV1Router(deps) {
         id: a.id,
         name: a.name,
         running: wins.length > 0,
-        windows: wins.map((w) => ({ hwnd: w.hwnd, pid: w.pid, title: text(w.title, 200), rect: w.rect })),
+        windows: wins.map((w) => ({ hwnd: w.hwnd, pid: w.pid, title: redactHome(text(w.title, 200)), rect: w.rect })),
         accent: a.accent || '',
         roleDefault: a.roleDefault || '',
         context: !!(a.capabilities && a.capabilities.context),
@@ -330,7 +344,9 @@ export function createV1Router(deps) {
 
     const method = String(req.method || 'GET').toUpperCase()
     const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
-    if (isWrite && !timingSafeEqual(req.headers['x-fox-token'], token)) {
+    // 读接口的「持令牌」不是必须，但持令牌才能看到权限待办的 preview/id。
+    const authorized = timingSafeEqual(req.headers['x-fox-token'], token)
+    if (isWrite && !authorized) {
       sendJson(res, 403, { ok: false, error: 'bad-token' })
       return true
     }
@@ -439,7 +455,7 @@ export function createV1Router(deps) {
         const r = await liveTracker.list(q)
         sendJson(res, 200, {
           ok: true,
-          items: (r.items || []).map(sanitizeSession),
+          items: (r.items || []).map((s) => sanitizeSession(s, { authorized })),
           nextCursor: r.nextCursor || null,
           total: r.total || 0,
           shownRoots: r.shownRoots || 0,
@@ -526,7 +542,7 @@ export function createV1Router(deps) {
         }
         sendJson(res, 200, {
           ok: true,
-          session: sanitizeSession(r.session),
+          session: sanitizeSession(r.session, { authorized }),
           turns: (r.turns || []).map((t) => ({ ...t, model: redactHome(t.model || '') })),
           tools: r.tools || [],
           models: r.models || [],
@@ -832,6 +848,16 @@ export function createV1Router(deps) {
           return true
         }
         const event = v.event
+        // 高风险判定（D036）用「未截断的脱敏文本 + 宿主自报 riskLevel」：展示用
+        // preview 截到 400 字会漏掉「长前缀 + 危险命令尾」，MCP 写工具也要按写
+        // 工具检查路径。判定只影响 UI 保护（热键/默认焦点/徽标）。
+        const permRisk = event.event === 'permission_request'
+          ? // 判定用未脱敏的 riskText（脱敏规则会吞掉整段凭据参数后的命令，
+            // 用 preview/riskPreview 判定会把 high 降成 normal）；riskText 只
+            // 作为 validateIngest 的返回值存在，不挂在 event 上、不写库。
+            assessRisk({ tool: event.tool, preview: v.riskText || event.riskPreview || event.preview, cwd: event.cwd, hostRisk: event.riskLevel })
+          : null
+        if (permRisk) event.risk = permRisk.level
         const r = liveTracker.ingest(event)
         // permission_resolved（宿主自己已处理）：联动 broker 收起对应卡片。
         if (event.event === 'permission_resolved' && event.requestId && broker) {
@@ -843,14 +869,13 @@ export function createV1Router(deps) {
         if (event.event === 'permission_request' && broker && settings.permission && settings.permission.takeover === true) {
           const perm = settings.permission || {}
           const waitMs = Math.max(1000, Math.min(30000, Number(event.timeoutMs) || 15000))
-          const risk = assessRisk({ tool: event.tool, preview: event.preview, cwd: event.cwd })
           const created = broker.create({
             requestId: event.requestId,
             agentId: event.agentId,
             sessionId: event.sessionId,
             tool: event.tool,
             preview: event.preview,
-            risk: risk.level,
+            risk: permRisk ? permRisk.level : 'normal',
             ttlMs: Math.max(Number(perm.waitMs) || 15000, waitMs),
           })
           if (created.ignored && body && body.wait) {
@@ -892,7 +917,8 @@ export function createV1Router(deps) {
         let legacy = { found: false, sources: [] }
         try {
           const inspected = inspectSources()
-          legacy.sources = (inspected || []).map((s) => ({ id: s.id, label: s.label, dir: s.dir, categories: s.categories || {} }))
+          // 匿名读面：旧挂件目录只用于展示来源，路径里的本机用户名不外发。
+          legacy.sources = (inspected || []).map((s) => ({ id: s.id, label: s.label, dir: redactHome(s.dir || ''), categories: s.categories || {} }))
           legacy.found = legacy.sources.length > 0
         } catch (err) {}
         const integrationDir = path.join(DOCK_ROOT, 'integrations', 'zcode-plugin')
@@ -901,7 +927,8 @@ export function createV1Router(deps) {
           onboarded: settings.onboarded === true,
           hosts,
           legacy,
-          integrationDir: fs.existsSync(integrationDir) ? integrationDir : '',
+          // 向导要把它复制到剪贴板给用户手动添加插件，只有持令牌的控制台能拿原路径。
+          integrationDir: fs.existsSync(integrationDir) ? (authorized ? integrationDir : redactHome(integrationDir)) : '',
         })
         return true
       }
@@ -942,6 +969,12 @@ export function createV1Router(deps) {
       }
       const soundFileMatch = p.match(/^\/v1\/sounds\/([^/]+)\/file\/(press|release)$/)
       if (soundFileMatch && method === 'GET') {
+        // 导入集音频是用户私有内容，和 /v1/actions 同口径要求令牌：浮层走
+        // 主进程 read-sound IPC（持令牌），浏览器/匿名进程不需要这个读面。
+        if (!timingSafeEqual(req.headers['x-fox-token'], token)) {
+          sendJson(res, 403, { ok: false, error: 'bad-token' })
+          return true
+        }
         const hit = resolveSoundBytes(decodeURIComponent(soundFileMatch[1]).slice(0, 44), soundFileMatch[2])
         if (!hit) {
           sendJson(res, 404, { ok: false, error: 'sound-not-found' })
@@ -953,7 +986,14 @@ export function createV1Router(deps) {
       }
 
       // ---------- 待处理权限动作（M5） ----------
+      // 待办里带命令预览与 requestId，等同于权限决策的「读取面」：即使写接口
+      // 已要求令牌，答对 Host 就能匿名枚举 pending 也不合适。读也要求令牌
+      // （UI 都经主进程持令牌转发；钩子/诊断走同一 lock 令牌）。
       if (p === '/v1/actions' && method === 'GET') {
+        if (!timingSafeEqual(req.headers['x-fox-token'], token)) {
+          sendJson(res, 403, { ok: false, error: 'bad-token' })
+          return true
+        }
         sendJson(res, 200, { ok: true, actions: broker ? broker.listPending() : [] })
         return true
       }
@@ -973,7 +1013,10 @@ export function createV1Router(deps) {
         }
         const r = broker.resolve(id, decision, via)
         if (!r.ok) {
-          sendJson(res, r.error === 'not-found' ? 404 : r.error === 'conflict' ? 409 : 400, { ok: false, error: r.error })
+          // high-risk-host-only：高风险动作只能回宿主原生弹窗，任何通道都不允许
+          // 由 daemon 代答「允许」。
+          const status = r.error === 'not-found' ? 404 : r.error === 'conflict' ? 409 : r.error === 'high-risk-host-only' ? 403 : 400
+          sendJson(res, status, { ok: false, error: r.error })
           return true
         }
         await broadcastState()
@@ -1036,6 +1079,22 @@ export function createV1Router(deps) {
           sendJson(res, 200, { ok: true, ...r })
         } catch (err) {
           sendJson(res, 400, { ok: false, error: String((err && err.message) || err) })
+        }
+        return true
+      }
+
+      // ---------- Win32 桥重启（显示缩放/分辨率变化后 DPI 上下文要重建） ----------
+      // PowerShell 桥在启动时确定 DPI 感知上下文；用户改了显示缩放后，桥返回的
+      // 窗口矩形仍按旧缩放换算（实测 150%→125% 时偏大 1.2 倍），浮层按新 DPI
+      // 摆放就会把角色放到宿主窗口下方。浮层监听 display-metrics-changed 后调用
+      // 这个端点重建桥，再按新工作区重设窗口。
+      if (p === '/v1/maintenance/bridge-restart' && method === 'POST') {
+        try {
+          if (bridge && typeof bridge.stop === 'function') bridge.stop()
+          if (bridge && typeof bridge.start === 'function') await bridge.start()
+          sendJson(res, 200, { ok: true, running: !!(bridge && bridge.running) })
+        } catch (err) {
+          sendJson(res, 503, { ok: false, error: String((err && err.message) || err) })
         }
         return true
       }
@@ -1200,7 +1259,8 @@ export function createV1Router(deps) {
           live: liveTracker ? liveTracker.aggregate() : null,
           ingest: {
             enabled: !!(readSettings(paths.settings).ingest && readSettings(paths.settings).ingest.enabled !== false),
-            integrationDir: path.join(DOCK_ROOT, 'integrations', 'zcode-plugin'),
+            // 诊断包会被导出/转发：安装目录里的本机用户名不落进包里。
+            integrationDir: redactHome(path.join(DOCK_ROOT, 'integrations', 'zcode-plugin')),
           },
           update: typeof readUpdateState === 'function' ? readUpdateState() : null,
         })

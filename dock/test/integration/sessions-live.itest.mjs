@@ -149,6 +149,43 @@ test('sessions: ingest 驱动 working → done → waiting_permission', async ()
   assert.equal(item.status, 'waiting_permission')
   assert.equal(list.aggregate, 'waiting_permission')
   assert.ok(Array.isArray(item.pending) && item.pending.length >= 1)
+
+  // D036：待办含命令预览与 requestId，不能经匿名读面枚举。再登记一个不带 wait
+  // 的待办（立即返回、默认 15s TTL），对比匿名与持令牌两种读法。
+  await post({
+    v: 1,
+    agent: 'zcode',
+    event: 'permission_request',
+    sessionId: 'ses_it_1',
+    requestId: 'req_integration_0002',
+    tool: 'Bash',
+    toolInput: 'echo secret-preview',
+  })
+  const anon = await (await fetch(base + '/v1/sessions?limit=20')).json()
+  const anonPending = (anon.items.find((s) => s.sessionId === 'ses_it_1') || {}).pending || []
+  assert.ok(anonPending.length >= 1)
+  for (const p of anonPending) {
+    assert.equal(p.preview, undefined, '匿名 /v1/sessions 不得返回命令预览')
+    assert.equal(p.id, undefined, '匿名 /v1/sessions 不得返回 requestId')
+  }
+  const authed = await (
+    await fetch(base + '/v1/sessions?limit=20', { headers: { 'x-fox-token': started.lock.token } })
+  ).json()
+  const authedPending = (authed.items.find((s) => s.sessionId === 'ses_it_1') || {}).pending || []
+  const full = authedPending.find((p) => String(p.preview || '').includes('echo secret-preview'))
+  assert.ok(full, '持令牌的调用方仍能拿到完整待办: ' + JSON.stringify(authedPending))
+  assert.ok(full.id, '持令牌时保留 requestId')
+
+  // 详情是同一条待办的另一个匿名读面，必须与列表同口径。
+  const sessKey = (anon.items.find((s) => s.sessionId === 'ses_it_1') || {}).key
+  const anonDetail = await (await fetch(base + '/v1/sessions/' + encodeURIComponent(sessKey))).json()
+  assert.equal(anonDetail.ok, true)
+  const anonDetailPending = (anonDetail.session && anonDetail.session.pending) || []
+  assert.ok(anonDetailPending.length >= 1, '匿名详情仍应看到待办状态')
+  for (const p of anonDetailPending) {
+    assert.equal(p.preview, undefined, '匿名 /v1/sessions/:key 不得返回命令预览')
+    assert.equal(p.id, undefined, '匿名 /v1/sessions/:key 不得返回 requestId')
+  }
 })
 
 test('sessions: 无令牌 403 / 非法字段 400 / 超大体积 413', async () => {
@@ -175,7 +212,21 @@ test('sessions: 无令牌 403 / 非法字段 400 / 超大体积 413', async () =
   assert.equal(huge.status, 413)
 })
 
-test('sessions: SSE 新订阅者先收到全量 sessions', async () => {
+test('sessions: SSE 新订阅者先收到全量 sessions（待办无预览/id）', async () => {
+  // 新登记一个待办，避免依赖上一条用例的 TTL。
+  await fetch(base + '/v1/ingest', {
+    method: 'POST',
+    headers: auth(),
+    body: JSON.stringify({
+      v: 1,
+      agent: 'zcode',
+      event: 'permission_request',
+      sessionId: 'ses_it_1',
+      requestId: 'req_sse_preview_0001',
+      tool: 'Bash',
+      toolInput: 'echo sse-secret-preview',
+    }),
+  })
   const res = await fetch(base + '/v1/stream', { signal: AbortSignal.timeout(5000) })
   assert.equal(res.status, 200)
   const reader = res.body.getReader()
@@ -192,4 +243,14 @@ test('sessions: SSE 新订阅者先收到全量 sessions', async () => {
   } catch (err) {}
   assert.match(text, /event: sessions/)
   assert.match(text, /ses_it_1/)
+  // SSE 匿名可订阅：载荷里的待办必须与匿名 /v1/sessions 同口径。
+  const dataLine = text.split(/\r?\n/).find((l) => l.startsWith('data: ') && l.includes('"items"'))
+  assert.ok(dataLine, 'SSE sessions 载荷应可解析: ' + text.slice(0, 300))
+  const payload = JSON.parse(dataLine.slice('data: '.length))
+  const item = (payload.items || []).find((s) => s.sessionId === 'ses_it_1') || {}
+  assert.ok((item.pending || []).length >= 1, 'SSE 应推送待办状态')
+  for (const p of item.pending || []) {
+    assert.equal(p.preview, undefined, '匿名 SSE sessions 不得返回命令预览')
+    assert.equal(p.id, undefined, '匿名 SSE sessions 不得返回 requestId')
+  }
 })

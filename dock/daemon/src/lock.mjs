@@ -5,6 +5,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+// 锁文件里有 API 令牌：只给当前用户读（POSIX chmod 生效；Windows 上文件 ACL
+// 继承用户目录，同用户进程仍可读——那部分见 D036 的威胁模型说明）。
+const LOCK_MODE = 0o600
+
+function chmodPrivate(file) {
+  try {
+    fs.chmodSync(file, LOCK_MODE)
+  } catch (err) {}
+}
+
 export function isProcessAlive(pid) {
   const n = Number(pid)
   if (!Number.isInteger(n) || n <= 0) return false
@@ -32,7 +42,7 @@ export function acquireLock(file, info) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const payload = JSON.stringify({ at: Date.now(), ...info })
   try {
-    fs.writeFileSync(file, payload, { flag: 'wx' })
+    fs.writeFileSync(file, payload, { flag: 'wx', mode: LOCK_MODE })
     return { ok: true, tookOver: false }
   } catch (err) {
     if (!err || err.code !== 'EEXIST') throw err
@@ -42,16 +52,18 @@ export function acquireLock(file, info) {
     return { ok: false, holder: cur }
   }
   const tmp = file + '.' + process.pid + '.tmp'
-  fs.writeFileSync(tmp, payload)
+  fs.writeFileSync(tmp, payload, { mode: LOCK_MODE })
   fs.renameSync(tmp, file)
+  chmodPrivate(file)
   return { ok: true, tookOver: true }
 }
 
 export function updateLock(file, patch) {
   const cur = readLock(file) || {}
   const tmp = file + '.' + process.pid + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify({ ...cur, ...patch, at: Date.now() }))
+  fs.writeFileSync(tmp, JSON.stringify({ ...cur, ...patch, at: Date.now() }), { mode: LOCK_MODE })
   fs.renameSync(tmp, file)
+  chmodPrivate(file)
 }
 
 export function releaseLock(file, pid) {

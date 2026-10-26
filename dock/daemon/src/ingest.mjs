@@ -94,6 +94,7 @@ export function validateIngest(body, opts = {}) {
   if (!SESSION_RE.test(sessionId)) return bad('bad-field:sessionId')
 
   const turnId = text(b.turnId, 80)
+  const rawToolInput = b.toolInput == null ? '' : b.toolInput
   let at = numOrNull(b.at)
   let skew = 0
   if (at !== null && Math.abs(at - now) > MAX_SKEW_MS) {
@@ -115,7 +116,13 @@ export function validateIngest(body, opts = {}) {
     model: text(b.model, 80),
     provider: text(b.provider, 80),
     tool: text(b.tool, 80),
-    preview: b.toolInput == null ? '' : redact(b.toolInput, 400),
+    preview: rawToolInput === '' ? '' : redact(rawToolInput, 400),
+    // 高风险判定的输入：展示用的 preview 截到 400 字会让「长前缀 + 危险命令尾」漏判。
+    // 这里保留更长的脱敏文本，只在 permission_request 上带，不写库、不进 UI。
+    riskPreview: '',
+    // 宿主自报风险等级（P-2 实测 PermissionRequest stdin 带 riskLevel）；
+    // 只收 high，daemon 侧只用来升级，不降级。
+    riskLevel: text(b.riskLevel, 16).toLowerCase() === 'high' ? 'high' : '',
     requestId: '',
     timeoutMs: 15000,
     usage: null,
@@ -127,6 +134,7 @@ export function validateIngest(body, opts = {}) {
     const rid = text(b.requestId, 40)
     if (!REQUEST_RE.test(rid)) return bad('bad-field:requestId')
     clean.requestId = rid
+    if (rawToolInput !== '') clean.riskPreview = redact(rawToolInput, 8000)
     const wait = b.wait && typeof b.wait === 'object' ? b.wait : null
     if (wait) {
       if (wait.mode !== 'decision') return bad('bad-field:wait')
@@ -134,6 +142,11 @@ export function validateIngest(body, opts = {}) {
       clean.timeoutMs = t === null ? 15000 : Math.max(1, Math.min(30000, Math.round(t)))
     }
   }
+  // 风险判定文本：**未脱敏**的命令原文（截到 8000 字），只作为 validateIngest
+  // 的返回值给 daemon 内部调 assessRisk，不放进 event（不写库、不进 UI/日志、
+  // 不随事件持久化）。脱敏规则会整段替换凭据参数（`--password "$(rm -rf /)"`
+  // 变成「已隐藏」），拿脱敏文本判定会把可执行的高危命令降成 normal。
+  const riskText = event === 'permission_request' && rawToolInput !== '' ? String(rawToolInput).slice(0, 8000) : ''
   if (event === 'permission_resolved') {
     const d = text(b.decision, 16)
     if (d && !['allow', 'deny', 'timeout', 'ignored'].includes(d)) return bad('bad-field:decision')
@@ -171,7 +184,7 @@ export function validateIngest(body, opts = {}) {
       if (seen.size <= 800) break
     }
   }
-  return { ok: true, event: clean, duplicate: false }
+  return { ok: true, event: clean, riskText, duplicate: false }
 }
 
 // 旧挂件 /v1/events 的 type → ingest event。
