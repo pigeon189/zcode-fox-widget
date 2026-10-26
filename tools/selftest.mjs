@@ -3205,6 +3205,36 @@ try {
     )
   }
 
+  // 二级面板与气泡：hidePanelsForBubble() 会把六个面板设成 visibility:hidden；
+  // 用户主动打开任一面板时必须先让气泡让路，否则面板要等气泡自动关闭才可见。
+  // 六个入口统一走 dismissBubbleForPanel()，只修单个面板会让其余入口继续复现。
+  {
+    const widgetSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'widget.js'), 'utf8')
+    const panelToggles = ['toggleBookPanel', 'toggleMorePanel', 'toggleAboutPanel', 'toggleUpdatePanel']
+    const missing = panelToggles.filter(function (name) {
+      const start = widgetSrc.indexOf('function ' + name + '(')
+      if (start === -1) return true
+      return !/dismissBubbleForPanel\(\)/.test(widgetSrc.slice(start, start + 600))
+    })
+    check(
+      '打开任一二面板都先收掉当前气泡（气泡会把面板 visibility:hidden）',
+      /function dismissBubbleForPanel\(\) \{\s*if \(costBubbleActive\) hideCostBubble\(\)\s*else if \(bubbleShown\) hideBubble\(\)/.test(
+        widgetSrc
+      ) &&
+        missing.length === 0 &&
+        /if \(usageOpen\) \{\s*dismissBubbleForPanel\(\)/.test(widgetSrc) &&
+        /function toggleBubbleEditor\(\) \{[\s\S]{0,300}?dismissBubbleForPanel\(\)/.test(widgetSrc),
+      missing.join(',')
+    )
+    check(
+      '预警气泡被主动收起时一并清 alertBubbleTimer',
+      /function hideCostBubble\(\) \{[\s\S]{0,800}?if \(alertBubbleTimer\) \{\s*clearTimeout\(alertBubbleTimer\)\s*alertBubbleTimer = null/.test(
+        widgetSrc
+      ),
+      ''
+    )
+  }
+
   // 钩子接线契约（WorkBuddy 版）：四个事件（SessionStart / UserPromptSubmit /
   // PostToolUse / Notification）全部是 type:"command" + bash 字符串命令（无 args、
   // 无 timeoutMs），命令里用 ${CODEBUDDY_PLUGIN_ROOT}，timeout 是**秒**数。
