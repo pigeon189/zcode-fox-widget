@@ -250,21 +250,23 @@ test('live-reduce 回放: 回合内思考→工具running→工具结果→继�
   }
 })
 
-test('live-reduce 回放: 长静默（≥90s 无任何证据）→ 空闲', () => {
+test('live-reduce 回放: 回合活跃但长时间无事件 → 到达上限后空闲（不永久卡工作中）', () => {
   const T = 2_000_000
   let s = reduce(seed({ status: 'idle', updatedAt: T - 1000, statusSince: T - 1000 }), {
     event: 'turn_start',
     at: T,
     turnId: 'turn-2',
   }).session
-  // 证据时间停在 T：89s 时滞回仍保持 working，91s 起接受推断空闲
-  s = mergeSnapshot(s, pollIdleInferred(T), T + LIVE_TIMEOUTS.WORKING_IDLE_MS - 1000).session
-  assert.equal(s.status, 'working')
+  // 回合内 90s 无库行是常态：钩子说回合还在跑，推断 idle 不能把它打下去。
   s = mergeSnapshot(s, pollIdleInferred(T), T + LIVE_TIMEOUTS.WORKING_IDLE_MS + 1000).session
+  assert.equal(s.status, 'working')
+  // Stop 丢失兜底：整段静默超过 TURN_ACTIVE_MAX_MS 后放开，不能永远显示工作中。
+  s = expire(s, T + LIVE_TIMEOUTS.TURN_ACTIVE_MAX_MS + 1000).session
   assert.equal(s.status, 'idle')
+  assert.equal(s.turnActive, false)
 })
 
-test('live-reduce 回放: 回合结束证据（db 终态）立即降级，不吃 90s 宽限', () => {
+test('live-reduce 回放: 回合结束证据（db done）立即降级，db idle 不吃钩子活跃标记', () => {
   const T = 3_000_000
   let s = reduce(seed({ status: 'idle', updatedAt: T - 1000, statusSince: T - 1000 }), {
     event: 'turn_start',
@@ -283,14 +285,23 @@ test('live-reduce 回放: 回合结束证据（db 终态）立即降级，不吃
   // done 4s 后 expire → idle
   s = expire(s, T + 31_000 + LIVE_TIMEOUTS.DONE_HOLD_MS).session
   assert.equal(s.status, 'idle')
-  // 回合结束已过 4s：适配器直接给 db idle → 立即空闲，同样不吃宽限
+  // 适配器只给 db idle（没有回合完成证据）：钩子的 turnActive 仍然优先，
+  // 长工具结束、首字未到的空档不能因为一条旧 idle 快照就显示空闲。
   let s2 = reduce(seed({ status: 'idle', updatedAt: T - 1000, statusSince: T - 1000 }), {
     event: 'turn_start',
     at: T,
     turnId: 'turn-3b',
   }).session
   s2 = mergeSnapshot(s2, seed({ status: 'idle', statusSource: 'db', updatedAt: T + 40_000, statusSince: T + 40_000 }), T + 40_000).session
-  assert.equal(s2.status, 'idle')
+  assert.equal(s2.status, 'working')
+  // 真正的回合结束证据（db done，且时间晚于 turnActiveSince）才清掉活跃标记。
+  s2 = mergeSnapshot(
+    s2,
+    seed({ status: 'done', statusSource: 'db', updatedAt: T + 41_000, statusSince: T + 41_000, endedAt: T + 41_000 }),
+    T + 41_000
+  ).session
+  assert.equal(s2.status, 'done')
+  assert.equal(s2.turnActive, false)
 })
 
 test('live-reduce 回放: 等待确认的出现与过期不受滞回影响', () => {

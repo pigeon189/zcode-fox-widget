@@ -28,6 +28,32 @@ export const ARCHIVED_MODES = ['exclude', 'only', 'all']
 // pending 没有显式 expiresAt 时的兜底（宿主 fail-open 截止约 15s）。
 export const PENDING_DEFAULT_TTL_MS = 15_000
 
+// 「已完成」的展示窗口：状态机仍在回合结束 4 秒后回落 idle，但列表/胶囊/
+// 快览卡在这 5 分钟内继续显示「已完成」，避免用户事后看到的是「空闲」。
+// 只做展示，不改变工作/等待/出错这些活跃状态。
+export const DONE_DISPLAY_MS = 5 * 60_000
+
+/**
+ * 展示状态（D056）：活跃状态优先，其次 workflow 在跑，其次 5 分钟内的 doneAt。
+ * 服务端与 UI 都只读这个函数，避免三个界面各算各的。
+ */
+export function displayStatusOf(session, now = Date.now()) {
+  const s = session && typeof session === 'object' ? session : {}
+  const status = SESSION_STATUSES.includes(s.status) ? s.status : 'unknown'
+  if (status === 'waiting_permission') return 'waiting_permission'
+  if (status === 'waiting_input') return 'waiting_input'
+  if (status === 'error') return 'error'
+  if (status === 'working') return 'working'
+  // 后台还有 workflow/子任务在跑：即使本会话回合已结束也不能显示空闲/已完成。
+  if (s.workflowBusy === true) return 'working'
+  // 钩子确认当前回合仍在进行（工具结束到首字之间没有新库行）。
+  if (s.turnActive === true) return 'working'
+  if (status === 'done') return 'done'
+  const doneAt = Number(s.doneAt)
+  if (Number.isFinite(doneAt) && doneAt > 0 && now >= doneAt && now - doneAt < DONE_DISPLAY_MS) return 'done'
+  return status === 'unknown' ? 'unknown' : 'idle'
+}
+
 export function normalizeArchivedMode(v, fallback = 'exclude') {
   const s = String(v == null ? '' : v).toLowerCase()
   return ARCHIVED_MODES.includes(s) ? s : fallback
@@ -74,16 +100,19 @@ export function aggregateOf(sessions) {
   }
   for (const s of list) {
     if (!s) continue
-    if (s.status === 'working') counts.working += 1
-    else if (s.status === 'waiting_permission') {
+    // 计数与展示同源：displayStatus 已把 5 分钟内的 doneAt、workflowBusy
+    // 与 turnActive 算进去；没有该字段时回退机器状态。
+    const status = SESSION_STATUSES.includes(s.displayStatus) ? s.displayStatus : s.status
+    if (status === 'working') counts.working += 1
+    else if (status === 'waiting_permission') {
       counts.waiting += 1
       counts.waiting_permission += 1
-    } else if (s.status === 'waiting_input') {
+    } else if (status === 'waiting_input') {
       counts.waiting += 1
       counts.waiting_input += 1
-    } else if (s.status === 'error') counts.error += 1
-    else if (s.status === 'done') counts.done += 1
-    else if (s.status === 'idle') counts.idle += 1
+    } else if (status === 'error') counts.error += 1
+    else if (status === 'done') counts.done += 1
+    else if (status === 'idle') counts.idle += 1
     else counts.unknown += 1
   }
   let aggregate = 'idle'
@@ -209,6 +238,8 @@ export function normalizeSession(raw, ctx = {}) {
   const endedAt = ts(r.endedAt)
   const tokens = normalizeTokens(r.tokens)
   const cost = normalizeCost(r.cost)
+  // 预付/套餐用量的等价市值：与真实支出分开保存，成本为 0 时展示 «≈»（D054）
+  const costMarket = normalizeCost(r.costMarket)
   const statusProv =
     r.provenance && r.provenance.status
       ? normalizeProv(r.provenance.status, { origin: originOfAdapter(agentId), source: defaultSourceOfAdapter(agentId) })
@@ -247,6 +278,16 @@ export function normalizeSession(raw, ctx = {}) {
     startedAt,
     updatedAt,
     endedAt,
+    // 最近一次「回合结束」的时间：done 的 5 分钟展示窗口从这里起算。
+    // 与 endedAt 分开是因为 endedAt 可能来自适配器的上一回合结束，而
+    // doneAt 只在真正进入 done 时写入（含 workflow 结束）。
+    doneAt: ts(r.doneAt),
+    // 钩子确认当前回合仍在进行；workflowBusy 表示以本会话为父的
+    // workflow/dwf run 仍在跑（两者都压制 done/idle）。
+    turnActive: r.turnActive === true,
+    turnActiveSince: ts(r.turnActiveSince),
+    workflowBusy: r.workflowBusy === true,
+    workflowBusySince: ts(r.workflowBusySince),
     archived: r.archived === true,
     // 真实宿主时间（不是适配器补的 now）。用于判断轮询是否带来了新证据，
     // 避免「updatedAt 永远是 now」把等待确认误清。
@@ -254,6 +295,7 @@ export function normalizeSession(raw, ctx = {}) {
     turns: normalizeTurns(r.turns),
     tokens,
     cost,
+    costMarket,
     tools: normalizeTools(r.tools),
     errors: normalizeErrors(r.errors),
     pending: Array.isArray(r.pending)
@@ -306,12 +348,21 @@ export function summarizeSession(s) {
     startedAt: x.startedAt == null ? null : Number(x.startedAt) || null,
     updatedAt: Number(x.updatedAt) || 0,
     endedAt: x.endedAt == null ? null : Number(x.endedAt) || null,
+    doneAt: x.doneAt == null ? null : Number(x.doneAt) || null,
+    turnActive: x.turnActive === true,
+    workflowBusy: x.workflowBusy === true,
+    // 服务端派生（live-tracker 写入）；没有就直接读 status。
+    displayStatus: SESSION_STATUSES.includes(x.displayStatus) ? x.displayStatus : null,
     archived: x.archived === true,
     lastHostAt: x.lastHostAt == null ? null : Number(x.lastHostAt) || null,
     turns: { count: Number(x.turns && x.turns.count) || 0 },
     tokens: { total: x.tokens && x.tokens.total != null ? Number(x.tokens.total) : null },
     cost: x.cost && Number.isFinite(Number(x.cost.amount))
       ? { amount: Number(x.cost.amount), currency: String(x.cost.currency || 'CNY'), unit: String(x.cost.unit || 'money') }
+      : null,
+    // 预付/套餐用量的等价市值（不是真实支出）：成本列为 0 时前端用 «≈» 展示（D054）
+    costMarket: x.costMarket && Number.isFinite(Number(x.costMarket.amount))
+      ? { amount: Number(x.costMarket.amount), currency: String(x.costMarket.currency || 'CNY'), unit: String(x.costMarket.unit || 'money') }
       : null,
     tools: { calls: Number(x.tools && x.tools.calls) || 0, errors: Number(x.tools && x.tools.errors) || 0 },
     errors: { model: Number(x.errors && x.errors.model) || 0, tool: Number(x.errors && x.errors.tool) || 0 },

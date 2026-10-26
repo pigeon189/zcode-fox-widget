@@ -10,6 +10,9 @@ import { SESSION_STATUSES } from './session-model.mjs'
 
 const DONE_HOLD_MS = 4000
 const WORKING_IDLE_MS = 90_000
+// 钩子确认的「当前回合」最长存活：回合内任何事件都会刷新 turnActiveSince，
+// 只有整段静默超过上限才认为 Stop 丢了，避免「工作中」永远不结束。
+const TURN_ACTIVE_MAX_MS = 15 * 60_000
 // 在途工具（tool_usage.status='running' / hook 注入的 tool_start 还没 tool_end）
 // 的保护上限：终端工具单次执行几分钟是常态，running 未清空不算静默，90s 超时
 // 不能把它打回空闲再被下一次轮询拉回工作中（状态横跳）。超过上限视为宿主
@@ -61,7 +64,18 @@ function setStatus(next, status, at) {
   if (next.status === status) return false
   next.status = status
   next.statusSince = at
+  // 5 分钟「已完成」展示窗口：进入 done 记时刻；回到任何活跃状态立刻清掉，
+  // 新回合不能被上一轮的 doneAt 盖住。
+  if (status === 'done') next.doneAt = at
+  else if (status === 'working' || status === 'waiting_permission' || status === 'waiting_input' || status === 'error') {
+    next.doneAt = 0
+  }
   return true
+}
+
+// 回合内事件刷新活跃时间；turn_end / session_end 负责清 turnActive。
+function touchTurn(next, at) {
+  if (next.turnActive === true) next.turnActiveSince = at
 }
 
 function addTokens(next, usage) {
@@ -111,6 +125,10 @@ export function reduce(prev, evt, now = Date.now()) {
       next.turns.count = (Number(next.turns.count) || 0) + 1
       next.turns.current = { id: String(e.turnId || '').slice(0, 80), index: next.turns.count, startedAt: at }
       next.endedAt = null
+      // 钩子确认的回合边界：turn_end 之前即使库里出现 completed 行也不显示
+      // 空闲/已完成（工具结束到首字之间的空档）。
+      next.turnActive = true
+      next.turnActiveSince = at
       setStatus(next, 'working', at)
       break
     }
@@ -121,11 +139,13 @@ export function reduce(prev, evt, now = Date.now()) {
         next.tools.running.push({ name, since: at })
       }
       next.tools.calls = (Number(next.tools.calls) || 0) + 1
+      touchTurn(next, at)
       setStatus(next, 'working', at)
       break
     }
 
     case 'tool_end': {
+      touchTurn(next, at)
       const name = String(e.tool || '').slice(0, 80)
       const idx = name ? next.tools.running.findIndex((x) => x.name === name) : -1
       if (idx >= 0) next.tools.running.splice(idx, 1)
@@ -144,6 +164,7 @@ export function reduce(prev, evt, now = Date.now()) {
     }
 
     case 'permission_request': {
+      touchTurn(next, at)
       const id = String(e.requestId || '').slice(0, 80)
       const ttl = at + Math.min(30000, Math.max(1000, finite(e.timeoutMs, 15000)))
       if (id) {
@@ -172,6 +193,9 @@ export function reduce(prev, evt, now = Date.now()) {
     }
 
     case 'permission_resolved': {
+      // 等待确认也是回合内事件：用户处理完权限后回合会继续跑，必须续命，
+      // 否则长回合在第 15 分钟被误判空闲（D056）。
+      touchTurn(next, at)
       const id = String(e.requestId || '')
       const idx = id ? next.pending.findIndex((x) => x.id === id) : 0
       if (idx >= 0 && next.pending[idx]) {
@@ -202,6 +226,7 @@ export function reduce(prev, evt, now = Date.now()) {
 
     case 'turn_end': {
       dropPendingBefore(next, at)
+      next.turnActive = false
       const duration = next.turns.current && next.turns.current.startedAt ? at - next.turns.current.startedAt : null
       next.turns.current = null
       if (duration !== null && duration >= 0) {
@@ -221,6 +246,7 @@ export function reduce(prev, evt, now = Date.now()) {
     }
 
     case 'usage':
+      touchTurn(next, at)
       dropPendingBefore(next, at)
       addTokens(next, e.usage)
       if (e.cost && Number.isFinite(Number(e.cost.amount))) {
@@ -235,6 +261,7 @@ export function reduce(prev, evt, now = Date.now()) {
 
     case 'session_end':
       dropPendingBefore(next, at)
+      next.turnActive = false
       next.endedAt = at
       setStatus(next, 'done', at)
       break
@@ -293,6 +320,14 @@ export function expire(prev, now = Date.now()) {
   const next = { ...s, tools: { ...s.tools }, pending: livePending }
   let changed = livePending.length !== beforePending.length
 
+  // Stop 丢失兜底：turnActive 只由回合内事件续命，整段静默超过上限就放开，
+  // 不让「工作中」永远不结束。
+  if (next.turnActive === true && now - (Number(next.turnActiveSince) || Number(next.statusSince) || now) > TURN_ACTIVE_MAX_MS) {
+    next.turnActive = false
+    next.turnActiveSince = 0
+    changed = true
+  }
+
   if (livePending.length === 0 && s.status === 'waiting_permission') {
     // 没有活着的 pending 就不能再显示「等待确认」：刚结束的回合保持 done 4s，
     // 否则回落 idle，而不是再等 10 分钟。
@@ -300,11 +335,17 @@ export function expire(prev, now = Date.now()) {
     next.status = endedAt > 0 && now - endedAt < DONE_HOLD_MS ? 'done' : 'idle'
     next.statusSince = now
     changed = true
+  } else if (next.turnActive === true && (s.status === 'idle' || s.status === 'done')) {
+    // 钩子说回合还在跑：库里的 idle/done 快照不能把它打下去。
+    next.status = 'working'
+    next.statusSince = now
+    next.doneAt = 0
+    changed = true
   } else if (s.status === 'done' && sinceStatus >= DONE_HOLD_MS) {
     next.status = 'idle'
     next.statusSince = now
     changed = true
-  } else if (s.status === 'working' && sinceUpdate >= WORKING_IDLE_MS && !hasLiveRunningTool(s, now)) {
+  } else if (s.status === 'working' && sinceUpdate >= WORKING_IDLE_MS && !hasLiveRunningTool(s, now) && next.turnActive !== true) {
     next.status = 'idle'
     next.statusSince = now
     changed = true
@@ -379,6 +420,37 @@ export function mergeSnapshot(prev, incoming, now = Date.now(), opts = {}) {
   next.tools.errors = Math.max(Number(prev.tools && prev.tools.errors) || 0, Number(incoming.tools && incoming.tools.errors) || 0)
   next.tools.running = mergeRunning(prev.tools && prev.tools.running, incoming.tools && incoming.tools.running)
 
+  // 回合活跃标记只由钩子维护，适配器快照不认识它：只有库里给出更晚的
+  // 「回合结束」证据才清掉。completed 记在 done，手动停止记在 cancelled
+  // （适配器报 idle + endedAt），两种都必须清，否则用户按停止后胶囊会一直
+  // 显示工作中直到 15 分钟上限。
+  const dbEndedAt = Number(incoming.endedAt) || 0
+  const dbTurnEnded =
+    String(incoming.statusSource || '') === 'db' &&
+    dbEndedAt > 0 &&
+    dbEndedAt >= Number(prev.turnActiveSince || 0)
+  const confirmedEnd =
+    dbTurnEnded ||
+    (incoming.status === 'done' &&
+      String(incoming.statusSource || '') === 'db' &&
+      Number(incoming.updatedAt) >= Number(prev.turnActiveSince || 0))
+  next.turnActive = incoming.turnActive === true || (prev.turnActive === true && !confirmedEnd)
+  next.turnActiveSince = next.turnActive
+    ? Math.max(Number(prev.turnActiveSince) || 0, Number(incoming.turnActiveSince) || 0)
+    : 0
+  // workflowBusy 以适配器为准（它查 dwf_run/workflow_run）；适配器没给字段时保留旧值。
+  next.workflowBusy =
+    incoming.workflowBusy === true || (incoming.workflowBusy === undefined && prev.workflowBusy === true)
+  next.workflowBusySince = next.workflowBusy
+    ? Math.max(Number(prev.workflowBusySince) || 0, Number(incoming.workflowBusySince) || 0)
+    : 0
+
+  // doneAt：活跃状态清零；done 用本次快照的时间；idle 保留（5 分钟窗口）。
+  const incomingActive = ['working', 'waiting_permission', 'waiting_input', 'error'].includes(next.status)
+  if (incomingActive) next.doneAt = 0
+  else if (next.status === 'done') next.doneAt = Number(incoming.doneAt) || Number(incoming.statusSince) || now
+  else next.doneAt = Number(incoming.doneAt) || Number(prev.doneAt) || 0
+
   // 滞回（问题 6「状态横跳」）：适配器按静默推断的 idle（statusSource='inferred'，
   // 没有回合结束证据）不能立刻把「工作中」打回空闲——思考/工具切换的间隙没有
   // 新库行是常态。保持 working 直到距上次宿主证据超过 WORKING_IDLE_MS（与
@@ -393,6 +465,16 @@ export function mergeSnapshot(prev, incoming, now = Date.now(), opts = {}) {
     next.status = 'working'
     next.statusSource = prev.statusSource
     next.statusSince = prev.statusSince
+  }
+
+  // 钩子说回合仍在进行 / 父会话还有 workflow 在跑：空闲/已完成都不能成立。
+  if (next.turnActive === true || next.workflowBusy === true) {
+    if (next.status !== 'error') {
+      next.status = 'working'
+      next.statusSource = prev.statusSource || next.statusSource
+      next.statusSince = prev.statusSince || next.statusSince
+      next.doneAt = 0
+    }
   }
 
   const prevPending = pendingOf(prev.pending).filter((p) => !pendingExpired(p, now))
@@ -425,6 +507,7 @@ export function mergeSnapshot(prev, incoming, now = Date.now(), opts = {}) {
 export const LIVE_TIMEOUTS = {
   DONE_HOLD_MS,
   WORKING_IDLE_MS,
+  TURN_ACTIVE_MAX_MS,
   RUNNING_TOOL_MAX_MS,
   PERMISSION_IDLE_MS,
   WAITING_INPUT_IDLE_MS,

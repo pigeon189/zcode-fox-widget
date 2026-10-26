@@ -16,15 +16,18 @@ import {
   compareSessionToCursor,
   compareSessionsForSort,
   cursorOf,
+  displayStatusOf,
   matchesArchived,
   normalizeArchivedMode,
   normalizeSession,
   parseCursor,
+  SESSION_STATUSES,
   sortValue,
   STATUS_PRIORITY,
   summarizeSession,
 } from '../../shared/session-model.mjs'
 import { expire, mergeSnapshot, reduce } from '../../shared/live-reduce.mjs'
+import { redactHome } from '../../shared/redact.mjs'
 
 const ACTIVE_POLL_MS = 2000
 const IDLE_POLL_MS = 15_000
@@ -115,18 +118,26 @@ export function createLiveTracker({
     return [...sessions.values()].filter((s) => s.archived !== true)
   }
 
-  function statsOf(list) {
+  function displayOf(s, now) {
+    if (!s) return 'unknown'
+    // 根会话已经由 rootStatusMap 合并出 displayStatus（含子任务/workflow），
+    // 不要在这里用自身状态把它算回去。
+    return SESSION_STATUSES.includes(s.displayStatus) ? s.displayStatus : displayStatusOf(s, now)
+  }
+
+  function statsOf(list, now) {
     const rows = Array.isArray(list) ? list : []
-    const agg = aggregateOf(rows)
+    const agg = aggregateOf(rows.map((s) => (s ? { ...s, displayStatus: displayOf(s, now) } : s)))
     const byAgent = {}
     for (const s of rows) {
       const row = byAgent[s.agentId] || (byAgent[s.agentId] = { working: 0, waiting: 0, error: 0, done: 0, total: 0, lastAt: 0 })
       row.total += 1
       row.lastAt = Math.max(Number(row.lastAt) || 0, Number(s.updatedAt) || 0)
-      if (s.status === 'working') row.working += 1
-      else if (s.status === 'waiting_permission' || s.status === 'waiting_input') row.waiting += 1
-      else if (s.status === 'error') row.error += 1
-      else if (s.status === 'done') row.done += 1
+      const status = displayOf(s, now)
+      if (status === 'working') row.working += 1
+      else if (status === 'waiting_permission' || status === 'waiting_input') row.waiting += 1
+      else if (status === 'error') row.error += 1
+      else if (status === 'done') row.done += 1
     }
     return { aggregate: agg.aggregate, counts: agg.counts, byAgent }
   }
@@ -159,21 +170,23 @@ export function createLiveTracker({
 
   // 控制台的状态计数按「根会话」算：子会话的工作/等待要归到父会话，
   // 否则一个父会话带两个子任务会显示成 3 个「工作中」，与实际会话数不符。
-  function rootStatusOf(root, childrenByParent) {
-    const statuses = [root.status, ...childrenFor(root, childrenByParent).map((c) => c.status)]
+  // 合并的是「展示状态」：子任务在跑、workflow 在跑、或 5 分钟内刚完成，
+  // 都要反映到父会话上（D056）。
+  function rootStatusOf(root, childrenByParent, now) {
+    const statuses = [displayOf(root, now), ...childrenFor(root, childrenByParent).map((c) => displayOf(c, now))]
     for (const status of STATUS_PRIORITY) if (statuses.includes(status)) return status
-    return root.status
+    return displayOf(root, now)
   }
 
-  function rootStatusMap(roots, childrenByParent) {
+  function rootStatusMap(roots, childrenByParent, now) {
     const map = new Map()
-    for (const root of roots) map.set(root.key, rootStatusOf(root, childrenByParent))
+    for (const root of roots) map.set(root.key, rootStatusOf(root, childrenByParent, now))
     return map
   }
 
-  function statsOfRoots(roots, childrenByParent) {
-    const statuses = rootStatusMap(roots, childrenByParent)
-    return statsOf(roots.map((root) => ({ ...root, status: statuses.get(root.key) })))
+  function statsOfRoots(roots, childrenByParent, now) {
+    const statuses = rootStatusMap(roots, childrenByParent, now)
+    return statsOf(roots.map((root) => ({ ...root, displayStatus: statuses.get(root.key) })), now)
   }
 
   function flattenRoots(pageRoots, childrenByParent) {
@@ -287,10 +300,34 @@ export function createLiveTracker({
     } catch (err) {}
   }
 
+  // SSE 是匿名可订阅的读面（宠物层 EventSource 不带令牌）：待办只推送能安全
+  // 展示的字段，命令预览与 requestId 走持令牌的 /v1/actions（D036）。
+  function sseSummary(session) {
+    const s = summarizeSession(session)
+    // 展示状态随 SSE 一起下发：宠物层的快览卡/胶囊不需要自己再算 5 分钟窗口。
+    s.displayStatus = displayStatusOf(session, now())
+    // 与 HTTP 会话响应同口径：匿名 SSE 订阅者也不能拿到完整主目录/用户名。
+    if (s.title) s.title = redactHome(s.title)
+    if (s.cwd) s.cwd = redactHome(s.cwd)
+    if (Array.isArray(s.pending) && s.pending.length) {
+      s.pending = s.pending.map((p) => ({
+        kind: p.kind,
+        agentId: p.agentId,
+        sessionKey: p.sessionKey,
+        tool: p.tool,
+        risk: p.risk,
+        createdAt: p.createdAt,
+        expiresAt: p.expiresAt,
+        state: p.state,
+      }))
+    }
+    return s
+  }
+
   function broadcastUpsert(session) {
     if (!sse) return
     try {
-      sse.broadcast('session', { op: 'upsert', session: summarizeSession(session) })
+      sse.broadcast('session', { op: 'upsert', session: sseSummary(session) })
     } catch (err) {}
   }
 
@@ -304,13 +341,13 @@ export function createLiveTracker({
   function summaries() {
     return visibleSessions()
       .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
-      .map(summarizeSession)
+      .map(sseSummary)
   }
 
   function aggregate() {
     // 胶囊/控制台徽标的「工作中/等待确认」也按根会话算；子任务不重复计数。
     const { roots, childrenByParent } = groupSessions(visibleSessions())
-    return statsOfRoots(roots, childrenByParent)
+    return statsOfRoots(roots, childrenByParent, now())
   }
 
   function broadcastSessions(force = false) {
@@ -563,8 +600,40 @@ export function createLiveTracker({
           let session = normalizeSession(item, { now: at })
           if (archivedKeys && archivedKeys.has(session.key)) session = { ...session, archived: true }
           // 内存里有会话就以内存为准（它合并了轮询与注入）；适配器确实更新时才替换。
+          // 时间戳相等时（重启后从 live-sessions.json 恢复、宿主库里这一笔没有新行），
+          // 累计量仍以适配器为准：内存里的 tokens/cost 是上次进程按当时价目算的，
+          // 会一直冻结在旧值（实测改完计费口径，空闲会话仍显示旧成本）。实时状态
+          // （status/pending）适配器不知道，继续用内存的。
           const prev = all.get(session.key)
-          if (!prev || Number(session.updatedAt) > Number(prev.updatedAt)) all.set(session.key, session)
+          if (!prev || Number(session.updatedAt) > Number(prev.updatedAt)) {
+            all.set(session.key, session)
+          } else if (Number(session.updatedAt) === Number(prev.updatedAt)) {
+            all.set(session.key, {
+              ...prev,
+              tokens: session.tokens,
+              cost: session.cost,
+              costMarket: session.costMarket || null,
+              turns: session.turns,
+              tools: session.tools,
+              errors: session.errors,
+              provenance: session.provenance || prev.provenance,
+              // doneAt / workflowBusy 是适配器侧证据（回合结束、run 状态），
+              // 内存里的旧快照没有它们，等时间戳时也要并进来。
+              doneAt: Math.max(Number(prev.doneAt) || 0, Number(session.doneAt) || 0) || null,
+              workflowBusy: session.workflowBusy === true,
+              workflowBusySince: Number(session.workflowBusySince) || 0,
+            })
+          } else {
+            // 适配器行比内存旧（重启后从 live-sessions.json 恢复的 updatedAt 可能
+            // 更晚）：状态仍用内存，但 workflow 是否在跑是当前查询结果，doneAt
+            // 也不能因为旧快照没有就丢掉，否则「已完成」永远抓不到。
+            all.set(session.key, {
+              ...prev,
+              doneAt: Math.max(Number(prev.doneAt) || 0, Number(session.doneAt) || 0) || null,
+              workflowBusy: session.workflowBusy === true,
+              workflowBusySince: Number(session.workflowBusySince) || 0,
+            })
+          }
         }
         // 内存里归档前的副本不会出现在适配器结果里；按权威集合补上 archived，
         // 否则 listAll 的 matchesArchived 会把它们当成活跃会话。
@@ -594,7 +663,7 @@ export function createLiveTracker({
     const { roots, childrenByParent } = groupSessions(nodes)
     // status/q 只过滤根会话；子会话只受 archived 过滤。状态筛选按父+子合并后的
     // 根状态，保证「子任务在工作中」的父会话会出现在「工作中」筛选里。
-    const rootStatuses = rootStatusMap(roots, childrenByParent)
+    const rootStatuses = rootStatusMap(roots, childrenByParent, at)
     const filteredRoots = roots
       .filter((s) => (!q.status || rootStatuses.get(s.key) === q.status) && matchSearch(s, q.q))
       .sort((a, b) => compareSessionsForSort(a, b, q.sort))
@@ -605,7 +674,11 @@ export function createLiveTracker({
       after.length > q.limit && page.length
         ? encodeCursor('all', q.sort, page[page.length - 1])
         : null
-    const items = flattenRoots(page, childrenByParent)
+    const items = flattenRoots(page, childrenByParent).map((s) => ({
+      ...s,
+      // 根会话用父+子合并后的展示状态；子会话保留自己的。
+      displayStatus: rootStatuses.get(s.key) || displayStatusOf(s, at),
+    }))
     return {
       ok: true,
       items,
@@ -614,7 +687,7 @@ export function createLiveTracker({
       shownRoots: page.length,
       rootTotal: filteredRoots.length,
       truncated,
-      ...statsOfRoots(roots, childrenByParent),
+      ...statsOfRoots(roots, childrenByParent, at),
     }
   }
 
@@ -659,7 +732,32 @@ export function createLiveTracker({
       // byKey 则跳过上一页已经返回过的锚点。
       memNodes.push(s)
       if (cur && s.key === cur.key) continue
-      byKey.set(s.key, s)
+      // 同一宿主时刻：累计量以适配器为准（与 collectAll 同规则），实时状态用内存。
+      const adapterRow = byKey.get(s.key)
+      if (adapterRow && Number(adapterRow.updatedAt) === Number(s.updatedAt)) {
+        byKey.set(s.key, {
+          ...s,
+          tokens: adapterRow.tokens,
+          cost: adapterRow.cost,
+          costMarket: adapterRow.costMarket || null,
+          turns: adapterRow.turns,
+          tools: adapterRow.tools,
+          errors: adapterRow.errors,
+          provenance: adapterRow.provenance || s.provenance,
+          doneAt: Math.max(Number(s.doneAt) || 0, Number(adapterRow.doneAt) || 0) || null,
+          workflowBusy: adapterRow.workflowBusy === true,
+          workflowBusySince: Number(adapterRow.workflowBusySince) || 0,
+        })
+      } else if (adapterRow) {
+        byKey.set(s.key, {
+          ...s,
+          doneAt: Math.max(Number(s.doneAt) || 0, Number(adapterRow.doneAt) || 0) || null,
+          workflowBusy: adapterRow.workflowBusy === true,
+          workflowBusySince: Number(adapterRow.workflowBusySince) || 0,
+        })
+      } else {
+        byKey.set(s.key, s)
+      }
     }
     // 父会话在适配器里、但不在这一页时，不要把内存子会话提升成根（会与
     // total 的「父在适配器里就不算额外根」口径不一致）；父会话所在页会带它。
@@ -670,7 +768,7 @@ export function createLiveTracker({
       }
     }
     const { roots, childrenByParent } = groupSessions([...byKey.values()])
-    const rootStatuses = rootStatusMap(roots, childrenByParent)
+    const rootStatuses = rootStatusMap(roots, childrenByParent, at)
     const filteredRoots = roots
       .filter((s) => (!q.status || rootStatuses.get(s.key) === q.status) && matchSearch(s, q.q))
       .sort((a, b) => compareSessionsForSort(a, b, q.sort))
@@ -693,7 +791,7 @@ export function createLiveTracker({
             !adapterKeys.has(s.key) &&
             // 父会话在适配器或内存里存在时，这是子会话，不单独计根。
             !(s.parentKey && (adapterKeys.has(s.parentKey) || memKeys.has(s.parentKey))) &&
-            (!q.status || s.status === q.status) &&
+            (!q.status || displayStatusOf(s, at) === q.status) &&
             matchSearch(s, q.q)
         )
         total = adapterTotal + extraRoots.length
@@ -705,13 +803,16 @@ export function createLiveTracker({
     }
     return {
       ok: true,
-      items: flattenRoots(page, childrenByParent),
+      items: flattenRoots(page, childrenByParent).map((s) => ({
+        ...s,
+        displayStatus: rootStatuses.get(s.key) || displayStatusOf(s, at),
+      })),
       nextCursor,
       total,
       shownRoots: page.length,
       rootTotal: total,
       truncated: r.truncated === true,
-      ...statsOfRoots(roots, childrenByParent),
+      ...statsOfRoots(roots, childrenByParent, at),
     }
   }
 
@@ -756,7 +857,7 @@ export function createLiveTracker({
     if (!session) return { ok: false, error: 'session-not-found' }
     return {
       ok: true,
-      session,
+      session: { ...session, displayStatus: displayStatusOf(session, now()) },
       turns: (extra && extra.turns) || [],
       tools: (extra && extra.tools) || [],
       models: (extra && extra.models) || [],

@@ -95,11 +95,11 @@ function makeDb() {
   insM.run('s6', 't6c', 'deepseek', 'deepseek-flash', 'completed', 'main_turn', NOW - 70_000, NOW - 50_000, 800, 100, 0, 0, 0, 900)
   insT.run('s6', 't6', 'completed', NOW - 420_000, NOW - 400_000, 20_000)
 
-  // s7（问题 6）：同场景，但最新模型调用完成于 100s 前（≥90s 静默阈值）→ 空闲
-  insS.run('s7', null, '静默超阈值', NOW - 500_000, NOW - 100_000, null, null)
-  insMsg.run('m7', 's7', NOW - 390_000, '{}')
-  insM.run('s7', 't7c', 'deepseek', 'deepseek-flash', 'completed', 'main_turn', NOW - 130_000, NOW - 100_000, 800, 100, 0, 0, 0, 900)
-  insT.run('s7', 't7', 'completed', NOW - 420_000, NOW - 400_000, 20_000)
+  // s7（问题 6）：同场景，但最新模型调用完成于 11 分钟前（≥10 分钟静默阈值）→ 空闲
+  insS.run('s7', null, '静默超阈值', NOW - 800_000, NOW - 660_000, null, null)
+  insMsg.run('m7', 's7', NOW - 780_000, '{}')
+  insM.run('s7', 't7c', 'deepseek', 'deepseek-flash', 'completed', 'main_turn', NOW - 690_000, NOW - 660_000, 800, 100, 0, 0, 0, 900)
+  insT.run('s7', 't7', 'completed', NOW - 800_000, NOW - 780_000, 20_000)
 
   // s8（问题 6）：终端工具已 running 7 分钟：在途证据（10 分钟窗口内），
   // 保持 working；5 分钟窗口会把它误判成空闲、下一次轮询又拉回工作中。
@@ -124,7 +124,7 @@ test('zcode live: 历史累计错误不影响当前状态', { skip: !sqlite }, a
     assert.equal(by.s4, 'idle', '取消的回合不应显示 error/working')
     assert.equal(by.s5, 'idle', '标题生成错误不能影响会话状态')
     assert.equal(by.s6, 'working', '回合内思考间隙（最新调用完成 50s）应保持 working')
-    assert.equal(by.s7, 'idle', '静默超过 90s 阈值应回落空闲')
+    assert.equal(by.s7, 'idle', '静默超过 10 分钟阈值应回落空闲')
     assert.equal(by.s8, 'working', 'running 工具（7 分钟）是在途证据，应保持 working')
     const s8 = r.items.find((x) => x.sessionId === 's8')
     assert.deepEqual(s8.tools.running, [{ name: 'Bash', since: NOW - 420_000 }], 'running 工具要随快照带出（实时层在途保护用）')
@@ -146,8 +146,9 @@ test('zcode live: 取消回合在详情里显示 cancelled，不伪装成进行�
 })
 
 // 问题 6「状态横跳」时间回放：s6 的回合未结束、最新模型调用完成于 NOW-50s。
-// 90s 静默阈值内必须持续 working；阈值耗尽（无任何新证据）才回落 idle。
-test('zcode live: 回合内思考间隙按 90s 保持——时间回放不横跳', { skip: !sqlite }, async () => {
+// 长工具结束到首字之间没有新库行，10 分钟静默阈值内必须持续 working；
+// 阈值耗尽（无任何新证据）才回落 idle。
+test('zcode live: 回合内思考间隙按 10 分钟保持——时间回放不横跳', { skip: !sqlite }, async () => {
   const { dir, file } = makeDb()
   const statusAt = async (when) => {
     _resetZcodeSessions()
@@ -156,10 +157,10 @@ test('zcode live: 回合内思考间隙按 90s 保持——时间回放不横跳
   }
   try {
     assert.equal((await statusAt(NOW)).status, 'working', 't=0：距最后证据 50s，回合内保持 working')
-    assert.equal((await statusAt(NOW + 30_000)).status, 'working', 't=+30s：距最后证据 80s，仍在 90s 窗口内')
-    assert.equal((await statusAt(NOW + 39_000)).status, 'working', 't=+39s：距最后证据 89s，不提前降级')
-    const after = await statusAt(NOW + 41_000)
-    assert.equal(after.status, 'idle', 't=+41s：距最后证据 91s，静默阈值耗尽 → idle')
+    assert.equal((await statusAt(NOW + 30_000)).status, 'working', 't=+30s：距最后证据 80s，仍在窗口内')
+    assert.equal((await statusAt(NOW + 530_000)).status, 'working', 't=+530s：距最后证据 580s，不提前降级')
+    const after = await statusAt(NOW + 560_000)
+    assert.equal(after.status, 'idle', 't=+560s：距最后证据 610s，10 分钟阈值耗尽 → idle')
     assert.equal(after.statusSource, 'db', '降级来自上一回合的终态行（回合结束证据），不是推断')
   } finally {
     _resetZcodeSessions()

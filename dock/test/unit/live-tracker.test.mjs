@@ -190,6 +190,61 @@ test('live-tracker: 持久化原子写 + 重启恢复', () => {
   }
 })
 
+test('live-tracker: 重启后同时间戳以适配器累计量为准（成本不冻结在旧价目）', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fox-live-'))
+  try {
+    // 旧进程：按旧口径算出 317.09 并持久化
+    const h = makeTracker({ dir, now: 5000 })
+    h.tracker.ingest({
+      agentId: 'zcode',
+      sessionId: 's1',
+      event: 'usage',
+      at: 5000,
+      usage: { total: 100 },
+      cost: { amount: 317.09, currency: 'CNY' },
+    })
+    h.tracker._persistNow()
+
+    // 新进程：宿主库里这一笔没有新行（updatedAt 相同），但适配器按新口径重算
+    const adapter = {
+      id: 'zcode',
+      capabilities: { sessions: { list: true, live: true } },
+      async getSessions() {
+        return {
+          ok: true,
+          supported: true,
+          items: [
+            {
+              agentId: 'zcode',
+              sessionId: 's1',
+              title: 'T',
+              status: 'idle',
+              statusSource: 'db',
+              updatedAt: 5000,
+              tokens: { total: 100 },
+              cost: { amount: 12.31, currency: 'CNY', unit: 'money' },
+            },
+          ],
+        }
+      },
+      async getLiveStatus() {
+        return { ok: true, supported: true, items: [] }
+      },
+      async getSessionDetail() {
+        return { ok: true, session: null, turns: [], tools: [], models: [] }
+      },
+    }
+    const h2 = makeTracker({ dir, now: 6000, adapters: [adapter] })
+    const r = await h2.tracker.list({ limit: 10, range: '30d' })
+    const s = r.items.find((x) => x.key === 'zcode:s1')
+    assert.ok(s, '会话仍在列表里')
+    assert.equal(s.cost.amount, 12.31, '累计成本以适配器为准')
+    assert.equal(s.tokens.total, 100)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('live-tracker: retentionDays 清理旧 idle 会话，保留 working', () => {
   const h = makeTracker({ now: 100 * 86400000, retentionDays: 7 })
   try {
