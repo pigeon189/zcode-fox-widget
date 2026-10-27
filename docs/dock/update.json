@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0-pre.2",
-  "url": "https://github.com/pigeon189/zcode-fox-widget/releases/download/dock-v2.0.0-pre.2/dock-2.0.0-pre.2.tar.gz",
-  "sha256": "0fdd494a83d8c75acff12f0012c68338427e884a576855e6fdf93c89e44c292d",
-  "notes": "2.0.0-pre.2 预发布：成本与额度真相层 + 会话实时层；会话分页/归档、火山方舟订阅分流、宠物层贴角兜底与状态防抖、Kimi K3.1 Pro 价目快照。旧挂件线不会收到此版本。",
-  "signature": "kgkUm6lhT9yWybH7tZlkHj/MrhNxyC9yFLQfZgdMF0qT6XB6Hw/TBj4R5riGderzJhacD+TSa7NQqELkKj3gCA=="
+  "version": "2.0.0-pre.3",
+  "url": "https://github.com/pigeon189/zcode-fox-widget/releases/download/dock-v2.0.0-pre.3/dock-2.0.0-pre.3.tar.gz",
+  "sha256": "100580d66d77e30d9dcd35976761ad7851891dd2579e66750483802c9a4a289d",
+  "notes": "pre.3 预发布：权限接管（权限卡/热键/桌面通知）、接入向导、WB 增量索引持久化、便携包与 1.x 语音库迁移；修复手动停止不回空闲、气泡避让、输入链路自愈、SSE 主进程代理、GLM 赠送池 0% 兜底等。",
+  "signature": "wZN1qbSEaQAk6VxEC8yo7mxYCiE+vuU1ufzic9INtQxUxFIAQsD9UmP9oUvHxjVbQBm7l6Edr22PFS65hjDXAw=="
 }
