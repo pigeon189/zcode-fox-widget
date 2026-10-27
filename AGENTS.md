@@ -13,13 +13,15 @@
 `dock-pre` 上的所有改动只落在 `dock/` 与 `docs/dock/`（`docs/dock/PLAN-pre.2-truth-layer.md` §0）；
 价目是唯一跨线例外（源头 `lib/pricing.mjs`，见下）。
 1.x 的版本号来源是根 `.zcode-plugin/plugin.json`；2.0 的版本号来源是 `dock/package.json`，两者互不影响。
-当前状态：pre.2 **已于 2026-10-24 发布**（`dock-v2.0.0-pre.2`）；**pre.3 已开发完成但未发版**
-（`dock-pre` 最新提交 `6792106`，版本号已升 `2.0.0-pre.3`，等人工放行；2026-10-26 完成
-三线审查收敛——前端/后端/安全 + 换人终审全 APPROVE，`ci` / `ui-check` / `e2e` 全绿，
-并新增 D056、显示缩放自愈与快览卡高度修复，工作树仍未提交）。pre.3 = M5 权限接管
-（ActionBroker / dock-hook / 集成插件 / 权限卡 / 热键 / 通知）+ M6 接入向导、WB 增量索引持久化、
-便携包 + 1.x v1.16.3 语音库迁移（小黄鸭/嘀嘟/猫娘 + 自定义导入）。发版前剩：soak 过夜、
-Edge 155 固定环境补跑视觉基线、人工放行。**P-2 探针已真机定案（2026-10-25）**：钩子 stdout
+当前状态：pre.2 **已于 2026-10-24 发布**（`dock-v2.0.0-pre.2`）；**pre.3 已于 2026-10-27 发布**
+（`dock-v2.0.0-pre.3`，GitHub prerelease，资产 = tar.gz + 图文说明 `release-notes-pre.3.html`，
+签名清单提交 `e8fc578`；此前 14 个提交 `172eee8..e8fc578` 含三线复审修复与 1.x busy timeout 迁移）。
+pre.3 = M5 权限接管（ActionBroker / dock-hook / 集成插件 / 权限卡 / 热键 / 通知）+ M6 接入向导、
+WB 增量索引持久化、便携包 + 1.x v1.16.3 语音库迁移（小黄鸭/嘀嘟/猫娘 + 自定义导入）。
+发版验证：soak 4h 健康（p50 12ms / p95 19ms）、bench 200k/1M、ci（593 单测）/ test:ui /
+e2e / electron 冒烟 / test:pet 全绿；`test:it` 87/90 为已知 `restore.itest` 环境级偶发（非回归）。
+**发版后仍欠**：Edge 155 固定环境补跑视觉基线（本机 Edge 156，基线未更新）、真机 DPI / 热键 /
+通知复核。**P-2 探针已真机定案（2026-10-25）**：钩子 stdout
 只有 `{"continue":true,"decision":"approve"}` 能表达允许，拒绝走 exit 2（stderr 透传给 agent），
 原生确认卡片阻塞等待钩子；结论已回填 ADAPTERS / D050 修订，分支 A 为默认。
 
