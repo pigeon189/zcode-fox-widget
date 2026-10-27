@@ -3003,6 +3003,43 @@ try {
     '迁移路由：migrate-unskip → migrationSkip 清空、入口恢复',
     migUnskipRes.ok && migUnskipBody.migration.available === true && migUnskipState.migrationSkip === null
   )
+  // eol 逃生门（安全审查 P2-1）：migrate-unskip 顺带解除 eol 锁定
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ latest: null, available: false, busy: false, phase: null, migrationProbe: { at: Date.now(), manifestVersion: pluginJson.version, eol: true, offer: GOOD_MIGRATION_OFFER } }),
+    'utf8'
+  )
+  const migEolRes = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'migrate-unskip' }),
+  })
+  const migEolProbe = JSON.parse(fs.readFileSync(path.join(dataDir, 'update-state.json'), 'utf8')).migrationProbe
+  check(
+    '迁移路由：migrate-unskip 解除 eol 锁定（逃生门）',
+    migEolRes.ok && migEolProbe.eol === false && !!migEolProbe.offer,
+    JSON.stringify({ eol: migEolProbe.eol })
+  )
+  // 手动更新门（UI 审查 F4）：本分支默认关原地更新，未启用时明确 403——
+  // 测试服务进程没有设 FOX_WIDGET_ENABLE_UPDATE_CHECK，正好覆盖默认关闭分支
+  const upGate = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'update' }),
+  })
+  const upGateBody = await upGate.json()
+  check(
+    '更新路由：本分支默认关闭原地更新 → 403 且说明启用方式',
+    upGate.status === 403 && upGateBody.ok === false && upGateBody.updateEnabled === false &&
+      /FOX_WIDGET_ENABLE_UPDATE_CHECK/.test(String(upGateBody.error || '')),
+    JSON.stringify({ status: upGate.status, error: upGateBody.error && upGateBody.error.slice(0, 60) })
+  )
+  const upGetGate = await getJson(port, '/whale/update.json')
+  check(
+    '更新路由：GET 带 updateEnabled=false（前端禁用「立即更新」的依据）',
+    upGetGate && upGetGate.updateEnabled === false,
+    JSON.stringify(upGetGate && upGetGate.updateEnabled)
+  )
   // 409 分支：先把 offer 摘掉（远端撤掉 migration 块后的下一次探测就是这个形状）
   fs.writeFileSync(
     path.join(dataDir, 'update-state.json'),
@@ -3822,6 +3859,26 @@ try {
         /clearPendingDisplay\(\)\n    if \(msg\.fs\)/.test(mainSrc),
       ''
     )
+    // 任务栏内缩（main 线 issue #8 同形态）：窗口矩形四周各留 4 DIP，铺满点全部
+    // 走同一个函数——漏掉任何一处都会在自动隐藏任务栏上复发
+    {
+      const wb = requireCjs(path.join(PLUGIN_ROOT, 'desktop', 'window-bounds.cjs'))
+      const b = wb.overlayWorkAreaBounds({ x: 0, y: 0, width: 2560, height: 1440 })
+      const b2 = wb.overlayWorkAreaBounds({ x: -1920, y: 0, width: 1920, height: 1080 }, 8)
+      const degenerate = wb.overlayWorkAreaBounds(null)
+      check(
+        'window-bounds：工作区四边各内缩 4 DIP（可自定义 inset，退化输入不炸）',
+        b.x === 4 && b.y === 4 && b.width === 2552 && b.height === 1432 &&
+          b2.x === -1912 && b2.width === 1904 &&
+          degenerate.width >= 1 && degenerate.height >= 1,
+        JSON.stringify({ b, b2, degenerate })
+      )
+      check(
+        'window-bounds：三处铺满点都走内缩函数（createWindow / 非 win32 兜底 / follower 失败兜底）',
+        (mainSrc.match(/overlayWorkAreaBounds\(/g) || []).length >= 3,
+        String((mainSrc.match(/overlayWorkAreaBounds\(/g) || []).length)
+      )
+    }
   }
 
   // 角色库：内置嘎啦嘛（默认）/大肥鱼固定在前，上传件自动启用；未指定时默认嘎啦嘛

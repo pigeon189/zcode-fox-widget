@@ -16,6 +16,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
 const { shouldHideBeforeSwitch } = require('./display-follow.cjs')
+const { overlayWorkAreaBounds } = require('./window-bounds.cjs')
 
 const PORT = Number(process.env.WHALE_PORT) || 39321
 const TARGET_URL = 'http://127.0.0.1:' + PORT + '/'
@@ -260,12 +261,15 @@ async function probePage() {
 function createWindow() {
   // 先在目标显示器工作区里把窗口建出来（跨屏跟随时换成宿主所在屏，缺省主显示器），
   // 但不显示——等拿到宿主窗口位置后再 show，避免鲸鱼先在别处闪一下。
+  // 工作区四周留 4 DIP：任务栏自动隐藏时 workArea 等于整屏，精确铺满会被
+  // Windows 当成全屏窗口，压制任务栏滑出热区（main 线 issue #8 同形态）。
   const workArea = overlayWorkArea || screen.getPrimaryDisplay().workArea
+  const bounds = overlayWorkAreaBounds(workArea)
   win = new BrowserWindow({
-    x: workArea.x,
-    y: workArea.y,
-    width: workArea.width,
-    height: workArea.height,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     transparent: true,
     frame: false,
     // 保持 resizable:true：Electron 对 resizable:false 的窗口会把 min/max 尺寸
@@ -404,7 +408,7 @@ function createWindow() {
     // showInactive 避免把宿主的前台抢过来
     win.once('ready-to-show', () => {
       try {
-        const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+        const wa = overlayWorkAreaBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea)
         win.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height })
       } catch (err) {}
       win.showInactive()
@@ -536,8 +540,8 @@ function startFollower() {
       // 兜底窗口在主屏，建窗依据也要一起复位，否则之后任何一次重建
       // 都会把它送到上次换屏的副屏，而那边没有跟随脚本
       overlayWorkArea = null
-      const { workArea } = screen.getPrimaryDisplay()
-      win.setBounds({ x: workArea.x, y: workArea.y, width: workArea.width, height: workArea.height })
+      const workArea = screen.getPrimaryDisplay().workArea
+      win.setBounds(overlayWorkAreaBounds(workArea))
       if (!win.isVisible()) {
         win.showInactive()
         overlayShown = true
@@ -725,10 +729,10 @@ function applyHostBounds(msg) {
   }
   const winBounds = win.getBounds()
 
-  // 桌宠模式：视口 = 整个浮层窗口（= 主显示器工作区，自动排除任务栏——任务栏在
-  // 哪条边都成立，workArea 已按其位置收缩）。鲸鱼在其中自由漫游，与 ZCode 窗口
-  // 的位置/大小解耦：失焦、被盖住、最小化、启动加载中都不影响桌宠显示，唯一
-  // 关心的是 ZCode 进程存活（msg.gone → 一起退出）。
+  // 桌宠模式：视口 = 整个浮层窗口（窗口铺的是工作区内缩 4 DIP 的矩形，自动排除
+  // 任务栏——任务栏在哪条边都成立；鲸鱼在其中自由漫游，与 ZCode 窗口的位置/大小
+  // 解耦：失焦、被盖住、最小化、启动加载中都不影响桌宠显示，唯一关心的是
+  // ZCode 进程存活（msg.gone → 一起退出）。
   if (petMode) {
     // 桌宠模式不参与换屏：别留一个到点还会重建窗口的计时器
     clearPendingDisplay()
@@ -754,7 +758,7 @@ function applyHostBounds(msg) {
   // 哨兵矩形兜底：最小化窗口的矩形是假的（Windows 报 -32000 一类坐标 + 159x27
   // 的假尺寸），拿它定位会把视口甩出窗口——鲸鱼被画到不可见处。
   if (rect.x < -10000 || rect.y < -10000) {
-    if (petMode) return
+    // 桌宠模式在上面已提前 return，这里只剩跟随模式：哨兵矩形一律按窗口丢失隐身
     clearPendingDisplay()
     hideOverlay('window-missing')
     return
