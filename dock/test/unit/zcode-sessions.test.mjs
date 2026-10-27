@@ -530,17 +530,24 @@ test('zcode-sessions: byDay 金额按真实币种分桶，daily 不把 USD 当�
   // 同一天同一 agent 既有 CNY（DeepSeek）又有 USD（Anthropic）：此前 agent 的
   // byDay.amount 直接混加，usage-breakdown 又把混合值整体记到主币种 CNY。
   const usdRow = { model: 'claude-sonnet-4-5', provider: 'anthropic', at: NOW - 20_000, input: 1000, output: 200, total: 1200 }
-  const { dir, file } = makeDb({ extraRows: [usdRow] })
+  // 币种锚定：再加一笔大额 DeepSeek 用量，保证无论夹具落在峰价还是谷价，CNY 总额
+  // 都高于 USD 行。否则谷价时 USD 0.006 > CNY 0.0032，dominantCurrency 会翻成 USD，
+  // 这条断言就随运行机器的本地时段漂移（CI 跑在 UTC，同一 NOW 落在北京 19:59 = 谷价，
+  // 必红；本机 UTC+8 落在 11:59 = 峰价，恰好通过）。
+  const cnyAnchor = { model: 'deepseek-flash', provider: 'deepseek', at: NOW - 30_000, input: 200_000, output: 40_000, total: 240_000 }
+  const { dir, file } = makeDb({ extraRows: [usdRow, cnyAnchor] })
   try {
     _resetZcodeSessions()
     const agg = await aggregateUsage({ dbFile: file, now: NOW, by: 'agent', since: NOW - 86400000, until: NOW })
     const series = agg.series[0]
     const byDay = series.byDay[0]
-    const wantCny = expectedCost(DEFAULT_DB_ROWS)
+    const wantCny = expectedCost(DEFAULT_DB_ROWS.concat([cnyAnchor]))
     const wantUsd = expectedCost([usdRow])
     assert.ok(wantUsd > 0, 'USD 行必须真的计价（否则用例没有区分力）')
+    assert.ok(byDay.byCurrency.CNY > byDay.byCurrency.USD, '夹具必须让 CNY 成为主币种')
     assert.ok(Math.abs(byDay.byCurrency.CNY - wantCny) < 0.0002, JSON.stringify(byDay.byCurrency))
     assert.ok(Math.abs(byDay.byCurrency.USD - wantUsd) < 0.0002, 'USD 分桶不能并入 CNY')
+    assert.equal(byDay.amount, byDay.byCurrency[series.currency], 'byDay.amount 必须等于 series 主币种那一桶')
     assert.ok(Math.abs(byDay.amount - wantCny) < 0.0002, 'byDay.amount 归一到 series 主币种')
 
     // 走真实链路（适配器 aggregateUsage → usage-breakdown）：daily 是总览 7 天图的数据源。
