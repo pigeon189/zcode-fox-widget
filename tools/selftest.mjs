@@ -3510,6 +3510,24 @@ try {
     '迁移路由：migrate-unskip → migrationSkip 清空、入口恢复',
     migUnskipRes.ok && migUnskipBody.migration.available === true && migUnskipState.migrationSkip === null
   )
+  // eol 逃生门（安全审查 P2-1）：migrate-unskip 顺带解除 eol 锁定，不留「只能手删
+  // 状态文件」的死角
+  fs.writeFileSync(
+    path.join(dataDir, 'update-state.json'),
+    JSON.stringify({ latest: null, available: false, busy: false, phase: null, migrationProbe: { at: Date.now(), manifestVersion: pluginJson.version, eol: true, offer: GOOD_MIGRATION_OFFER } }),
+    'utf8'
+  )
+  const migEolRes = await fetch('http://127.0.0.1:' + port + '/whale/update.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'migrate-unskip' }),
+  })
+  const migEolProbe = JSON.parse(fs.readFileSync(path.join(dataDir, 'update-state.json'), 'utf8')).migrationProbe
+  check(
+    '迁移路由：migrate-unskip 解除 eol 锁定（逃生门）',
+    migEolRes.ok && migEolProbe.eol === false && !!migEolProbe.offer,
+    JSON.stringify({ eol: migEolProbe.eol })
+  )
   // 409 分支：先把 offer 摘掉（远端撤掉 migration 块后的下一次探测就是这个形状）
   fs.writeFileSync(
     path.join(dataDir, 'update-state.json'),

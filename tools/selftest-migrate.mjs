@@ -10,13 +10,15 @@
 //     非 443 端口 / 路径穿越 / 三个资产域）；
 //   · validateMigrationOffer：stable-only（2.0.0-pre.* 一律拒）/ 字段上限 /
 //     纯文本 / minPluginVersion 门槛 / costs 不可省略；
-//   · pickBestManifest：多镜像取版本最高、同版本取带合法 migration 的那份；
+//   · pickBestManifest：多镜像取版本最高、同版本取带合法 migration 的那份、
+//     eol 哨兵与合法 offer 绑定；
 //   · probeMigrationOffer（注入 fetchImpl，不出网）：offer 落状态 / 24h 节流 /
 //     kill switch / 全失败静默 / eol 捕获 / force 绕过节流；
 //   · migrationPreflight：config 只报键名不报值 / 凭据只报数量 / dock 在线与版本
 //     （本机 127.0.0.1 桩）/ 数据体积排除可重建目录 / 启动项归属 / **只读**（前后
 //     目录快照逐字节一致）；
-//   · runUpdate 的 eol 哨兵：eol:true 拦下载；无 eol 字段时普通更新照常
+//   · runUpdate 的 eol 哨兵：eol 绑定合法 offer + tag 真实性核对，伪造被拆穿；
+//     无 eol 字段时普通更新照常
 //     （注入整包 + 测试密钥签名，与 selftest-update 同法）；
 //   · 普通更新回归：checkForUpdate 对带 migration 块的清单行为不变（版本比较
 //     只看 version 字段）；
@@ -210,6 +212,15 @@ const GOOD_OFFER = {
     JSON.stringify(onlyPre && onlyPre.reason)
   )
   check('多镜像取舍：空列表 → null', M.pickBestManifest([]) === null && M.pickBestManifest(null) === null)
+  check(
+    '多镜像取舍：eol 哨兵与合法 offer 绑定（裸 eol 清单不点亮）',
+    (() => {
+      const withOffer = M.pickBestManifest([{ version: '1.16.5', migration: GOOD_OFFER, eol: true }], { current: '1.16.5' })
+      const bareEol = M.pickBestManifest([{ version: '1.16.5', migration: null, eol: true }], { current: '1.16.5' })
+      const plain = M.pickBestManifest([{ version: '1.16.5', migration: GOOD_OFFER }], { current: '1.16.5' })
+      return withOffer.eol === true && bareEol.eol === false && plain.eol === false
+    })()
+  )
 }
 
 // ---------- 5. probeMigrationOffer（注入 fetch，不出网） ----------
@@ -256,15 +267,39 @@ const GOOD_OFFER = {
     JSON.stringify([off1.skipped, off2.skipped])
   )
 
-  // eol 哨兵捕获
+  // eol 哨兵捕获：只认「同一份清单带合法 migration offer」的宣告（安全审查 P2-1）
   await U.writeUpdateState({ migrationProbe: null })
-  const eolProbe = await M.probeMigrationOffer({
+  const eolNoOffer = await M.probeMigrationOffer({
     endpoints,
     force: true,
     current: '1.16.5',
     fetchImpl: async () => fakeRes(manifest('1.16.5', null, true)),
   })
-  check('探测：远端清单显式 eol:true 被记进状态（下载哨兵的输入）', eolProbe.ok === true && U.readUpdateState().migrationProbe.eol === true)
+  check(
+    '探测：裸 eol:true（无合法 migration 块）不点亮哨兵',
+    eolNoOffer.ok === true && U.readUpdateState().migrationProbe.eol === false
+  )
+  const eolProbe = await M.probeMigrationOffer({
+    endpoints,
+    force: true,
+    current: '1.16.5',
+    fetchImpl: async () => fakeRes(manifest('1.16.5', GOOD_OFFER, true)),
+  })
+  check('探测：eol 与合法 offer 同清单 → 哨兵点亮', eolProbe.ok === true && U.readUpdateState().migrationProbe.eol === true)
+
+  // 去粘滞：点亮后下一轮探测失败 → eol 立即回落 false（不再沿用旧值）
+  const failProbe2 = await M.probeMigrationOffer({
+    endpoints,
+    force: true,
+    current: '1.16.5',
+    fetchImpl: async () => {
+      throw new Error('connect timeout')
+    },
+  })
+  check(
+    '探测：eol 无粘滞——下一轮全失败即解除',
+    failProbe2.ok === false && U.readUpdateState().migrationProbe.eol === false
+  )
 
   // 全部源失败：静默（不抛）、记原因、无 offer
   const failProbe = await M.probeMigrationOffer({
@@ -340,8 +375,12 @@ function walkMap(root, prefix = '') {
   fs.mkdirSync(path.join(dataDir, 'overlay-profile-xyz'), { recursive: true })
   fs.writeFileSync(path.join(dataDir, 'overlay-profile-xyz', 'p'), Buffer.alloc(4096, 1))
 
+  // 空启动目录：所有不关心启动项的用例都注入它，杜绝读真机启动文件夹
+  const emptyStartup = path.join(TMP, 'startup-empty')
+  fs.mkdirSync(emptyStartup, { recursive: true })
+
   const before = walkMap(TMP)
-  const pre = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: {}, dockTimeoutMs: 300 })
+  const pre = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: {}, startupDir: emptyStartup, dockTimeoutMs: 300 })
   const after = walkMap(TMP)
 
   check(
@@ -368,7 +407,7 @@ function walkMap(root, prefix = '') {
       fs.mkdirSync(path.join(sized, 'desktop-runtime'), { recursive: true })
       fs.writeFileSync(path.join(sized, 'a.png'), Buffer.alloc(2048, 7))
       fs.writeFileSync(path.join(sized, 'desktop-runtime', 'electron.exe'), Buffer.alloc(8192, 1))
-      return M.migrationPreflight({ dataDir: sized, configFile: cfgFile, env: {}, dockTimeoutMs: 300 }).then((p) => {
+      return M.migrationPreflight({ dataDir: sized, configFile: cfgFile, env: {}, startupDir: emptyStartup, dockTimeoutMs: 300 }).then((p) => {
         fs.rmSync(sized, { recursive: true, force: true })
         return p.data.bytes === 2048 && p.data.files === 1
       })
@@ -390,7 +429,7 @@ function walkMap(root, prefix = '') {
   })
   await new Promise((resolve) => dockServer.listen(dockPort, '127.0.0.1', resolve))
   try {
-    const preDock = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: dockEnv, dockTimeoutMs: 1500 })
+    const preDock = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: dockEnv, startupDir: emptyStartup, dockTimeoutMs: 1500 })
     check(
       '预检：dock 在线且版本 ≥2.0.0 → checks.dockReady=true',
       preDock.dock.online === true && preDock.dock.version === '2.0.0' && preDock.dock.versionOk === true && preDock.checks.dockReady === true,
@@ -409,7 +448,7 @@ function walkMap(root, prefix = '') {
     await new Promise((resolve) => dockServer.close(resolve))
     await new Promise((resolve) => oldServer.listen(dockPort, '127.0.0.1', resolve))
     try {
-      const preOld = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: dockEnv, dockTimeoutMs: 1500 })
+      const preOld = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: dockEnv, startupDir: emptyStartup, dockTimeoutMs: 1500 })
       check('预检：dock 版本低于 2.0.0 → dockReady=false', preOld.dock.online === true && preOld.dock.versionOk === false, JSON.stringify(preOld.dock))
     } finally {
       await new Promise((resolve) => oldServer.close(resolve))
@@ -418,24 +457,25 @@ function walkMap(root, prefix = '') {
     await new Promise((resolve) => dockServer.close(resolve))
   }
 
-  // 启动项归属：自己的 VBS 与 dock 的启动器分别报
-  const startupDir = path.join(TMP, 'appdata', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+  // 启动项归属：自己的 VBS 与 dock 的启动器分别报。startupDir 直接注入临时目录，
+  // 不读真机启动文件夹（后端审查 P3-3；WB 线同款注入口）
+  const startupDir = path.join(TMP, 'startup', 'Programs', 'Startup')
   fs.mkdirSync(startupDir, { recursive: true })
   fs.writeFileSync(path.join(startupDir, 'zcode-fox-widget-watch.vbs'), "'x", 'utf8')
   fs.writeFileSync(path.join(startupDir, 'fox-dock.vbs'), "'x", 'utf8')
-  const preStartup = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: { APPDATA: path.join(TMP, 'appdata') }, dockTimeoutMs: 300 })
+  const preStartup = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: {}, startupDir, dockTimeoutMs: 300 })
   check(
     '预检：启动文件夹两只 VBS 的归属分别报出',
     preStartup.startup.own === true && preStartup.startup.ownFile === 'zcode-fox-widget-watch.vbs' &&
       preStartup.startup.dock === true && preStartup.startup.dockFile === 'fox-dock.vbs',
     JSON.stringify(preStartup.startup)
   )
-  const preNoStartup = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: { APPDATA: path.join(TMP, 'appdata-empty') }, dockTimeoutMs: 300 })
+  const preNoStartup = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: {}, startupDir: emptyStartup, dockTimeoutMs: 300 })
   check('预检：没有启动项时都报 false', preNoStartup.startup.own === false && preNoStartup.startup.dock === false)
 
   // 上次更新未完成：busy 挂着 → update.pending
   U.writeUpdateState({ busy: true, phase: 'downloading' })
-  const preBusy = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: {}, dockTimeoutMs: 300 })
+  const preBusy = await M.migrationPreflight({ dataDir, configFile: cfgFile, env: {}, startupDir: emptyStartup, dockTimeoutMs: 300 })
   U.writeUpdateState({ busy: false, phase: null })
   check(
     '预检：busy 挂着 → update.pending=true、checks.updateClean=false',
@@ -473,22 +513,43 @@ function walkMap(root, prefix = '') {
       '9.9.9'
     )
   const pub = { publicKey: testPub }
+  // runUpdate 的 eol 门槛会做 tag 真实性核对（verifyReleaseTag）：注入 fetch 桩
+  // 模拟「tag 存在 / 不存在」，不出网
+  const tagExists = { fetchImpl: async (url) => (String(url).includes('plugin.json') ? fakeRes('{"version":"1.16.5"}') : fakeRes('not found', 404)) }
+  const tagMissing = { fetchImpl: async () => fakeRes('not found', 404) }
 
-  // eol:true → 下载前只读拦截
-  U.writeUpdateState({ busy: false, latest: '9.9.9', available: true, migrationProbe: { at: Date.now(), manifestVersion: '1.16.5', eol: true, offer: null } })
+  // eol:true（与合法 offer 同清单、版本核对通过）→ 下载前只读拦截
+  U.writeUpdateState({ busy: false, latest: '9.9.9', available: true, migrationProbe: { at: Date.now(), manifestVersion: '1.16.5', eol: true, offer: GOOD_OFFER } })
   const rootEol = mkRoot('eol-root')
-  const rEol = await U.runUpdate({ files: pkg(), roots: [rootEol], ...pub })
+  const rEol = await U.runUpdate({ files: pkg(), roots: [rootEol], ...pub, ...tagExists })
   check(
-    'eol 哨兵：远端清单 eol=true 时拦截下载并给出迁移指引',
+    'eol 哨兵：宣告真实且版本可核对时拦截下载并给出迁移指引',
     rEol.ok === false && /eol|迁移/.test(String(rEol.error)),
     String(rEol.error)
   )
   check('eol 哨兵：拦截不落盘（安装目录没有新文件）', fs.readFileSync(path.join(rootEol, '.zcode-plugin', 'plugin.json'), 'utf8').includes('1.16.5'))
 
+  // 伪造 eol：版本没有真实 tag → 哨兵当场解除，更新照常放行（安全审查 P2-1）
+  U.writeUpdateState({ busy: false, latest: '9.9.9', available: true, migrationProbe: { at: Date.now(), manifestVersion: '99.0.0', eol: true, offer: GOOD_OFFER } })
+  const rootForge = mkRoot('eol-forge-root')
+  const rForge = await U.runUpdate({ files: pkg(), roots: [rootForge], ...pub, ...tagMissing })
+  const forgeProbe = U.readUpdateState().migrationProbe
+  check(
+    'eol 哨兵：宣告版本无真实 tag → 解除锁定并放行更新（伪造被拆穿）',
+    rForge.ok === true && forgeProbe.eol === false,
+    JSON.stringify({ ok: rForge.ok, eol: forgeProbe.eol })
+  )
+
+  // eol 与 offer 不在同一份清单（offer 为 null）→ 门槛不触发（旧状态文件兼容）
+  U.writeUpdateState({ busy: false, latest: '9.9.9', available: true, migrationProbe: { at: Date.now(), manifestVersion: '1.16.5', eol: true, offer: null } })
+  const rootNoOffer = mkRoot('eol-nooffer-root')
+  const rNoOffer = await U.runUpdate({ files: pkg(), roots: [rootNoOffer], ...pub, ...tagExists })
+  check('eol 哨兵：eol 无 offer 支撑时不拦（探测侧已不再产生这种状态）', rNoOffer.ok === true)
+
   // 无 eol 字段 → 普通更新照常（回归：迁移代码不改变 1.x 更新）
   U.writeUpdateState({ busy: false, latest: '9.9.9', available: true, migrationProbe: { at: Date.now(), manifestVersion: '1.16.5', eol: false, offer: GOOD_OFFER } })
   const rootOk = mkRoot('eol-off-root')
-  const rOk = await U.runUpdate({ files: pkg(), roots: [rootOk], ...pub })
+  const rOk = await U.runUpdate({ files: pkg(), roots: [rootOk], ...pub, ...tagExists })
   check(
     'eol 哨兵：无 eol 时普通更新照常完成（offer 在场也不影响）',
     rOk.ok === true && U.readUpdateState().phase === 'done',
@@ -496,7 +557,7 @@ function walkMap(root, prefix = '') {
   )
   // migrationProbe 字段缺整个 → 同样不拦（旧状态文件兼容）
   U.writeUpdateState({ busy: false, latest: '9.9.9', available: true, migrationProbe: null })
-  const rNone = await U.runUpdate({ files: pkg(), roots: [rootOk], ...pub })
+  const rNone = await U.runUpdate({ files: pkg(), roots: [rootOk], ...pub, ...tagExists })
   check('eol 哨兵：migrationProbe 缺失时不拦（旧状态文件兼容）', rNone.ok === true)
   U.writeUpdateState({ busy: false, latest: null, available: false, migrationProbe: null, phase: null, error: null })
 

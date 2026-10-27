@@ -807,7 +807,7 @@ function applyZCodeBounds(msg) {
   // 哨兵矩形兜底：最小化窗口的矩形是假的（Windows 报 -32000 一类坐标 + 159x27
   // 的假尺寸），拿它定位会把视口甩出窗口——鲸鱼被画到不可见处。
   if (rect.x < -10000 || rect.y < -10000) {
-    if (petMode) return
+    // 桌宠模式在上面已提前 return，这里只剩跟随模式：哨兵矩形一律按窗口丢失隐身
     clearPendingDisplay()
     hideOverlay('window-missing')
     return

@@ -137,6 +137,36 @@ function streamRes(chunks, status = 200, headers = {}) {
 }
 
 // ---------- 3. tar.gz 解包 ----------
+// jsdelivr 文件清单是嵌套树：路径必须带目录层级（旧实现收成扁平 basename，
+// 逐文件兜底 URL 全 404、整条兜底失效——从 WB 线回移的修复，安全审查 P3-1）
+{
+  const tree = {
+    files: [
+      { name: 'lib', type: 'directory', files: [{ name: 'widget.js', type: 'file' }] },
+      { name: '.zcode-plugin', type: 'directory', files: [{ name: 'plugin.json', type: 'file' }] },
+      { name: 'README.md', type: 'file' },
+      { name: 'assets', type: 'directory', files: [{ name: 'deep', type: 'directory', files: [{ name: 'a.png', type: 'file' }] }] },
+    ],
+  }
+  const paths = U.jsdelivrTreePaths(tree, 100)
+  check(
+    'jsdelivrTreePaths：嵌套树拼出带目录的完整路径',
+    paths.length === 4 &&
+      paths.includes('lib/widget.js') &&
+      paths.includes('.zcode-plugin/plugin.json') &&
+      paths.includes('README.md') &&
+      paths.includes('assets/deep/a.png'),
+    JSON.stringify(paths)
+  )
+  let threw = false
+  try {
+    U.jsdelivrTreePaths({ files: [{ name: 'a', type: 'file' }, { name: 'b', type: 'file' }, { name: 'c', type: 'file' }] }, 2)
+  } catch (err) {
+    threw = /超限/.test(String(err.message))
+  }
+  check('jsdelivrTreePaths：文件数超限抛错（防清单炸弹）', threw)
+}
+
 function makeTar(entries) {
   // 最小 tar 写入器（本测试自用）：ustar 头 + 内容补齐 512
   const blocks = []
