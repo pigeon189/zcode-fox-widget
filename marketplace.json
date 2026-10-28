@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "zcode-fox-widget",
-      "version": "1.16.7",
+      "version": "1.16.8",
       "description": "ZCode狐娘小挂件（zcode-fox-widget）：余额、今日已用、多厂商计价（46 个厂商模板）、GLM Plan 配额、CommandCode 三重额度、记账二级页、六套内置角色（专属台词池 / 按模型自动换角色 / 角色配色自定义）、按压泡泡（点击队列 + 模板导入导出）、挂件内自动更新（镜像链）、桌宠模式（全屏漫游）。",
       "source": "."
     }

@@ -1,6 +1,6 @@
 {
   "name": "zcode-fox-widget",
-  "version": "1.16.7",
+  "version": "1.16.8",
   "description": "ZCode狐娘小挂件（zcode-fox-widget）：多厂商计价（DeepSeek 峰谷 + GLM 平价分档；46 个厂商模板，含 Kimi/MiniMax/OpenCode Go 订阅窗口、Gemini 订阅与 21 家无余额接口厂商）、GLM Plan 套餐配额（零密钥日志尾随）、CommandCode 三重额度（月度池 + 5 小时/周窗口）、每轮消耗（金额或配额百分比）、记账二级页（用量记录 / 额度预警 / 余额预警 / 余额校正）、按压泡泡（点击队列 + 模板导入导出）、六套内置角色（专属台词池、按模型自动换角色、角色配色自定义含内嵌调色板与 HEX/RGB 输入）、角色导入与改名/删除、三套主题（浅色 / 深色 / 跟随 ZCode）、桌宠模式（全屏工作区漫游 + 失焦不隐身）、挂件内自动更新（镜像链，不依赖 GitHub 直连）、等确认提醒（客户端弹权限确认时提醒）、计费源智能切换。移植自 MeteorNOX 的 DSH 版。",
   "description_i18n": {
     "en": "ZCode Fox Widget (zcode-fox-widget): a desktop-pet widget for ZCode showing DeepSeek balance, GLM Plan quota, CommandCode triple-window quota and per-vendor daily usage, with per-turn cost bubbles, a press-bubble message queue, six built-in characters (per-model auto-switching, custom bubble colors via built-in picker and HEX/RGB), ledger reconciliation, in-widget auto-update over a mirror chain, and a desktop overlay mode.",
