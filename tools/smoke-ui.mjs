@@ -1944,6 +1944,35 @@ try {
   )
   if (stubVendor && stubVendor.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubVendor.identifier })
 
+  // ⑪c 智谱现金余额（issue #18）：按量 GLM 账户拿到 vendorBalance 后，主数字换成
+  // 余额、标题「GLM 余额」、小字显示今日已用（与 Kimi 同排版）。余额不可用时保持
+  // 「GLM 今日已用」（由前面第 ⑥ 条的标题断言覆盖）。
+  const stubGlmBal = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source:
+      '(function(){var real=window.fetch;function json(o){return Promise.resolve(new Response(JSON.stringify(o),{status:200,headers:{"Content-Type":"application/json"}}))}' +
+      'var S={ok:true,source:"glm",vendor:"glm",label:"GLM 今日已用",timeMode:"none",modelId:"zai-org/GLM-5.3",currency:"CNY",from:"selection",vendorBalance:{id:"bigmodel-glm",amount:23.4,currency:"CNY"}};' +
+      'var U={ok:true,today:{total:1.2,tokens:120000,totals:{CNY:1.2},byVendor:{GLM:{amount:1.2,tokens:120000,currency:"CNY"}},models:[]}};' +
+      'window.fetch=function(u,o){var s=String(u&&u.url?u.url:u);' +
+      'if(s.indexOf("/whale/session.json")!==-1)return json(S);' +
+      'if(s.indexOf("/whale/usage-records.json")!==-1)return json(U);' +
+      'return real.apply(this,arguments)}})()',
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 9500))
+  const glmBalView = JSON.parse(
+    await cdp.eval(
+      "(function(){var l=document.querySelector('.zcwv-label'),a=document.querySelector('.zcwv-amount'),h=document.querySelector('.zcwv-hint');" +
+        'return JSON.stringify({label:l?l.textContent:null,amount:a?a.textContent:null,hint:h?h.textContent:null})})()'
+    )
+  )
+  check(
+    '智谱现金余额（issue #18）：label「GLM 余额」、amount ¥23.40、hint 今日已用 ¥1.20',
+    !!glmBalView && glmBalView.label === 'GLM 余额' && glmBalView.amount === '¥23.40' &&
+      typeof glmBalView.hint === 'string' && glmBalView.hint.indexOf('今日已用 ¥1.20') !== -1,
+    JSON.stringify(glmBalView)
+  )
+  if (stubGlmBal && stubGlmBal.identifier) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: stubGlmBal.identifier })
+
   // ⑫ 消费型预警已取消（v1.7.7）：美元厂商今日已用再大也不弹预警泡，「余额¥」
   // 只剩 DeepSeek 余额见底一个语义（冒烟环境没有 DS key，凑不出余额见底，负向
   // 断言：喂 OpenAI 消耗数据后 9 秒内不得出现任何「预警」标题的泡泡）
