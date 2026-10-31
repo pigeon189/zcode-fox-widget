@@ -59,6 +59,7 @@ const { MODEL_ROLE_RULES, roleIdForModel, BUILTIN_ROLES } = await import('../lib
 const { findApiKey, readPluginConfig } = await import('../lib/credentials.mjs')
 const { resolveBillingSource, isNightOffpeak, resolveHostBillingSource } = await import('../lib/source.mjs')
 const { readLatestTurn, resolveSession, readContextUsage, usageFromRawUsage, CREDIT_CURRENCY } = await import('../lib/turn-cost.mjs')
+const { nodeBin } = await import('../lib/service.mjs')
 
 // ---------- 宿主侧凭据候选位 fixture（discover.mjs 扫描的地方） ----------
 // WorkBuddy 没有 ZCode 的 provider_config.json / zcode-builtin.json 模板继承；
@@ -1983,6 +1984,9 @@ const serverEnv = {
   CMDGO_DIR: path.join(tmpHome, 'cmdgo-empty'),
   // 版本自检会向镜像发真实请求：测试环境整个关掉（见 lib/update.mjs 的 startAutoCheck）
   WHALE_DISABLE_UPDATE_CHECK: '1',
+  // 厂商模板的远程取数（余额 / 配额）一律关掉：fixture 里放了占位 key，
+  // 不能让它们被发往真实厂商；模板解析与取数逻辑另有注入桩的单测覆盖
+  WHALE_DISABLE_VENDOR_FETCH: '1',
 }
 let childLog = ''
 function spawnServer() {
@@ -2487,9 +2491,12 @@ try {
     JSON.stringify({ openaiKind: byId.openai && byId.openai.kind, ollamaKind: byId.ollama && byId.ollama.kind })
   )
   check(
-    '自动发现命中 bigmodel 规则（key 来自 settings.json 的 pluginConfigs）',
-    byId['bigmodel-glm'] && byId['bigmodel-glm'].available === true && String(byId['bigmodel-glm'].keySource || '').indexOf('plugin-config:') === 0,
-    byId['bigmodel-glm'] ? JSON.stringify({ available: byId['bigmodel-glm'].available, keySource: byId['bigmodel-glm'].keySource }) : '缺失'
+    '自动发现命中 bigmodel 规则（key 来自 settings.json 的 pluginConfigs；测试环境下远程取数被闸住）',
+    byId['bigmodel-glm'] && byId['bigmodel-glm'].kind === 'balance' &&
+      String(byId['bigmodel-glm'].keySource || '').indexOf('plugin-config:') === 0 &&
+      byId['bigmodel-glm'].available === false &&
+      String(byId['bigmodel-glm'].reason || '').indexOf('禁用出网') !== -1,
+    byId['bigmodel-glm'] ? JSON.stringify({ kind: byId['bigmodel-glm'].kind, available: byId['bigmodel-glm'].available, keySource: byId['bigmodel-glm'].keySource }) : '缺失'
   )
   check(
     '本地网关/加密凭据被跳过：deepseek 走 NO_KEY 快速路径不出网',
@@ -2503,6 +2510,99 @@ try {
   )
   // （迁移删除）「Plan 模板走日志源」：zcode-plan 模板已随 plan-balance 冻结一并从
   // vendors.mjs 删除，WorkBuddy 侧无对应物。已在清单完整性断言里去掉该 id。
+
+  // 智谱现金余额（issue #18）：模板结构 / 响应围栏 / 注入桩取数 / 会话映射 / 展示降级。
+  // 实测依据：账户报表接口无鉴权时返回 HTTP 200 + {code:1001}（不是 401），所以
+  // pick 必须先判 success/code 再取字段——只看 HTTP 状态会把错误包当余额。
+  {
+    const tpl = TEMPLATES['bigmodel-glm']
+    check(
+      '智谱余额模板：kind=balance，host 显式声明为 www.bigmodel.cn，URL 是账户报表接口',
+      !!(tpl && tpl.kind === 'balance' && tpl.balance) &&
+        tpl.balance.host === 'www.bigmodel.cn' &&
+        tpl.balance.url === 'https://www.bigmodel.cn/api/biz/account/query-customer-account-report' &&
+        tpl.balance.auth === 'Bearer {key}',
+      JSON.stringify(tpl && { kind: tpl.kind, host: tpl.balance && tpl.balance.host })
+    )
+    const pickGlm = tpl.balance.pick
+    check(
+      '智谱余额 pick：成功包取 availableBalance（CNY）；错误包 / 缺字段 / 非数字 / 非 200 code 一律 null',
+      (() => {
+        const ok = pickGlm({ code: 200, success: true, data: { availableBalance: 12.5 } })
+        const str = pickGlm({ code: 200, success: true, data: { availableBalance: '8.8' } })
+        const authErr = pickGlm({ code: 1001, success: false, msg: 'Header中未收到Authorization参数' })
+        const noData = pickGlm({ code: 200, success: true })
+        const badField = pickGlm({ code: 200, success: true, data: { availableBalance: 'n/a' } })
+        const badCode = pickGlm({ code: 401, data: { availableBalance: 1 } })
+        return (
+          ok && ok.amount === 12.5 && ok.currency === 'CNY' &&
+          str && str.amount === 8.8 &&
+          authErr === null && noData === null && badField === null && badCode === null
+        )
+      })(),
+      ''
+    )
+    // 注入桩：出站 URL / Bearer 头 / redirect:error 都按模板声明走，不触发真实请求
+    let seen = null
+    const stubFetch = async (url, init) => {
+      seen = {
+        url: String(url),
+        auth: init && init.headers && init.headers.Authorization,
+        redirect: init && init.redirect,
+      }
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({ code: 200, success: true, data: { availableBalance: 23.4 } })
+        },
+      }
+    }
+    const fetched = await fetchFromTemplate(tpl, 'sk-selftest-placeholder', { fetchImpl: stubFetch })
+    check(
+      '智谱余额取数：注入桩走通，Bearer 头与 redirect:error 都正确',
+      !!fetched && fetched.ok === true && fetched.balance === 23.4 && fetched.currency === 'CNY' &&
+        !!seen && seen.url === tpl.balance.url && seen.auth === 'Bearer sk-selftest-placeholder' && seen.redirect === 'error',
+      JSON.stringify({ fetched, seen })
+    )
+    // 整条状态链：listVendorStatus 注入桩 → kind/available/balance（不写入 5 分钟缓存）
+    const listStub = await listVendorStatus(true, { fetchImpl: stubFetch })
+    const bm = (listStub.vendors || []).find((v) => v.id === 'bigmodel-glm')
+    check(
+      '智谱余额（listVendorStatus 注入桩）：available=true、balance=23.4、kind=balance',
+      !!bm && bm.available === true && bm.balance === 23.4 && bm.kind === 'balance',
+      JSON.stringify(bm && { available: bm.available, balance: bm.balance })
+    )
+    const failStub = async () => {
+      throw new Error('connect timeout')
+    }
+    const listFail = await listVendorStatus(true, { fetchImpl: failStub })
+    const bmFail = (listFail.vendors || []).find((v) => v.id === 'bigmodel-glm')
+    check(
+      '智谱余额：取数失败 → available=false 且带原因（cli vendors / 面板不误报可用）',
+      !!bmFail && bmFail.available === false && !!bmFail.reason,
+      JSON.stringify(bmFail && { available: bmFail.available, reason: bmFail.reason })
+    )
+    check(
+      '会话映射：MODEL_VENDOR_BALANCE_TEMPLATES 把 glm 指向 bigmodel-glm（服务端源码钉）',
+      /glm: \['bigmodel-glm'\]/.test(fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'server.mjs'), 'utf8'))
+    )
+    check(
+      'pickVendorBalance：按模板优先级取到智谱余额（amount/currency 完整）',
+      (() => {
+        const got = pickVendorBalance([{ id: 'bigmodel-glm', ok: true, balance: 23.4, currency: 'CNY' }], ['bigmodel-glm'])
+        return !!got && got.id === 'bigmodel-glm' && got.amount === 23.4 && got.currency === 'CNY'
+      })()
+    )
+    const widgetSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'widget.js'), 'utf8')
+    check(
+      '前端：GLM 余额优先且可降级（balanceLabel / vendorBalanceOf / 标题随口径切换）',
+      widgetSrc.indexOf("balanceLabel: 'GLM 余额'") !== -1 &&
+        /function vendorBalanceOf\(source, view\)/.test(widgetSrc) &&
+        /var vbal = vendorBalanceOf\(source, view\)[\s\S]{0,500}?labelText = view\.balanceLabel \|\| view\.label/.test(widgetSrc) &&
+        /labelEl\.textContent = labelText/.test(widgetSrc)
+    )
+  }
 
   // 用量记录：今日按模型聚合（积分口径）与逐轮事件。先补一轮 2 天前的历史
   // 用量，用来区分「按当天 / 按 7 天」两个模型榜：old-model 只在 7 天榜里出现，
@@ -3106,6 +3206,39 @@ try {
       '迁移引导单测全绿（offer 校验 / stable-only / URL 白名单 / 多镜像取舍 / 探测节流 / 预检只读 / eol 哨兵 / 普通更新回归）',
       run.status === 0 && !!m && m[1] === m[2] && Number(m[2]) >= 50,
       m ? m[0] + '（共 ' + m[2] + ' 项）' : (((run.stderr || '') + (run.stdout || '')).slice(-260) || '无输出')
+    )
+  }
+
+  // issue #17：守护进程的 node 可执行文件必须是**绝对路径**（process.execPath），
+  // 不能按名字解析 'node'。版本管理器（mise/nvm/fnm）的 shim 在 detached 拉起时
+  // windowsHide 只作用于直接子进程，shim 的二跳真身会被分配可见控制台——Windows
+  // 11 默认终端托管成常驻空窗。nodeBin 的参数只为本测试覆盖，运行期无参调用。
+  {
+    const saved = process.env.FOX_WIDGET_NODE
+    delete process.env.FOX_WIDGET_NODE
+    const def = nodeBin()
+    process.env.FOX_WIDGET_NODE = path.join(os.tmpdir(), 'custom-node.exe')
+    const over = nodeBin()
+    if (saved === undefined) delete process.env.FOX_WIDGET_NODE
+    else process.env.FOX_WIDGET_NODE = saved
+    check(
+      'nodeBin：默认返回 process.execPath 绝对路径（不再按名字解析 node，issue #17）',
+      def === process.execPath && path.isAbsolute(def),
+      def
+    )
+    check('nodeBin：FOX_WIDGET_NODE 覆盖优先于 execPath', over === path.join(os.tmpdir(), 'custom-node.exe'), over)
+    check(
+      'nodeBin：Electron-as-node 且无 ELECTRON_RUN_AS_NODE 时退回 node（避免拉起 GUI 外壳）',
+      nodeBin({}, { electron: '99.0.0' }) === 'node' &&
+        nodeBin({ ELECTRON_RUN_AS_NODE: '1' }, { electron: '99.0.0' }) === process.execPath,
+      ''
+    )
+    check(
+      'nodeBin：spawnServer 用的是同一函数（探测与拉取口径一致，不各写一份）',
+      /const child = spawn\(nodeBin\(\), \[SERVER_ENTRY\]/.test(
+        fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'service.mjs'), 'utf8')
+      ) && /spawnSync\(nodeBin\(\), \['-v'\]/.test(fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'service.mjs'), 'utf8')),
+      ''
     )
   }
 
