@@ -4223,6 +4223,13 @@ try {
         /mon == overlayMon/.test(followSrc),
       ''
     )
+    check(
+      '全屏让路：全屏判据用无边框（WS_CAPTION 清除）而非 IsZoomed——Chromium 最大化→全屏只清 WS_CAPTION|WS_THICKFRAME、保留 WS_MAXIMIZE，IsZoomed 会误杀「最大化窗口进全屏」的浏览器视频',
+      /GetWindowLong\(fg, -16 \/\*GWL_STYLE\*\//.test(followSrc) &&
+        /0x00C00000 \/\*WS_CAPTION\*\//.test(followSrc) &&
+        !/IsZoomed\(fg\)/.test(followSrc),
+      ''
+    )
   }
 
   // issue #8：任务栏自动隐藏时 workArea 等于整屏，浮层必须留出不可见边距，
