@@ -12,6 +12,9 @@ dist/
 # 本机数据目录（配置、账本、Electron 运行时）不在这里，但以防有人拷贝进来
 desktop-runtime/
 
+# README 插图的本地渲染预览（由 docs/readme/*.svg 生成，不入库）
+docs/readme/previews/
+
 # 编辑器 / 系统
 .DS_Store
 Thumbs.db

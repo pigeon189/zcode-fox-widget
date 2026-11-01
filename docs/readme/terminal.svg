@@ -1,0 +1,27 @@
+<svg width="760" height="330" viewBox="0 0 760 330" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="安装、状态检查与浮层启动的常用命令（输出做了省略）">
+  <style>
+    .mono { font-family: 'Cascadia Code', 'SF Mono', Consolas, 'Courier New', monospace; }
+    .prompt { fill: #D9772E; font-weight: 600; }
+    .cmd { fill: #23211F; }
+    .out { fill: #6B6660; }
+    .ok { fill: #3F7D58; }
+  </style>
+  <rect x="10" y="10" width="740" height="310" rx="12" fill="#FFFFFF" stroke="#E7E2DA"/>
+  <path d="M10 22 Q10 10 22 10 H738 Q750 10 750 22 V42 H10 Z" fill="#FAF9F6"/>
+  <line x1="10" y1="42" x2="750" y2="42" stroke="#F0ECE5"/>
+  <circle cx="34" cy="26" r="5" fill="#E4A0A0"/>
+  <circle cx="54" cy="26" r="5" fill="#E3C98F"/>
+  <circle cx="74" cy="26" r="5" fill="#9BC7A8"/>
+  <text x="380" y="30" text-anchor="middle" class="mono" font-size="11" fill="#A9A399">fox-widget — PowerShell</text>
+
+  <g class="mono" font-size="13">
+    <text x="32" y="76"><tspan class="prompt">$</tspan><tspan class="cmd" dx="8">node lib/cli.mjs desktop install</tspan></text>
+    <text x="48" y="102" class="out">正在安装 Electron 运行时（约 150MB，一次性），顺手装好看门狗</text>
+    <text x="48" y="126" class="ok">✅ 安装完成：…\electron.exe</text>
+    <text x="32" y="184"><tspan class="prompt">$</tspan><tspan class="cmd" dx="8">node lib/cli.mjs status</tspan></text>
+    <text x="48" y="210" class="out">🐳  WorkBuddy狐娘小挂件</text>
+    <text x="48" y="234" class="out">今日积分 / 近 7 天 / 上下文余量 / 挂件 / 桌面浮层 / 对账口径 …</text>
+    <text x="32" y="272"><tspan class="prompt">$</tspan><tspan class="cmd" dx="8">node lib/cli.mjs window start</tspan></text>
+    <text x="48" y="298" class="ok">🐳 桌面浮层已就绪（pid …）</text>
+  </g>
+</svg>

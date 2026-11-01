@@ -1,0 +1,29 @@
+<svg width="1080" height="208" viewBox="0 0 1080 208" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="挂件内自更新的三步流程（默认关闭）">
+  <style>
+    .sans { font-family: -apple-system, 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif; }
+    .mono { font-family: 'Cascadia Code', 'SF Mono', Consolas, 'Courier New', monospace; }
+  </style>
+  <rect x="24" y="18" width="316" height="150" rx="12" fill="#FBEDE3" stroke="#F0C9AF"/>
+  <rect x="42" y="34" width="30" height="4" rx="2" fill="#D9772E"/>
+  <text x="42" y="58" class="mono" font-size="10.5" letter-spacing="1.6" fill="#8A857E">STEP 01</text>
+  <text x="42" y="82" class="sans" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#23211F">检查更新</text>
+  <text x="42" y="106" class="sans" font-size="12.5" fill="#6B6660">默认关闭，需显式开自检开关</text>
+  <text x="42" y="125" class="sans" font-size="12.5" fill="#6B6660">镜像候选链，6 小时一次</text>
+  <rect x="370" y="18" width="316" height="150" rx="12" fill="#FFFFFF" stroke="#E7E2DA"/>
+  <rect x="388" y="34" width="30" height="4" rx="2" fill="#576082"/>
+  <text x="388" y="58" class="mono" font-size="10.5" letter-spacing="1.6" fill="#8A857E">STEP 02</text>
+  <text x="388" y="82" class="sans" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#23211F">下载并校验</text>
+  <text x="388" y="106" class="sans" font-size="12.5" fill="#6B6660">整包内存解压，逐条校验路径</text>
+  <text x="388" y="125" class="sans" font-size="12.5" fill="#6B6660">核对发布签名清单</text>
+  <rect x="716" y="18" width="316" height="150" rx="12" fill="#FFFFFF" stroke="#E7E2DA"/>
+  <rect x="734" y="34" width="30" height="4" rx="2" fill="#576082"/>
+  <text x="734" y="58" class="mono" font-size="10.5" letter-spacing="1.6" fill="#8A857E">STEP 03</text>
+  <text x="734" y="82" class="sans" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#23211F">落盘或回滚</text>
+  <text x="734" y="106" class="sans" font-size="12.5" fill="#6B6660">先备份再替换，失败自动还原</text>
+  <text x="734" y="125" class="sans" font-size="12.5" fill="#6B6660">重启挂件后生效</text>
+  <line x1="351" y1="93" x2="358" y2="93" stroke="#B3ADA4" stroke-width="1.6"/>
+  <path d="M354 88.5 L360 93 L354 97.5" stroke="#B3ADA4" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="697" y1="93" x2="704" y2="93" stroke="#B3ADA4" stroke-width="1.6"/>
+  <path d="M700 88.5 L706 93 L700 97.5" stroke="#B3ADA4" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="24" y="194" class="sans" font-size="12" fill="#8A857E">默认升级路径是市场刷新：市场页「刷新」→ 重装 → 重启客户端；挂件内自更新是可选开关。</text>
+</svg>
