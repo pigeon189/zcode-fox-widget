@@ -78,7 +78,6 @@ public static class WhaleFollow
 
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
-    [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hWnd);
     [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO mi);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
@@ -439,15 +438,28 @@ public static class WhaleFollow
 
                 // Fullscreen-foreground detection (pet mode yields to fullscreen
                 // apps): the foreground window covers its monitor's full rect AND
-                // is not maximized (maximized apps like an editor only cover the
-                // work area, even when the taskbar auto-hides) AND is not a
-                // cloaked UWP ghost. The foreground monitor must be the overlay's
-                // monitor (a video on another display must not hide the pet), and
-                // the target ZCode / desktop shell windows are never treated as
-                // fullscreen apps. Exclusive-fullscreen games bypass the compositor
+                // is frameless (WS_CAPTION cleared) AND is not a cloaked UWP
+                // ghost. The foreground monitor must be the overlay's monitor (a
+                // video on another display must not hide the pet), and the target
+                // ZCode / desktop shell windows are never treated as fullscreen
+                // apps. Exclusive-fullscreen games bypass the compositor
                 // entirely, so only borderless cases matter here.
+                //
+                // The frameless check must NOT be IsZoomed: Chromium (Chrome /
+                // Edge / Electron alike) enters fullscreen by clearing only
+                // WS_CAPTION | WS_THICKFRAME while keeping WS_MAXIMIZE
+                // (ui/views/win/fullscreen_handler.cc), so a maximized window
+                // that goes fullscreen still reports IsZoomed=true -- the common
+                // "maximized browser -> player fullscreen" path would be wrongly
+                // excluded and the pet would stay on top of the video. A
+                // maximized normal window keeps WS_CAPTION and stays excluded.
+                // Trade-off: a frameless app merely maximized (rare) with an
+                // auto-hiding taskbar is indistinguishable from fullscreen by
+                // style alone; the full-rect check below is the only guard.
                 bool fgFullscreen = false;
-                if (fg != IntPtr.Zero && fg != _overlayHwnd && !fgIsTarget && !fgIsOverlay && IsWindowVisible(fg) && !IsZoomed(fg))
+                int fgStyle = fg != IntPtr.Zero ? GetWindowLong(fg, -16 /*GWL_STYLE*/) : 0;
+                if (fg != IntPtr.Zero && fg != _overlayHwnd && !fgIsTarget && !fgIsOverlay && IsWindowVisible(fg) &&
+                    fgStyle != 0 && (fgStyle & 0x00C00000 /*WS_CAPTION*/) == 0)
                 {
                     StringBuilder fgClass = new StringBuilder(64);
                     GetClassName(fg, fgClass, fgClass.Capacity);
