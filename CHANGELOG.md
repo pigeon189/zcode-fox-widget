@@ -10,6 +10,10 @@
 
 ---
 
+## v1.16.11 整理：清理过程档案
+
+- 移除 `docs/PR7-REVIEW-IMPLEMENTATION.md`、`docs/porting/2026-10-handoff-workbuddy.md`、`docs/incidents/2026-10-overlay-host-freeze.md` 三份一次性审查与交接档案，并从 `docs/INDEX.md` 撤掉对应登记；代码无变化。
+
 ## v1.16.10 修复：自检用例不再依赖本机凭据
 
 - 智谱现金余额的自检用例改为显式注入占位凭据（`computeVendorStatus` 增加只服务测试的 `opts.key` 注入点），干净的 CI 环境不再必然失败；版本内容与 v1.16.9 一致，产品行为无变化。
