@@ -19,8 +19,9 @@ ZCode狐娘小挂件（zcode-fox-widget，https://github.com/pigeon189/zcode-fox
 沿用自上游的部分
 ----------------
 
-1. assets/ 下的全部素材：DSniang1.png、DSniang02.png、rua.gif、Ya1.mp3、Ya2.mp3、
-   D1.mp3、D2.mp3，以及 LICENSE。这些文件原样复制，未作修改。
+1. 沿用上游的素材为：DSniang1.png、DSniang02.png、rua.gif、Ya1.mp3、Ya2.mp3、
+   D1.mp3、D2.mp3，以及 LICENSE（其余素材见下文「内置角色立绘」）。这些文件原样
+   复制，未作修改。
 
 2. 前端挂件的交互与视觉规格：气泡 SVG 几何（1026×700 画布上的大椭圆、尾巴半椭圆、
    两个小气泡）、字号档（A/B/P/C 四档与联动变量）、动画参数（数字滚动 700ms ease-out、
@@ -120,3 +121,11 @@ CC0 1.0 Universal）：assets/Nya1.wav 为该包 Meow/002_meow.wav 加工谱系
 （test8/03_playful_fall.wav）0–0.810s 的起音段；assets/Nya2.wav 为 100ms
 数字静音，作为「一声制」（松手无声）定稿的松手占位。CC0 不要求署名，
 本节与 docs/CATGIRL-SOUND-NOTES.md 留档出处与加工/实机选择过程。
+
+2026-10-06 起的素材来源（内置角色立绘）
+--------------------------------------
+
+assets/ 下的内置角色立绘：GLM.png（嘎啦嘛）、gpt.png（GPT娘）、
+kimi.png（kimi娘）、gemini.png（哈基米）为本项目自有素材；
+xiaoke.png（小克）取自 aklnaaw/dsh-xiaoke-widget
+（https://github.com/aklnaaw/dsh-xiaoke-widget，MIT，已获授权）。

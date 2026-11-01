@@ -1,0 +1,37 @@
+<svg width="1080" height="208" viewBox="0 0 1080 208" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="每轮消耗的产生流程">
+  <style>
+    .sans { font-family: -apple-system, 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif; }
+    .mono { font-family: 'Cascadia Code', 'SF Mono', Consolas, 'Courier New', monospace; }
+  </style>
+  <rect x="24" y="18" width="232" height="150" rx="12" fill="#FFFFFF" stroke="#E7E2DA"/>
+  <rect x="42" y="34" width="30" height="4" rx="2" fill="#576082"/>
+  <text x="42" y="58" class="mono" font-size="10.5" letter-spacing="1.6" fill="#8A857E">STEP 01</text>
+  <text x="42" y="82" class="sans" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#23211F">对话完成</text>
+  <text x="42" y="106" class="sans" font-size="12.5" fill="#6B6660">宿主把这一轮的 token 用量落库</text>
+  <text x="42" y="125" class="sans" font-size="12.5" fill="#6B6660">turn_usage / model_usage</text>
+  <rect x="284" y="18" width="232" height="150" rx="12" fill="#FFFFFF" stroke="#E7E2DA"/>
+  <rect x="302" y="34" width="30" height="4" rx="2" fill="#576082"/>
+  <text x="302" y="58" class="mono" font-size="10.5" letter-spacing="1.6" fill="#8A857E">STEP 02</text>
+  <text x="302" y="82" class="sans" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#23211F">读取用量</text>
+  <text x="302" y="106" class="sans" font-size="12.5" fill="#6B6660">按模型取分档 token</text>
+  <text x="302" y="125" class="sans" font-size="12.5" fill="#6B6660">输入 / 输出分开统计</text>
+  <rect x="544" y="18" width="232" height="150" rx="12" fill="#FBEDE3" stroke="#F0C9AF"/>
+  <rect x="562" y="34" width="30" height="4" rx="2" fill="#D9772E"/>
+  <text x="562" y="58" class="mono" font-size="10.5" letter-spacing="1.6" fill="#8A857E">STEP 03</text>
+  <text x="562" y="82" class="sans" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#23211F">分档计价</text>
+  <text x="562" y="106" class="sans" font-size="12.5" fill="#6B6660">缓存命中 · 未命中 · 写入 · 输出</text>
+  <text x="562" y="125" class="sans" font-size="12.5" fill="#6B6660">DeepSeek 再按峰谷取价</text>
+  <rect x="804" y="18" width="232" height="150" rx="12" fill="#FFFFFF" stroke="#E7E2DA"/>
+  <rect x="822" y="34" width="30" height="4" rx="2" fill="#576082"/>
+  <text x="822" y="58" class="mono" font-size="10.5" letter-spacing="1.6" fill="#8A857E">STEP 04</text>
+  <text x="822" y="82" class="sans" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#23211F">气泡与账本</text>
+  <text x="822" y="106" class="sans" font-size="12.5" fill="#6B6660">气泡报本轮花费 / 配额百分比</text>
+  <text x="822" y="125" class="sans" font-size="12.5" fill="#6B6660">账本按今日 / 7 天 / 逐轮聚合</text>
+  <line x1="266" y1="93" x2="273" y2="93" stroke="#B3ADA4" stroke-width="1.6"/>
+  <path d="M269 88.5 L275 93 L269 97.5" stroke="#B3ADA4" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="526" y1="93" x2="533" y2="93" stroke="#B3ADA4" stroke-width="1.6"/>
+  <path d="M529 88.5 L535 93 L529 97.5" stroke="#B3ADA4" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="786" y1="93" x2="793" y2="93" stroke="#B3ADA4" stroke-width="1.6"/>
+  <path d="M789 88.5 L795 93 L789 97.5" stroke="#B3ADA4" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="24" y="194" class="sans" font-size="12" fill="#8A857E">金额口径是「价目 × token」，不是猜的；每轮明细可用 node lib/cli.mjs turn 逐档核对。</text>
+</svg>
