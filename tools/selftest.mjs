@@ -3064,7 +3064,8 @@ try {
       JSON.stringify({ fetched, seen })
     )
     // 整条状态链：listVendorStatus 注入桩 → kind/available/balance（不写入 5 分钟缓存）
-    const listStub = await listVendorStatus(true, { fetchImpl: stubFetch })
+    // 连凭据一起注入：这条用例不该取决于开发机是否配过这把 key（CI 用干净的 ZCODE_HOME）
+    const listStub = await listVendorStatus(true, { fetchImpl: stubFetch, key: 'sk-selftest-placeholder' })
     const bm = (listStub.vendors || []).find((v) => v.id === 'bigmodel-glm')
     check(
       '智谱余额（listVendorStatus 注入桩）：available=true、balance=23.4、kind=balance',
