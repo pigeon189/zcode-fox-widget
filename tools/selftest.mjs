@@ -4526,10 +4526,13 @@ try {
         const b = await scenario(true, 39782)
         // 时间断言是这条用例的关键：gone 分支要等跟随脚本满 5 秒才触发，而探测是 2 秒一拍。
         // 若只断言日志里出现 yield-updater，gone 分支也会打出同样的串（FAKE 让探测恒真），
-        // 那样「提前让路」就假通过了——所以 A 必须 ≥5 秒、B 必须明显早于 5 秒。
+        // 那样「提前让路」就假通过了——所以 A 必须 ≥5 秒、B 必须明显早于 A。
+        // 注意不能把 B 钉死成 <5000：探测两秒一拍，更新程序若刚好在某一拍之后才出现，
+        // 提前让路要等下一拍，实测会落在 5.0–6.0 秒（2026-11-01 实测 5073ms）。改用相对断言：
+        // B 至少比 A 早 1 秒，既能挡住「根本没提前退」，也不受机器快慢影响。
         check(
-          '让路时序：宿主消失走满 5 秒宽限才退（≥5s），更新程序在跑则提前退（<5s）',
-          a.elapsedMs >= 5000 && b.elapsedMs > 0 && b.elapsedMs < 5000,
+          '让路时序：宿主消失走满 5 秒宽限才退（≥5s），更新程序在跑则至少早 1 秒退',
+          a.elapsedMs >= 5000 && b.elapsedMs > 0 && b.elapsedMs < a.elapsedMs - 1000,
           JSON.stringify({ hostGoneMs: a.elapsedMs, updaterMs: b.elapsedMs })
         )
         check(
