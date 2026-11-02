@@ -20,14 +20,14 @@ import { DatabaseSync } from 'node:sqlite'
 import { costOfUsage, priceFor, isPeakTime, nextPeakChange, resolveVendor, resolvePricing, normalizeModelId } from '../lib/pricing.mjs'
 import { shapePlanPayload, turnPlanUsage, extraAmountsOfTurn, quotaBucketForModel, readPlanBalance, readPlanQuota, invalidatePlanCache, readLogFile } from '../lib/plan-balance.mjs'
 import { shapeQuotaPayload, windowLabel, fetchGlmPlanQuota, GLM_PLAN_QUOTA_URL, GLM_PLAN_QUOTA_HOSTS } from '../lib/glm-plan-api.mjs'
-import { getPath, TEMPLATES, fetchFromTemplate, pickVendorBalance, listVendorStatus } from '../lib/vendors.mjs'
+import { getPath, TEMPLATES, fetchFromTemplate, pickVendorBalance, listVendorStatus, refreshVendorStatus } from '../lib/vendors.mjs'
 import { isBlockedHost } from '../lib/blocked-host.mjs'
 import { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } from '../lib/discover.mjs'
 import { balanceSplit, computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } from '../lib/balance.mjs'
 import { mapZcodeTheme, themeOfConfig, resolveZcodeTheme } from '../lib/zcode-theme.mjs'
 import { safeMirrorUrl, isOwnOverlayCommandLine, runtimePaths } from '../lib/overlay.mjs'
 import { MODEL_ROLE_RULES, roleIdForModel, BUILTIN_ROLES } from '../lib/paths.mjs'
-import { assertSafeUpstream, findApiKey, readPluginConfig } from '../lib/credentials.mjs'
+import { assertSafeUpstream, findApiKey, readPluginConfig, writePluginConfig, normalizeGlmWalletRefreshInterval } from '../lib/credentials.mjs'
 import { nodeBin } from '../lib/service.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 import { buildWatchVbs, installWatch, uninstallWatch, watchStatus, loadRuntimeEnv } from '../lib/watch-install.mjs'
@@ -3009,6 +3009,24 @@ try {
     byId['zcode-plan'] ? 'available=' + byId['zcode-plan'].available : '缺失'
   )
 
+  // 单模板强制刷新路由（issue #18 讨论）：?refresh=1&template=<id> 只打一个模板，
+  // 不把 force 放大到全部 45 个——余额接口与配额接口的限流/并发策略不同。出网闸
+  // 开着时如实回「已禁用出网」（与整表轮询同一口径），不误报余额。
+  const single = await getJson(port, '/whale/vendors.json?refresh=1&template=bigmodel-glm')
+  check(
+    '单模板刷新路由：只回该模板本身（id=bigmodel-glm），出网闸下如实不可用',
+    single && single.id === 'bigmodel-glm' && single.kind === 'balance' &&
+      single.available === false && String(single.reason || '').indexOf('禁用出网') !== -1,
+    JSON.stringify(single)
+  )
+  const unknownTpl = await getJson(port, '/whale/vendors.json?refresh=1&template=no-such-template')
+  check(
+    '单模板刷新路由：未知模板回「未知模板」原因，不抛 500',
+    unknownTpl && unknownTpl.ok === false && unknownTpl.available === false &&
+      String(unknownTpl.reason || '').indexOf('未知模板') !== -1,
+    JSON.stringify(unknownTpl)
+  )
+
   // 智谱现金余额（issue #18）：模板结构 / 响应围栏 / 注入桩取数 / 会话映射 / 展示降级。
   // 实测依据：账户报表接口无鉴权时返回 HTTP 200 + {code:1001}（不是 401），所以
   // pick 必须先判 success/code 再取字段——只看 HTTP 状态会把错误包当余额。
@@ -3104,7 +3122,172 @@ try {
         /var vbal = vendorBalanceOf\(source, view\)[\s\S]{0,500}?labelText = view\.balanceLabel \|\| view\.label/.test(widgetSrc) &&
         /labelEl\.textContent = labelText/.test(widgetSrc)
     )
+
+    // —— 事件驱动的单模板强制刷新（issue #18 讨论）：refreshVendorStatus 三件事 ——
+    // 缓存行为用注入的 Map（opts.cacheStore）验证：不碰进程内全局缓存，也允许带着
+    // 取数桩走缓存路径；key 与 fetchImpl 一并注入，用例不依赖本机是否配过凭据。
+    {
+      const okBody = (balance) => ({
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({ code: 200, success: true, data: { availableBalance: balance } })
+        },
+      })
+
+      // 1) 成功：TTL 从成功时刻重算——预置一条 400s 前的旧缓存（按 5 分钟 TTL 已过期），
+      //    强制刷新后缓存 at 更新为现在、余额落缓存，返回值不带 stale。
+      const storeOk = new Map()
+      storeOk.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      let okCalls = 0
+      const r1 = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => {
+          okCalls++
+          return okBody(9.9)
+        },
+        cacheStore: storeOk,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit1 = storeOk.get('bigmodel-glm')
+      check(
+        'GLM 钱包强制刷新：成功后 TTL 从成功时刻重算（缓存 at 覆盖为现在，余额 9.9 落缓存）',
+        r1 && r1.available === true && r1.balance === 9.9 && !r1.stale && okCalls === 1 &&
+          !!hit1 && Date.now() - hit1.at < 5000 && hit1.payload.balance === 9.9,
+        JSON.stringify({ available: r1 && r1.available, balance: r1 && r1.balance, stale: r1 && r1.stale, calls: okCalls })
+      )
+
+      // 2) 失败：静默降级——不把失败写进缓存，回落上一次的载荷并标 stale，
+      //    refreshReason 带上失败原因；旧缓存条目（含原 at）原样保留。
+      const storeFail = new Map()
+      storeFail.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      const r2 = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => {
+          throw new Error('network down')
+        },
+        cacheStore: storeFail,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit2 = storeFail.get('bigmodel-glm')
+      check(
+        'GLM 钱包强制刷新：失败静默降级——保留旧值并标 stale，失败不进缓存（TTL 窗口不被失败占用）',
+        r2 && r2.available === true && r2.balance === 1 && r2.stale === true &&
+          r2.refreshReason === 'network down' && !!hit2 && hit2.payload.balance === 1 && Date.now() - hit2.at >= 300_000,
+        JSON.stringify({ available: r2 && r2.available, balance: r2 && r2.balance, stale: r2 && r2.stale, reason: r2 && r2.refreshReason })
+      )
+
+      // 3) 单飞：同一模板并发两次只打一次上游（forcedPending 去重，成功路径）
+      let slowCalls = 0
+      const slowStub = () =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            slowCalls++
+            resolve(okBody(5))
+          }, 60)
+        )
+      const [a, b] = await Promise.all([
+        refreshVendorStatus('bigmodel-glm', { fetchImpl: slowStub, cacheStore: new Map(), key: 'sk-selftest-placeholder' }),
+        refreshVendorStatus('bigmodel-glm', { fetchImpl: slowStub, cacheStore: new Map(), key: 'sk-selftest-placeholder' }),
+      ])
+      check(
+        'GLM 钱包强制刷新：并发单飞——同一时刻只允许一个在途请求（两个调用同源同值）',
+        slowCalls === 1 && a === b && a && a.balance === 5,
+        'calls=' + slowCalls
+      )
+
+      // 4) 失败且没有旧值：原样返回失败载荷，且失败不落缓存
+      const empty = new Map()
+      const r3 = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => {
+          throw new Error('first try fails')
+        },
+        cacheStore: empty,
+        key: 'sk-selftest-placeholder',
+      })
+      check(
+        'GLM 钱包强制刷新：无旧值时失败原样返回（available=false 带原因），失败不落缓存',
+        r3 && r3.available === false && /first try fails/.test(r3.reason || '') && !empty.has('bigmodel-glm'),
+        JSON.stringify({ reason: r3 && r3.reason, cached: empty.has('bigmodel-glm') })
+      )
+
+      // 5) 未知模板：直接给原因，不发请求
+      const r4 = await refreshVendorStatus('no-such-template', {})
+      check(
+        'GLM 钱包强制刷新：未知模板回「未知模板」原因',
+        r4 && r4.ok === false && /未知模板/.test(r4.reason || ''),
+        JSON.stringify(r4)
+      )
+    }
   }
+
+  {
+    // —— 回合结束刷新的两个配置字段（issue #18 讨论）——
+    // readPluginConfig / writePluginConfig 在模块加载时绑死 CONFIG_FILE，而 selftest
+    // 主进程不设 ZCODE_HOME：读写必须在隔离目录的子进程里做，绝不碰真实
+    // ~/.zcode/whale/config.json。覆盖三件事：默认值、下限钳制（只能调大）、
+    // 白名单写入不丢字段。
+    const lab = path.join(tmpHome, 'glm-refresh-lab')
+    fs.mkdirSync(path.join(lab, 'whale'), { recursive: true })
+    const credUrl = 'file:///' + path.join(PLUGIN_ROOT, 'lib', 'credentials.mjs').replace(/\\/g, '/')
+    const labScript = [
+      "import { readPluginConfig, writePluginConfig, normalizeGlmWalletRefreshInterval } from '" + credUrl + "'",
+      'const out = {}',
+      'const def = readPluginConfig()',
+      'out.defaultOn = def.refreshGlmWalletOnTurnComplete',
+      'out.defaultMin = def.minGlmWalletRefreshIntervalMs',
+      "writePluginConfig({ refreshGlmWalletOnTurnComplete: true, minGlmWalletRefreshIntervalMs: 5000 })",
+      'const clamped = readPluginConfig()',
+      'out.writtenOn = clamped.refreshGlmWalletOnTurnComplete',
+      'out.clampedMin = clamped.minGlmWalletRefreshIntervalMs',
+      "writePluginConfig({ refreshGlmWalletOnTurnComplete: false, minGlmWalletRefreshIntervalMs: 300000 })",
+      'const wide = readPluginConfig()',
+      'out.offOn = wide.refreshGlmWalletOnTurnComplete',
+      'out.wideMin = wide.minGlmWalletRefreshIntervalMs',
+      'out.normalize = [normalizeGlmWalletRefreshInterval(120000), normalizeGlmWalletRefreshInterval(0), normalizeGlmWalletRefreshInterval("240000"), normalizeGlmWalletRefreshInterval(4000000)]',
+      "console.log('GLM_REFRESH_LAB:' + JSON.stringify(out))",
+    ].join('\n')
+    const scriptFile = path.join(lab, 'lab.mjs')
+    fs.writeFileSync(scriptFile, labScript, 'utf8')
+    const run = spawnSync(process.execPath, [scriptFile], {
+      encoding: 'utf8',
+      env: { ...process.env, ZCODE_HOME: lab },
+    })
+    let labOut = {}
+    try {
+      labOut = JSON.parse(((run.stdout || '').split('GLM_REFRESH_LAB:').pop() || '{}').trim())
+    } catch (err) {}
+    check(
+      'GLM 钱包回合刷新：配置默认值（开关默认关、最小间隔默认 2 分钟）',
+      labOut.defaultOn === false && labOut.defaultMin === 120000,
+      JSON.stringify(labOut)
+    )
+    check(
+      'GLM 钱包回合刷新：最小间隔下限钉在 2 分钟（写 5000 读回 120000），开关可打开',
+      labOut.writtenOn === true && labOut.clampedMin === 120000,
+      JSON.stringify({ on: labOut.writtenOn, min: labOut.clampedMin })
+    )
+    check(
+      'GLM 钱包回合刷新：间隔允许调大（300000）、开关可关回；归一化函数四种输入',
+      labOut.offOn === false && labOut.wideMin === 300000 &&
+        JSON.stringify(labOut.normalize) === JSON.stringify([120000, null, 240000, 3600000]),
+      JSON.stringify({ on: labOut.offOn, min: labOut.wideMin, normalize: labOut.normalize })
+    )
+  }
+
+  // 服务端源码钉：触发器必须挂在 pollTurnCost 的轮次变化分支里（默认关闭，
+  // 开启后靠这行生效）；路由的 template 参数走 refreshVendorStatus。
+  const serverSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'server.mjs'), 'utf8')
+  check(
+    'GLM 钱包回合刷新：触发器挂在 pollTurnCost 的轮次变化分支（默认关，开启后生效）',
+    /function maybeRefreshGlmWallet\(\)/.test(serverSrc) &&
+      /maybeRefreshGlmWallet\(\)/.test(serverSrc) &&
+      /import \{ listVendorStatus, pickVendorBalance, refreshVendorStatus \} from '\.\/vendors\.mjs'/.test(serverSrc)
+  )
 
   // 用量记录：今天按模型聚合与逐条事件。先补一轮 2 天前的历史用量，用来区分
   // 「按当天」与「按 7 天」两个模型榜：old-model 只在 7 天榜里出现，且 token
