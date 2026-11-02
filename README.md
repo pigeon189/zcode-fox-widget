@@ -1,5 +1,6 @@
 <div align="center">
   <img src="docs/readme/banner.svg" width="980" alt="ZCode狐娘小挂件：常驻 ZCode 的账本桌宠">
+  <br/>
 </div>
 
 <p align="center">
