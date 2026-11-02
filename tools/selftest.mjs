@@ -3212,17 +3212,24 @@ try {
 
       // 4) 失败且没有旧值：原样返回失败载荷，且失败不落缓存
       const empty = new Map()
-      const r3 = await refreshVendorStatus('bigmodel-glm', {
-        fetchImpl: async () => {
-          throw new Error('first try fails')
-        },
-        cacheStore: empty,
-        key: 'sk-selftest-placeholder',
-      })
+      let failCalls = 0
+      const failStub = async (url) => {
+        // 只计 bigmodel 的出站次数：listVendorStatus 会并行取其余远程模板，
+        // 它们的失败与本用例无关
+        if (String(url).indexOf('query-customer-account-report') !== -1) failCalls++
+        throw new Error('first try fails')
+      }
+      const r3 = await refreshVendorStatus('bigmodel-glm', { fetchImpl: failStub, cacheStore: empty, key: 'sk-selftest-placeholder' })
+      const hit3 = empty.get('bigmodel-glm')
+      // 45s 短 TTL 内的普通轮询命中缓存，不再打上游（持续故障重试节奏回到分钟级）
+      const listCached = await listVendorStatus(false, { fetchImpl: failStub, cacheStore: empty, key: 'sk-selftest-placeholder' })
+      const cachedView = (listCached.vendors || []).find((v) => v.id === 'bigmodel-glm')
       check(
-        'GLM 钱包强制刷新：无旧值时失败原样返回（available=false 带原因），失败不落缓存',
-        r3 && r3.available === false && /first try fails/.test(r3.reason || '') && !empty.has('bigmodel-glm'),
-        JSON.stringify({ reason: r3 && r3.reason, cached: empty.has('bigmodel-glm') })
+        'GLM 钱包无旧值瞬时失败：失败载荷只押 45s 短 TTL，窗口内普通轮询命中缓存不再打上游',
+        r3 && r3.available === false && /first try fails/.test(r3.reason || '') &&
+          !!hit3 && hit3.ttlMs === 45000 && failCalls === 1 &&
+          !!cachedView && cachedView.available === false && /first try fails/.test(cachedView.reason || '') && failCalls === 1,
+        JSON.stringify({ reason: r3 && r3.reason, ttlMs: hit3 && hit3.ttlMs, calls: failCalls, cachedReason: cachedView && cachedView.reason })
       )
 
       // 5) 未知模板：直接给原因，不发请求
