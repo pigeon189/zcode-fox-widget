@@ -126,7 +126,7 @@ echo 'sk-xxxxxxxx' | node lib/cli.mjs key
 | `autoStartWithZcode` | `true` | 登录后看门进程随 ZCode 启动拉起（不等 SessionStart） |
 | `followIntervalMs` | `40` | 跟随探测间隔（写入时钳在 16–2000；菜单可选 16 / 40 / 100 / 250，选择存在本地并即时生效） |
 | `refreshGlmWalletOnTurnComplete` | `false` | 回合结束时强制刷新一次 GLM 按量钱包余额（issue #18；只刷新这一个模板，失败保留旧值） |
-| `minGlmWalletRefreshIntervalMs` | `120000` | 上一项两次刷新的最小间隔（毫秒）；下限固定 2 分钟、只能调大（写入时钳在 120000–3600000） |
+| `minGlmWalletRefreshIntervalMs` | `120000` | 上一项两次刷新的最小间隔（毫秒）；下限固定 2 分钟、只能调大（读取时钳在 120000–3600000） |
 | `port` | 自动（默认 39321） | 固定端口，占用时顺延 |
 
 厂商凭据写在 `vendorKeys.<模板 id>`；中转站另有一类**账户级**查询（系统访问令牌 + 用户 ID），写在 `relayAuth.<站点 id> = { token, userId }`——只有 `vendorKeys` 时能查 token 额度，账户余额需要 `relayAuth`；挂件自身的外观与开关（大小、音效、音量、角色、主题、气泡、默认位置、桌宠模式、预警阈值等）在 `~/.zcode/whale/widget-state.json`（由挂件菜单写入）；跟随延迟在 `config.json` 的 `followIntervalMs`，菜单里的选择存在本地并在运行时生效；按压泡泡队列单独存 `~/.zcode/whale/bubble-content.json`。

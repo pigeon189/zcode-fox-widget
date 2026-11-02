@@ -3026,6 +3026,15 @@ try {
       String(unknownTpl.reason || '').indexOf('未知模板') !== -1,
     JSON.stringify(unknownTpl)
   )
+  // 显式带了 template 但值为空白：绝不回落整表强制刷新（45 个模板连发的强制取数
+  // 不能被一个打错的 URL 触发），回 400 让调用方看到参数错误
+  const blankRes = await fetch('http://127.0.0.1:' + port + '/whale/vendors.json?refresh=1&template=')
+  const blankTpl = await blankRes.json().catch(() => null)
+  check(
+    '单模板刷新路由：template 显式传空回 400，不回落整表强制刷新',
+    blankRes.status === 400 && blankTpl && blankTpl.ok === false && /template 参数为空/.test(blankTpl.error || ''),
+    JSON.stringify({ status: blankRes.status, body: blankTpl })
+  )
 
   // 智谱现金余额（issue #18）：模板结构 / 响应围栏 / 注入桩取数 / 会话映射 / 展示降级。
   // 实测依据：账户报表接口无鉴权时返回 HTTP 200 + {code:1001}（不是 401），所以
@@ -3175,10 +3184,11 @@ try {
       })
       const hit2 = storeFail.get('bigmodel-glm')
       check(
-        'GLM 钱包强制刷新：失败静默降级——保留旧值并标 stale，失败不进缓存（TTL 窗口不被失败占用）',
+        'GLM 钱包强制刷新：失败静默降级——缓存改写为「旧值 + stale」（TTL 窗口不变），调用方拿到带标记的旧值',
         r2 && r2.available === true && r2.balance === 1 && r2.stale === true &&
-          r2.refreshReason === 'network down' && !!hit2 && hit2.payload.balance === 1 && Date.now() - hit2.at >= 300_000,
-        JSON.stringify({ available: r2 && r2.available, balance: r2 && r2.balance, stale: r2 && r2.stale, reason: r2 && r2.refreshReason })
+          r2.refreshReason === 'network down' && !!hit2 && hit2.payload.balance === 1 &&
+          hit2.payload.stale === true && Date.now() - hit2.at >= 300_000,
+        JSON.stringify({ available: r2 && r2.available, balance: r2 && r2.balance, stale: r2 && r2.stale, reason: r2 && r2.refreshReason, cachedStale: hit2 && hit2.payload.stale })
       )
 
       // 3) 单飞：同一模板并发两次只打一次上游（forcedPending 去重，成功路径）

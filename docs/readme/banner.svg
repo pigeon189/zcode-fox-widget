@@ -31,7 +31,7 @@
     <text x="436" y="203.5" text-anchor="middle" class="chip" style="fill:#B85F1E">桌宠 · 跨屏跟随</text>
   </g>
 
-  <!-- 六套角色：底边统一 214（与芯片下缘齐平），大圈顶边 60 -->
+  <!-- 六套角色：立绘底边 214（与芯片下缘齐平；白色描边圈半径 +3，最低到 217）, 大圈顶边 60 -->
 <g>
       <circle cx="993" cy="155" r="65" fill="#23211F" opacity="0.05"/>
       <circle cx="993" cy="152" r="65" fill="#FFFFFF"/>
@@ -88,6 +88,6 @@
     </g>
 
   <line x1="24" y1="236" x2="1056" y2="236" stroke="#E7E2DA"/>
-  <text x="24" y="255" class="mono" font-size="11" letter-spacing="0.95" fill="#8A857E">本地 Node 服务 + 单页挂件 + Electron 浮层 · 无构建 · 无 npm 依赖</text>
-  <text x="1056" y="255" text-anchor="end" class="mono" font-size="11" letter-spacing="0.95" fill="#8A857E">github.com/pigeon189/zcode-fox-widget</text>
+  <text x="24" y="255" class="mono" font-size="11" letter-spacing="0.95" fill="#6B6660">本地 Node 服务 + 单页挂件 + Electron 浮层 · 无构建 · 无 npm 依赖</text>
+  <text x="1056" y="255" text-anchor="end" class="mono" font-size="11" letter-spacing="0.95" fill="#6B6660">github.com/pigeon189/zcode-fox-widget</text>
 </svg>
