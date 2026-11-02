@@ -3232,6 +3232,28 @@ try {
         r4 && r4.ok === false && /未知模板/.test(r4.reason || ''),
         JSON.stringify(r4)
       )
+
+      // 6) 写序守卫：取数期间别的请求写入了更新的结果——晚到的失败不覆盖它
+      //    （listVendorStatus(true) 走非 staleFallback 路径，守卫在 compute 的写缓存处；
+      //    桩先模拟「并发一路已写入 42」再抛错，晚到的失败不得把 42 盖成失败）
+      const storeGuard = new Map()
+      const guardStub = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2))
+        storeGuard.set('bigmodel-glm', {
+          at: Date.now(),
+          payload: { available: true, balance: 42, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+        })
+        throw new Error('late failure')
+      }
+      const guardList = await listVendorStatus(true, { fetchImpl: guardStub, cacheStore: storeGuard, key: 'sk-selftest-placeholder' })
+      const guardEntry = storeGuard.get('bigmodel-glm')
+      const guardView = (guardList.vendors || []).find((v) => v.id === 'bigmodel-glm')
+      check(
+        'GLM 钱包缓存写序：取数期间写入的更新结果不被晚到的失败覆盖（面板暂显失败原因，缓存值保留）',
+        !!guardEntry && guardEntry.payload.balance === 42 && !guardEntry.payload.stale &&
+          !!guardView && guardView.available === false && /late failure/.test(guardView.reason || ''),
+        JSON.stringify({ cached: guardEntry && guardEntry.payload.balance, view: guardView && guardView.available, reason: guardView && guardView.reason })
+      )
     }
   }
 
@@ -3243,7 +3265,7 @@ try {
     // 白名单写入不丢字段。
     const lab = path.join(tmpHome, 'glm-refresh-lab')
     fs.mkdirSync(path.join(lab, 'whale'), { recursive: true })
-    const credUrl = 'file:///' + path.join(PLUGIN_ROOT, 'lib', 'credentials.mjs').replace(/\\/g, '/')
+    const credUrl = pathToFileURL(path.join(PLUGIN_ROOT, 'lib', 'credentials.mjs')).href
     const labScript = [
       "import { readPluginConfig, writePluginConfig, normalizeGlmWalletRefreshInterval } from '" + credUrl + "'",
       'const out = {}',
@@ -6059,7 +6081,7 @@ try {
     // 换 key），把每步的账本快照吐回来断言。
     const lab = path.join(tmpHome, 'ledger-lab')
     fs.mkdirSync(path.join(lab, 'whale'), { recursive: true })
-    const balUrl = 'file:///' + path.join(PLUGIN_ROOT, 'lib', 'balance.mjs').replace(/\\/g, '/')
+    const balUrl = pathToFileURL(path.join(PLUGIN_ROOT, 'lib', 'balance.mjs')).href
     const labScript = [
       "import fs from 'node:fs'",
       "import path from 'node:path'",

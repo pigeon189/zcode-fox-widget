@@ -124,8 +124,8 @@ echo 'sk-xxxxxxxx' | node lib/cli.mjs key
 | `autoStartWidget` | `true` | 会话启动时拉起服务 |
 | `autoStartOverlay` | `true` | 顺便拉起浮层（运行时未安装时静默跳过） |
 | `autoStartWithZcode` | `true` | 登录后看门进程随 ZCode 启动拉起（不等 SessionStart） |
-| `followIntervalMs` | `40` | 跟随探测间隔（写入时钳在 16–2000；菜单可选 16 / 40 / 100 / 250，选择存在本地并即时生效） |
-| `refreshGlmWalletOnTurnComplete` | `false` | 回合结束时强制刷新一次 GLM 按量钱包余额（issue #18；只刷新这一个模板，失败保留旧值） |
+| `followIntervalMs` | `40` | 跟随探测间隔（读取时钳在 16–2000；菜单可选 16 / 40 / 100 / 250，选择存在本地并即时生效） |
+| `refreshGlmWalletOnTurnComplete` | `false` | 每个完成的 GLM 按量回合强制刷新一次钱包余额（issue #18；只刷新这一个模板，失败保留旧值） |
 | `minGlmWalletRefreshIntervalMs` | `120000` | 上一项两次刷新的最小间隔（毫秒）；下限固定 2 分钟、只能调大（读取时钳在 120000–3600000） |
 | `port` | 自动（默认 39321） | 固定端口，占用时顺延 |
 
@@ -224,7 +224,7 @@ node lib/cli.mjs watch once        # 只探测一次并拉起（排障）
 
 - **今日已用 = 本机库（主口径）**：读 ZCode 落库的每轮用量，按各厂商价目折算；按模型可见、不受充值干扰。
 - **预付池不计真金白银**：GLM Plan 与 CommandCode credit 的钱在买额度时就付了，只按配额 / tokens 报，不并进「今日已用」。
-- **GLM 按量账户显示现金余额**：气泡主数字读账户报表接口的 `availableBalance`（人民币），小字显示今日已用；接口不可用时自动退回「今日已用」口径。有 GLM Plan 套餐的账户仍显示 Plan 百分比，不显示现金余额。刚充值或刚跑完大消耗时，可开 `refreshGlmWalletOnTurnComplete` 让每轮结束强制刷新一次钱包余额（默认关；最小间隔 2 分钟、只能调大；失败保留旧值，不弹气泡、不影响回合流程）。
+- **GLM 按量账户显示现金余额**：气泡主数字读账户报表接口的 `availableBalance`（人民币），小字显示今日已用；接口不可用时自动退回「今日已用」口径。有 GLM Plan 套餐的账户仍显示 Plan 百分比，不显示现金余额。刚充值或刚跑完大消耗时，可开 `refreshGlmWalletOnTurnComplete` 让每个完成的 GLM 按量回合强制刷新一次钱包余额（默认关；最小间隔 2 分钟、只能调大；失败保留旧值，不弹气泡、不影响回合流程）。
 - **对账口径兜底**：记账（观测余额下降）覆盖该账号全部花费但会漏记停机期间；实时·令牌需要 `DEEPSEEK_PLATFORM_TOKEN`，过期自动回落。两口径不一致时并排展示。
 - **每轮消耗**：按缓存命中 / 未命中 / 缓存写入 / 输出分档计价，DeepSeek 再按峰谷取价（MiMo Token Plan 另有夜间 0–8 点 0.8x 系数）；输入 token **含缓存**，折价前必须减掉（否则虚高十几倍）。
 - **等价金额（`≈`）不代表真实扣费**，只用于横向比较。
