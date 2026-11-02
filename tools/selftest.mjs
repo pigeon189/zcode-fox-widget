@@ -27,7 +27,7 @@ import { balanceSplit, computeTodayUsage, resolveTodayUsage, pickBalanceInfo, pl
 import { mapZcodeTheme, themeOfConfig, resolveZcodeTheme } from '../lib/zcode-theme.mjs'
 import { safeMirrorUrl, isOwnOverlayCommandLine, runtimePaths } from '../lib/overlay.mjs'
 import { MODEL_ROLE_RULES, roleIdForModel, BUILTIN_ROLES } from '../lib/paths.mjs'
-import { assertSafeUpstream, findApiKey, readPluginConfig, writePluginConfig, normalizeGlmWalletRefreshInterval } from '../lib/credentials.mjs'
+import { assertSafeUpstream, findApiKey, readPluginConfig, writePluginConfig, normalizeBalanceRefreshInterval } from '../lib/credentials.mjs'
 import { nodeBin } from '../lib/service.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 import { buildWatchVbs, installWatch, uninstallWatch, watchStatus, loadRuntimeEnv } from '../lib/watch-install.mjs'
@@ -3233,9 +3233,9 @@ try {
         JSON.stringify(r4)
       )
 
-      // 6) 写序守卫：取数期间别的请求写入了更新的结果——晚到的失败不覆盖它
-      //    （listVendorStatus(true) 走非 staleFallback 路径，守卫在 compute 的写缓存处；
-      //    桩先模拟「并发一路已写入 42」再抛错，晚到的失败不得把 42 盖成失败）
+      // 6) 写序守卫：取数期间别的请求写入了更新的结果——晚到的成功不覆盖它
+      //    （listVendorStatus(true) 走 force 路径，守卫在 compute 的写缓存处；
+      //    桩先模拟「并发一路已写入 42」再返回自己的成功值 7，缓存应保留 42）
       const storeGuard = new Map()
       const guardStub = async () => {
         await new Promise((resolve) => setTimeout(resolve, 2))
@@ -3243,16 +3243,57 @@ try {
           at: Date.now(),
           payload: { available: true, balance: 42, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
         })
-        throw new Error('late failure')
+        return okBody(7)
       }
       const guardList = await listVendorStatus(true, { fetchImpl: guardStub, cacheStore: storeGuard, key: 'sk-selftest-placeholder' })
       const guardEntry = storeGuard.get('bigmodel-glm')
       const guardView = (guardList.vendors || []).find((v) => v.id === 'bigmodel-glm')
       check(
-        'GLM 钱包缓存写序：取数期间写入的更新结果不被晚到的失败覆盖（面板暂显失败原因，缓存值保留）',
+        'GLM 钱包缓存写序：取数期间写入的更新结果不被晚到的取数覆盖（缓存保留 42）',
         !!guardEntry && guardEntry.payload.balance === 42 && !guardEntry.payload.stale &&
-          !!guardView && guardView.available === false && /late failure/.test(guardView.reason || ''),
-        JSON.stringify({ cached: guardEntry && guardEntry.payload.balance, view: guardView && guardView.available, reason: guardView && guardView.reason })
+          !!guardView && guardView.balance === 7,
+        JSON.stringify({ cached: guardEntry && guardEntry.payload.balance, view: guardView && guardView.balance })
+      )
+
+      // 7) 瞬时失败回退（issue #18 第三条评论的顺带修复，口径对齐 balance.mjs）：
+      //    网络抖动 / 5xx / 429 不落失败载荷——缓存改写为「旧值 + stale」（TTL 窗口
+      //    不变），调用方拿到带标记的旧值
+      const store5xx = new Map()
+      store5xx.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      const r5xx = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => ({ ok: false, status: 503, async text() { return 'upstream maintenance' } }),
+        cacheStore: store5xx,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit5xx = store5xx.get('bigmodel-glm')
+      check(
+        'GLM 钱包瞬时失败回退：5xx 保留旧值并标 stale（不落失败载荷，TTL 窗口不变）',
+        r5xx && r5xx.available === true && r5xx.balance === 1 && r5xx.stale === true &&
+          r5xx.refreshReason === 'HTTP 503' && !!hit5xx && hit5xx.payload.stale === true &&
+          Date.now() - hit5xx.at >= 300_000,
+        JSON.stringify({ available: r5xx && r5xx.available, stale: r5xx && r5xx.stale, reason: r5xx && r5xx.refreshReason })
+      )
+
+      // 8) 确定失败（4xx 鉴权）维持原行为：失败计入缓存、面板在 TTL 内看到原因
+      const store401 = new Map()
+      store401.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      const r401 = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => ({ ok: false, status: 401, async text() { return '{"code":1001}' } }),
+        cacheStore: store401,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit401 = store401.get('bigmodel-glm')
+      check(
+        'GLM 钱包确定失败：4xx 鉴权错误照旧计入缓存（不误用旧余额，原因可见）',
+        r401 && r401.available === false && r401.reason === 'HTTP 401' && r401.stale === undefined &&
+          !!hit401 && hit401.payload.available === false && hit401.payload.stale === undefined,
+        JSON.stringify({ available: r401 && r401.available, reason: r401 && r401.reason, cached: hit401 && hit401.payload.available })
       )
     }
   }
@@ -3267,20 +3308,20 @@ try {
     fs.mkdirSync(path.join(lab, 'whale'), { recursive: true })
     const credUrl = pathToFileURL(path.join(PLUGIN_ROOT, 'lib', 'credentials.mjs')).href
     const labScript = [
-      "import { readPluginConfig, writePluginConfig, normalizeGlmWalletRefreshInterval } from '" + credUrl + "'",
+      "import { readPluginConfig, writePluginConfig, normalizeBalanceRefreshInterval } from '" + credUrl + "'",
       'const out = {}',
       'const def = readPluginConfig()',
-      'out.defaultOn = def.refreshGlmWalletOnTurnComplete',
-      'out.defaultMin = def.minGlmWalletRefreshIntervalMs',
-      "writePluginConfig({ refreshGlmWalletOnTurnComplete: true, minGlmWalletRefreshIntervalMs: 5000 })",
+      'out.defaultOn = def.refreshBalanceOnTurnComplete',
+      'out.defaultMin = def.minBalanceRefreshIntervalMs',
+      "writePluginConfig({ refreshBalanceOnTurnComplete: true, minBalanceRefreshIntervalMs: 5000 })",
       'const clamped = readPluginConfig()',
-      'out.writtenOn = clamped.refreshGlmWalletOnTurnComplete',
-      'out.clampedMin = clamped.minGlmWalletRefreshIntervalMs',
-      "writePluginConfig({ refreshGlmWalletOnTurnComplete: false, minGlmWalletRefreshIntervalMs: 300000 })",
+      'out.writtenOn = clamped.refreshBalanceOnTurnComplete',
+      'out.clampedMin = clamped.minBalanceRefreshIntervalMs',
+      "writePluginConfig({ refreshBalanceOnTurnComplete: false, minBalanceRefreshIntervalMs: 300000 })",
       'const wide = readPluginConfig()',
-      'out.offOn = wide.refreshGlmWalletOnTurnComplete',
-      'out.wideMin = wide.minGlmWalletRefreshIntervalMs',
-      'out.normalize = [normalizeGlmWalletRefreshInterval(120000), normalizeGlmWalletRefreshInterval(0), normalizeGlmWalletRefreshInterval("240000"), normalizeGlmWalletRefreshInterval(4000000)]',
+      'out.offOn = wide.refreshBalanceOnTurnComplete',
+      'out.wideMin = wide.minBalanceRefreshIntervalMs',
+      'out.normalize = [normalizeBalanceRefreshInterval(120000), normalizeBalanceRefreshInterval(0), normalizeBalanceRefreshInterval("240000"), normalizeBalanceRefreshInterval(4000000)]',
       "console.log('GLM_REFRESH_LAB:' + JSON.stringify(out))",
     ].join('\n')
     const scriptFile = path.join(lab, 'lab.mjs')
@@ -3312,12 +3353,13 @@ try {
   }
 
   // 服务端源码钉：触发器必须挂在 pollTurnCost 的轮次变化分支里（默认关闭，
-  // 开启后靠这行生效）；路由的 template 参数走 refreshVendorStatus。
+  // 开启后靠这行生效）；厂商门控（只认 GLM 按量回合）与路由的 template 参数
   const serverSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'server.mjs'), 'utf8')
   check(
     'GLM 钱包回合刷新：触发器挂在 pollTurnCost 的轮次变化分支（默认关，开启后生效）',
     /function maybeRefreshGlmWallet\(\)/.test(serverSrc) &&
       /maybeRefreshGlmWallet\(\)/.test(serverSrc) &&
+      /lastTurnPayload\.vendor !== 'glm' \|\| lastTurnPayload\.planTurn/.test(serverSrc) &&
       /import \{ listVendorStatus, pickVendorBalance, refreshVendorStatus \} from '\.\/vendors\.mjs'/.test(serverSrc)
   )
 
