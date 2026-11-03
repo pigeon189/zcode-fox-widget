@@ -10,6 +10,14 @@
 
 ---
 
+## v1.17.0 新增：回合结束刷新 GLM 钱包余额（可选）
+
+- 新增「回合结束刷新」开关（`refreshBalanceOnTurnComplete`，默认关，写 config.json）：开启后每个完成的 GLM 按量回合延迟 8 秒强制刷新一次钱包余额；最小间隔 2 分钟、只能调大，连续短对话只刷新一次，瞬时失败保留上一次的余额并在小字标注「缓存」，不弹气泡。
+- 厂商取数的瞬时失败（网络抖动 / 超时 / 5xx / 429）不再让面板显示「查询失败」长达 5 分钟：保留上一次的余额并标注「缓存」，鉴权等确定失败照旧显示原因。
+- 台词池更新（同步 fox-dock 2.0 六角色新台词）：嘎啦嘛 / 大肥鱼 / GPT娘 / kimi娘 / 哈基米 共新增 15 句、改写 5 句。
+- 最大化窗口进入全屏视频 / 游戏时角色正常隐身：全屏判据改为「无边框 + 覆盖整屏」，不再被 Chromium 保留的最大化标志误判（PR #19，感谢 @FoobarRogers）。
+- README banner 重排与文档更新；`/whale/vendors.json` 支持单模板刷新参数。
+
 ## v1.16.11 整理：清理过程档案
 
 - 移除 `docs/PR7-REVIEW-IMPLEMENTATION.md`、`docs/porting/2026-10-handoff-workbuddy.md`、`docs/incidents/2026-10-overlay-host-freeze.md` 三份一次性审查与交接档案，并从 `docs/INDEX.md` 撤掉对应登记；代码无变化。
