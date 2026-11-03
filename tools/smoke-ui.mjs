@@ -2946,7 +2946,7 @@ try {
     !!whaleQ.info &&
       whaleQ.info.badges === 3 &&
       whaleQ.lines.some((t) => t.indexOf('哦鲸鲸') !== -1) &&
-      whaleQ.lines.some((t) => t.indexOf('dsv4.1-1017') !== -1) &&
+      whaleQ.lines.some((t) => t.indexOf('v4.1-1017') !== -1) &&
       whaleQ.lines.some((t) => t.indexOf('我要吃白饭') !== -1) &&
       whaleQ.lines.some((t) => t.indexOf('斩杀线') !== -1),
     JSON.stringify({ info: whaleQ.info, lines: whaleQ.lines.slice(-6) })
