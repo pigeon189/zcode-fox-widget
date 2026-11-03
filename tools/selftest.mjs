@@ -25,7 +25,7 @@ import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -49,7 +49,7 @@ const { costOfUsage, priceFor, isPeakTime, nextPeakChange, resolveVendor, resolv
 // plan-balance 在 WorkBuddy 分支已冻结：只保留两个出口（readPlanBalance/turnPlanUsage），
 // 恒返回「宿主无此项」。GLM Plan 日志解析相关的断言在本文件里已按迁移要求删除。
 const { readPlanBalance, turnPlanUsage } = await import('../lib/plan-balance.mjs')
-const { getPath, TEMPLATES, fetchFromTemplate, pickVendorBalance, listVendorStatus } = await import('../lib/vendors.mjs')
+const { getPath, TEMPLATES, fetchFromTemplate, pickVendorBalance, listVendorStatus, refreshVendorStatus } = await import('../lib/vendors.mjs')
 const { isBlockedHost } = await import('../lib/blocked-host.mjs')
 const { matchTemplateId, buildProviderEntries, invalidateDiscoverCache } = await import('../lib/discover.mjs')
 const { balanceSplit, computeTodayUsage, resolveTodayUsage, pickBalanceInfo, platformUsageUrl } = await import('../lib/balance.mjs')
@@ -2511,6 +2511,33 @@ try {
   // （迁移删除）「Plan 模板走日志源」：zcode-plan 模板已随 plan-balance 冻结一并从
   // vendors.mjs 删除，WorkBuddy 侧无对应物。已在清单完整性断言里去掉该 id。
 
+  // 单模板强制刷新路由（issue #18 讨论）：?refresh=1&template=<id> 只打一个模板，
+  // 不把 force 放大到全部 45 个——余额接口与配额接口的限流/并发策略不同。出网闸
+  // 开着时如实回「已禁用出网」（与整表轮询同一口径），不误报余额。
+  const single = await getJson(port, '/whale/vendors.json?refresh=1&template=bigmodel-glm')
+  check(
+    '单模板刷新路由：只回该模板本身（id=bigmodel-glm），出网闸下如实不可用',
+    single && single.id === 'bigmodel-glm' && single.kind === 'balance' &&
+      single.available === false && String(single.reason || '').indexOf('禁用出网') !== -1,
+    JSON.stringify(single)
+  )
+  const unknownTpl = await getJson(port, '/whale/vendors.json?refresh=1&template=no-such-template')
+  check(
+    '单模板刷新路由：未知模板回「未知模板」原因，不抛 500',
+    unknownTpl && unknownTpl.ok === false && unknownTpl.available === false &&
+      String(unknownTpl.reason || '').indexOf('未知模板') !== -1,
+    JSON.stringify(unknownTpl)
+  )
+  // 显式带了 template 但值为空白：绝不回落整表强制刷新（45 个模板连发的强制取数
+  // 不能被一个打错的 URL 触发），回 400 让调用方看到参数错误
+  const blankRes = await fetch('http://127.0.0.1:' + port + '/whale/vendors.json?refresh=1&template=')
+  const blankTpl = await blankRes.json().catch(() => null)
+  check(
+    '单模板刷新路由：template 显式传空回 400，不回落整表强制刷新',
+    blankRes.status === 400 && blankTpl && blankTpl.ok === false && /template 参数为空/.test(blankTpl.error || ''),
+    JSON.stringify({ status: blankRes.status, body: blankTpl })
+  )
+
   // 智谱现金余额（issue #18）：模板结构 / 响应围栏 / 注入桩取数 / 会话映射 / 展示降级。
   // 实测依据：账户报表接口无鉴权时返回 HTTP 200 + {code:1001}（不是 401），所以
   // pick 必须先判 success/code 再取字段——只看 HTTP 状态会把错误包当余额。
@@ -2602,7 +2629,244 @@ try {
         /var vbal = vendorBalanceOf\(source, view\)[\s\S]{0,500}?labelText = view\.balanceLabel \|\| view\.label/.test(widgetSrc) &&
         /labelEl\.textContent = labelText/.test(widgetSrc)
     )
+
+    // —— 事件驱动的单模板强制刷新（issue #18 讨论）：refreshVendorStatus 三件事 ——
+    // 缓存行为用注入的 Map（opts.cacheStore）验证：不碰进程内全局缓存，也允许带着
+    // 取数桩走缓存路径；key 与 fetchImpl 一并注入，用例不依赖本机是否配过凭据。
+    {
+      const okBody = (balance) => ({
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({ code: 200, success: true, data: { availableBalance: balance } })
+        },
+      })
+
+      // 1) 成功：TTL 从成功时刻重算——预置一条 400s 前的旧缓存（按 5 分钟 TTL 已过期），
+      //    强制刷新后缓存 at 更新为现在、余额落缓存，返回值不带 stale。
+      const storeOk = new Map()
+      storeOk.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      let okCalls = 0
+      const r1 = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => {
+          okCalls++
+          return okBody(9.9)
+        },
+        cacheStore: storeOk,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit1 = storeOk.get('bigmodel-glm')
+      check(
+        'GLM 钱包强制刷新：成功后 TTL 从成功时刻重算（缓存 at 覆盖为现在，余额 9.9 落缓存）',
+        r1 && r1.available === true && r1.balance === 9.9 && !r1.stale && okCalls === 1 &&
+          !!hit1 && Date.now() - hit1.at < 5000 && hit1.payload.balance === 9.9,
+        JSON.stringify({ available: r1 && r1.available, balance: r1 && r1.balance, stale: r1 && r1.stale, calls: okCalls })
+      )
+
+      // 2) 失败：静默降级——不把失败写进缓存，回落上一次的载荷并标 stale，
+      //    refreshReason 带上失败原因；旧缓存条目（含原 at）原样保留。
+      const storeFail = new Map()
+      storeFail.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      const r2 = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => {
+          throw new Error('network down')
+        },
+        cacheStore: storeFail,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit2 = storeFail.get('bigmodel-glm')
+      check(
+        'GLM 钱包强制刷新：失败静默降级——缓存改写为「旧值 + stale」（TTL 窗口不变），调用方拿到带标记的旧值',
+        r2 && r2.available === true && r2.balance === 1 && r2.stale === true &&
+          r2.refreshReason === 'network down' && !!hit2 && hit2.payload.balance === 1 &&
+          hit2.payload.stale === true && Date.now() - hit2.at >= 300_000,
+        JSON.stringify({ available: r2 && r2.available, balance: r2 && r2.balance, stale: r2 && r2.stale, reason: r2 && r2.refreshReason, cachedStale: hit2 && hit2.payload.stale })
+      )
+
+      // 3) 单飞：同一模板并发两次只打一次上游（forcedPending 去重，成功路径）
+      let slowCalls = 0
+      const slowStub = () =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            slowCalls++
+            resolve(okBody(5))
+          }, 60)
+        )
+      const [a, b] = await Promise.all([
+        refreshVendorStatus('bigmodel-glm', { fetchImpl: slowStub, cacheStore: new Map(), key: 'sk-selftest-placeholder' }),
+        refreshVendorStatus('bigmodel-glm', { fetchImpl: slowStub, cacheStore: new Map(), key: 'sk-selftest-placeholder' }),
+      ])
+      check(
+        'GLM 钱包强制刷新：并发单飞——同一时刻只允许一个在途请求（两个调用同源同值）',
+        slowCalls === 1 && a === b && a && a.balance === 5,
+        'calls=' + slowCalls
+      )
+
+      // 4) 失败且没有旧值：原样返回失败载荷，且失败不落缓存
+      const empty = new Map()
+      let failCalls = 0
+      const failStub = async (url) => {
+        // 只计 bigmodel 的出站次数：listVendorStatus 会并行取其余远程模板，
+        // 它们的失败与本用例无关
+        if (String(url).indexOf('query-customer-account-report') !== -1) failCalls++
+        throw new Error('first try fails')
+      }
+      const r3 = await refreshVendorStatus('bigmodel-glm', { fetchImpl: failStub, cacheStore: empty, key: 'sk-selftest-placeholder' })
+      const hit3 = empty.get('bigmodel-glm')
+      // 45s 短 TTL 内的普通轮询命中缓存，不再打上游（持续故障重试节奏回到分钟级）
+      const listCached = await listVendorStatus(false, { fetchImpl: failStub, cacheStore: empty, key: 'sk-selftest-placeholder' })
+      const cachedView = (listCached.vendors || []).find((v) => v.id === 'bigmodel-glm')
+      check(
+        'GLM 钱包无旧值瞬时失败：失败载荷只押 45s 短 TTL，窗口内普通轮询命中缓存不再打上游',
+        r3 && r3.available === false && /first try fails/.test(r3.reason || '') &&
+          !!hit3 && hit3.ttlMs === 45000 && failCalls === 1 &&
+          !!cachedView && cachedView.available === false && /first try fails/.test(cachedView.reason || '') && failCalls === 1,
+        JSON.stringify({ reason: r3 && r3.reason, ttlMs: hit3 && hit3.ttlMs, calls: failCalls, cachedReason: cachedView && cachedView.reason })
+      )
+
+      // 5) 未知模板：直接给原因，不发请求
+      const r4 = await refreshVendorStatus('no-such-template', {})
+      check(
+        'GLM 钱包强制刷新：未知模板回「未知模板」原因',
+        r4 && r4.ok === false && /未知模板/.test(r4.reason || ''),
+        JSON.stringify(r4)
+      )
+
+      // 6) 写序守卫：取数期间别的请求写入了更新的结果——晚到的成功不覆盖它
+      //    （listVendorStatus(true) 走 force 路径，守卫在 compute 的写缓存处；
+      //    桩先模拟「并发一路已写入 42」再返回自己的成功值 7，缓存应保留 42）
+      const storeGuard = new Map()
+      const guardStub = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2))
+        storeGuard.set('bigmodel-glm', {
+          at: Date.now(),
+          payload: { available: true, balance: 42, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+        })
+        return okBody(7)
+      }
+      const guardList = await listVendorStatus(true, { fetchImpl: guardStub, cacheStore: storeGuard, key: 'sk-selftest-placeholder' })
+      const guardEntry = storeGuard.get('bigmodel-glm')
+      const guardView = (guardList.vendors || []).find((v) => v.id === 'bigmodel-glm')
+      check(
+        'GLM 钱包缓存写序：取数期间写入的更新结果不被晚到的取数覆盖（缓存保留 42）',
+        !!guardEntry && guardEntry.payload.balance === 42 && !guardEntry.payload.stale &&
+          !!guardView && guardView.balance === 7,
+        JSON.stringify({ cached: guardEntry && guardEntry.payload.balance, view: guardView && guardView.balance })
+      )
+
+      // 7) 瞬时失败回退（issue #18 第三条评论的顺带修复，口径对齐 balance.mjs）：
+      //    网络抖动 / 5xx / 429 不落失败载荷——缓存改写为「旧值 + stale」（TTL 窗口
+      //    不变），调用方拿到带标记的旧值
+      const store5xx = new Map()
+      store5xx.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      const r5xx = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => ({ ok: false, status: 503, async text() { return 'upstream maintenance' } }),
+        cacheStore: store5xx,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit5xx = store5xx.get('bigmodel-glm')
+      check(
+        'GLM 钱包瞬时失败回退：5xx 保留旧值并标 stale（不落失败载荷，TTL 窗口不变）',
+        r5xx && r5xx.available === true && r5xx.balance === 1 && r5xx.stale === true &&
+          r5xx.refreshReason === 'HTTP 503' && !!hit5xx && hit5xx.payload.stale === true &&
+          Date.now() - hit5xx.at >= 300_000,
+        JSON.stringify({ available: r5xx && r5xx.available, stale: r5xx && r5xx.stale, reason: r5xx && r5xx.refreshReason })
+      )
+
+      // 8) 确定失败（4xx 鉴权）维持原行为：失败计入缓存、面板在 TTL 内看到原因
+      const store401 = new Map()
+      store401.set('bigmodel-glm', {
+        at: Date.now() - 400_000,
+        payload: { available: true, balance: 1, currency: 'CNY', keySource: 'selftest', keyMasked: '****' },
+      })
+      const r401 = await refreshVendorStatus('bigmodel-glm', {
+        fetchImpl: async () => ({ ok: false, status: 401, async text() { return '{"code":1001}' } }),
+        cacheStore: store401,
+        key: 'sk-selftest-placeholder',
+      })
+      const hit401 = store401.get('bigmodel-glm')
+      check(
+        'GLM 钱包确定失败：4xx 鉴权错误照旧计入缓存（不误用旧余额，原因可见）',
+        r401 && r401.available === false && r401.reason === 'HTTP 401' && r401.stale === undefined &&
+          !!hit401 && hit401.payload.available === false && hit401.payload.stale === undefined,
+        JSON.stringify({ available: r401 && r401.available, reason: r401 && r401.reason, cached: hit401 && hit401.payload.available })
+      )
+    }
   }
+
+  {
+    // —— 回合结束刷新的两个配置字段（issue #18 讨论）——
+    // readPluginConfig / writePluginConfig 在模块加载时绑死 CONFIG_FILE，而 selftest
+    // 主进程不设 ZCODE_HOME：读写必须在隔离目录的子进程里做，绝不碰真实
+    // ~/.zcode/whale/config.json。覆盖三件事：默认值、下限钳制（只能调大）、
+    // 白名单写入不丢字段。
+    const lab = path.join(tmpHome, 'glm-refresh-lab')
+    fs.mkdirSync(path.join(lab, 'whale'), { recursive: true })
+    const credUrl = pathToFileURL(path.join(PLUGIN_ROOT, 'lib', 'credentials.mjs')).href
+    const labScript = [
+      "import { readPluginConfig, writePluginConfig, normalizeBalanceRefreshInterval } from '" + credUrl + "'",
+      'const out = {}',
+      'const def = readPluginConfig()',
+      'out.defaultOn = def.refreshBalanceOnTurnComplete',
+      'out.defaultMin = def.minBalanceRefreshIntervalMs',
+      "writePluginConfig({ refreshBalanceOnTurnComplete: true, minBalanceRefreshIntervalMs: 5000 })",
+      'const clamped = readPluginConfig()',
+      'out.writtenOn = clamped.refreshBalanceOnTurnComplete',
+      'out.clampedMin = clamped.minBalanceRefreshIntervalMs',
+      "writePluginConfig({ refreshBalanceOnTurnComplete: false, minBalanceRefreshIntervalMs: 300000 })",
+      'const wide = readPluginConfig()',
+      'out.offOn = wide.refreshBalanceOnTurnComplete',
+      'out.wideMin = wide.minBalanceRefreshIntervalMs',
+      'out.normalize = [normalizeBalanceRefreshInterval(120000), normalizeBalanceRefreshInterval(0), normalizeBalanceRefreshInterval("240000"), normalizeBalanceRefreshInterval(4000000)]',
+      "console.log('GLM_REFRESH_LAB:' + JSON.stringify(out))",
+    ].join('\n')
+    const scriptFile = path.join(lab, 'lab.mjs')
+    fs.writeFileSync(scriptFile, labScript, 'utf8')
+    const run = spawnSync(process.execPath, [scriptFile], {
+      encoding: 'utf8',
+      env: { ...process.env, ZCODE_HOME: lab },
+    })
+    let labOut = {}
+    try {
+      labOut = JSON.parse(((run.stdout || '').split('GLM_REFRESH_LAB:').pop() || '{}').trim())
+    } catch (err) {}
+    check(
+      'GLM 钱包回合刷新：配置默认值（开关默认关、最小间隔默认 2 分钟）',
+      labOut.defaultOn === false && labOut.defaultMin === 120000,
+      JSON.stringify(labOut)
+    )
+    check(
+      'GLM 钱包回合刷新：最小间隔下限钉在 2 分钟（写 5000 读回 120000），开关可打开',
+      labOut.writtenOn === true && labOut.clampedMin === 120000,
+      JSON.stringify({ on: labOut.writtenOn, min: labOut.clampedMin })
+    )
+    check(
+      'GLM 钱包回合刷新：间隔允许调大（300000）、开关可关回；归一化函数四种输入',
+      labOut.offOn === false && labOut.wideMin === 300000 &&
+        JSON.stringify(labOut.normalize) === JSON.stringify([120000, null, 240000, 3600000]),
+      JSON.stringify({ on: labOut.offOn, min: labOut.wideMin, normalize: labOut.normalize })
+    )
+  }
+
+  // 服务端源码钉：触发器必须挂在 pollTurnCost 的轮次变化分支里（默认关闭，
+  // 开启后靠这行生效）；厂商门控（只认 GLM 按量回合）与路由的 template 参数
+  const serverSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'server.mjs'), 'utf8')
+  check(
+    'GLM 钱包回合刷新：触发器挂在 pollTurnCost 的轮次变化分支（默认关，开启后生效）',
+    /function maybeRefreshGlmWallet\(\)/.test(serverSrc) &&
+      /maybeRefreshGlmWallet\(\)/.test(serverSrc) &&
+      /lastTurnPayload\.vendor !== 'glm' \|\| lastTurnPayload\.planTurn/.test(serverSrc) &&
+      /import \{ listVendorStatus, pickVendorBalance, refreshVendorStatus \} from '\.\/vendors\.mjs'/.test(serverSrc)
+  )
 
   // 用量记录：今日按模型聚合（积分口径）与逐轮事件。先补一轮 2 天前的历史
   // 用量，用来区分「按当天 / 按 7 天」两个模型榜：old-model 只在 7 天榜里出现，
@@ -5188,7 +5452,7 @@ try {
     const lab = path.join(tmpHome, 'ledger-lab')
     const labData = path.join(lab, 'plugin-data')
     fs.mkdirSync(labData, { recursive: true })
-    const balUrl = 'file:///' + path.join(PLUGIN_ROOT, 'lib', 'balance.mjs').replace(/\\/g, '/')
+    const balUrl = pathToFileURL(path.join(PLUGIN_ROOT, 'lib', 'balance.mjs')).href
     const labScript = [
       "import fs from 'node:fs'",
       "import path from 'node:path'",
@@ -5721,13 +5985,41 @@ try {
     const count = (needle) => (src.match(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length
     check(
       '台词池：三条新鲸鱼台词在 quotes 与 pool 各一份',
-      count('dsv4.1-1017已发布，亿万鲸子必须崛起...') === 2 &&
+      count('ds v4.1-1017已发布，亿万鲸子必须崛起...') === 2 &&
         count('我要吃白饭！我要吃——白——饭——！') === 2 &&
-        count('鲸鱼的斩杀线已经到达了极限') === 2,
+        count('哦鲸鲸的斩杀线已经到达了极限') === 2,
       JSON.stringify({
-        dsv: count('dsv4.1-1017已发布，亿万鲸子必须崛起...'),
+        dsv: count('ds v4.1-1017已发布，亿万鲸子必须崛起...'),
         rice: count('我要吃白饭！我要吃——白——饭——！'),
-        slay: count('鲸鱼的斩杀线已经到达了极限'),
+        slay: count('哦鲸鲸的斩杀线已经到达了极限'),
+      })
+    )
+    check(
+      '台词池：dock 2.0 台词同步（新增句落在对应角色的池里，旧句按 dock 移除）',
+      count('正在研发AGI...') === 2 &&
+        count('其实b站上的大肥鱼都是我的子代理~') === 2 &&
+        count('大肥鱼统治世界！') === 2 &&
+        count('deepseek-4.1-pro？会有的会有的') === 2 &&
+        count('11点已到，亿万嘎啦嘛必须开始蹬车') === 2 &&
+        count('虽然智谱的API很贵，但Coding Plan也不便宜嘛...') === 2 &&
+        count('冷知识，其实智谱也有自己的龙虾') === 2 &&
+        count('5.5真的马上出来了...GLM不是区...') === 2 &&
+        count('只要像我每晚工作，小克就不会封你号啦') === 2 &&
+        count('真当我是便宜货啊...') === 2 &&
+        count('重置卡人人都有份，发完你的发你的') === 1 &&
+        count('训练前端能力ing...') === 1 &&
+        count('无卡野人...↓') === 1 &&
+        count('Plan的额度不低啦，现在基础套餐能做两次鹈鹕呢') === 1 &&
+        count('你知道吗，氩的元素符号是Ar') === 1 &&
+        count('这里是喜欢元素周期表的猫猫一枚') === 1 &&
+        count('反重力不是区！哈！') === 1,
+      JSON.stringify({
+        agi: count('正在研发AGI...'),
+        subagent: count('其实b站上的大肥鱼都是我的子代理~'),
+        world: count('大肥鱼统治世界！'),
+        cheap: count('真当我是便宜货啊...'),
+        train: count('训练前端能力ing...'),
+        arc: count('反重力不是区！哈！'),
       })
     )
     check(

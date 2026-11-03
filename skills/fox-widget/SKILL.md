@@ -126,6 +126,8 @@ node "${CODEBUDDY_PLUGIN_ROOT}/lib/cli.mjs" desktop install # 安装 Electron �
 | `autoStartWidget` | 默认 `true`，SessionStart 是否自动拉起服务 |
 | `autoStartOverlay` | 默认 `true`，会话启动时是否顺带拉起桌面浮层（运行时未装时静默跳过） |
 | `followIntervalMs` | 跟随探测间隔（毫秒），默认 40 |
+| `refreshBalanceOnTurnComplete` | 默认 `false`。开启后每个完成的 GLM 按量回合延迟 8 秒强制刷新一次 GLM 现金钱包（只刷这一个模板；瞬时失败保留旧值，不弹气泡） |
+| `minBalanceRefreshIntervalMs` | 上一项的最小间隔毫秒数，默认 120000；下限固定 2 分钟、只能调大（读取时钳在 120000–3600000） |
 | `vendorKeys` | `{ <模板 id>: <key> }`，手工给厂商卡填凭据 |
 
 另外有一个**不是配置**的状态文件：`<插件数据目录>/close-pause.json`——菜单里点过「关闭插件」时写下，看门狗见到它就停手（本线看门狗每 15 秒补活，不拦就会把刚关掉的挂件拉回来）。它只活到「下次宿主启动」或「挂件被钩子 / 显式启动拉回来」，然后自动删掉；想立刻恢复就 `node lib/cli.mjs start`。

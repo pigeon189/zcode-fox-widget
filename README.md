@@ -127,6 +127,8 @@ echo 'sk-xxxxxxxx' | node lib/cli.mjs key   # 走 stdin，不留命令行痕迹
 | `autoStartWidget` | `true` | 会话启动时拉起服务（看门狗也照它怠速） |
 | `autoStartOverlay` | `true` | 顺便拉起浮层（运行时未安装时静默跳过） |
 | `followIntervalMs` | `40` | 跟随探测间隔（16–2000ms；菜单可选 16 / 40 / 100 / 250，选择存在本地并即时生效） |
+| `refreshBalanceOnTurnComplete` | `false` | 每个完成的 GLM 按量回合强制刷新一次钱包余额（issue #18；只刷新这一个模板，失败保留旧值） |
+| `minBalanceRefreshIntervalMs` | `120000` | 上一项两次刷新的最小间隔（毫秒）；下限固定 2 分钟、只能调大（读取时钳在 120000–3600000） |
 | `port` | 自动（默认 39321） | 固定端口，占用时顺延 |
 
 厂商凭据写在 `vendorKeys.<模板 id>`；中转站另有一类**账户级**查询（系统访问令牌 + 用户 ID），写在 `relayAuth.<站点 id> = { token, userId }`——只有 `vendorKeys` 时能查 token 额度，账户余额需要 `relayAuth`。挂件自身的外观与开关（大小、音效、音量、角色、主题、气泡、默认位置、桌宠模式、预警阈值等）在 `widget-state.json`（由挂件菜单写入）；按压泡泡队列与模板单独存 `bubble-content.json` / `bubble-templates.json`。
