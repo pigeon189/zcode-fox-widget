@@ -4638,6 +4638,31 @@ try {
     )
   }
 
+  // 跟随可见窗口边缘 + 立绘透明留白补偿：Win11 的 GetWindowRect 含约 7px
+  // 不可见阴影边框，直接跟随会让鲸鱼悬出可见窗口；立绘 PNG 也可能自带透明
+  // 描边，贴边时应按不透明像素的边缘对齐，而不是 root 盒子。
+  {
+    const followSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'desktop', 'follow-window.ps1'), 'utf8')
+    const widgetSrc2 = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'widget.js'), 'utf8')
+    check(
+      '跟随上报 DWM 可见边缘（不含 Win11 不可见阴影边框）',
+      /DwmGetWindowAttribute\(IntPtr hwnd, int attr, out RECT val, int size\)/.test(followSrc) &&
+        /static bool GetVisibleRect\(IntPtr h, out RECT r\)/.test(followSrc) &&
+        /GetVisibleRect\(z, out r\)/.test(followSrc),
+      ''
+    )
+    check(
+      '立绘贴边时按不透明边缘补偿透明留白',
+      /var artLeft610 = -1/.test(widgetSrc2) &&
+        /var artRight610 = -1/.test(widgetSrc2) &&
+        /function rightPadFor\(w\)/.test(widgetSrc2) &&
+        /var hPad = rightPadFor\(w\)/.test(widgetSrc2) &&
+        /var vPad = bottomPadFor\(h\)/.test(widgetSrc2) &&
+        /state\.left = state\.hOff - hPad/.test(widgetSrc2),
+      ''
+    )
+  }
+
   // ---------- 宿主更新时的让路（issue #2 后半段：更新 ZCode 时提示「无法关闭 ZCode」） ----------
   // 判定与探测抽在 desktop/update-guard.cjs（纯函数 + 一次「可执行映像是否被占用」探测）。
   // 这里测三层：纯函数三态、真机占用语义、以及**端到端**——用「跟随一个不存在的进程」模拟
