@@ -96,6 +96,24 @@ public static class WhaleFollow
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int val, int size);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT val, int size);
+    const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
+    // Win11 reports an invisible ~7px shadow border in GetWindowRect. Following the
+    // physical rect makes the whale overhang the visible window edge (very visible at
+    // large scales). Prefer the DWM visible frame bounds; fall back when unavailable.
+    static bool GetVisibleRect(IntPtr h, out RECT r)
+    {
+        r = new RECT();
+        try
+        {
+            if (DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, out r, Marshal.SizeOf(typeof(RECT))) == 0
+                && r.Right > r.Left && r.Bottom > r.Top)
+                return true;
+        }
+        catch (Exception) { }
+        return GetWindowRect(h, out r);
+    }
 
     static IntPtr _overlayHwnd = IntPtr.Zero;
 
@@ -426,7 +444,7 @@ public static class WhaleFollow
             missSince = 0;
 
             RECT r;
-            if (GetWindowRect(z, out r))
+            if (GetVisibleRect(z, out r))
             {
                 bool minimized = IsIconic(z);
                 uint fgPid = 0;
