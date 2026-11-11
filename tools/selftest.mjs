@@ -31,6 +31,8 @@ import { assertSafeUpstream, findApiKey, readPluginConfig, writePluginConfig, no
 import { nodeBin } from '../lib/service.mjs'
 import { resolveBillingSource, isNightOffpeak } from '../lib/source.mjs'
 import { buildWatchVbs, installWatch, uninstallWatch, watchStatus, loadRuntimeEnv } from '../lib/watch-install.mjs'
+import { waitDockOnline } from '../lib/boot-widget.mjs'
+import { dockQuitForThisBoot } from '../lib/dock-shim.mjs'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // 浮层的 desktop/*.cjs 是 CommonJS（Electron 主进程），从 ESM 自检里 require 进来测
@@ -3885,6 +3887,66 @@ try {
     body: JSON.stringify({ action: 'nope' }),
   })
   check('更新路由：未知动作 400（不误触发任何流程）', badAction.status === 400, 'status=' + badAction.status)
+
+  // ---------- 1.x ⇄ dock 让位：确认 dock 真在线才让位（2026-11-12 真机） ----------
+  // 真机故障：dock 的 watchdog 锁里是已被系统回收的 pid → dock 永远起不来；而 1.x
+  // 只要 `ensure` 这个命令 spawn 成功就让出浮层，于是桌面上两边都没有角色，日志还
+  // 写着 dock-online。现在拉起后等一个短窗口确认在线，仍离线就回落自己的浮层；
+  // 唯一例外是用户本次开机主动退出过 dock（D073 标记），那就不显示。
+  {
+    const probeSeq = (results) => {
+      let i = 0
+      return { probe: async () => results[Math.min(i++, results.length - 1)], calls: () => i }
+    }
+    const first = probeSeq([true])
+    check(
+      'dock 让位：拉起后一探到在线就立即让位',
+      (await waitDockOnline({ probe: first.probe, timeoutMs: 6000 })) === true && first.calls() === 1,
+      'calls=' + first.calls()
+    )
+    const never = probeSeq([false])
+    const t0 = Date.now()
+    const neverOnline = await waitDockOnline({ probe: never.probe, timeoutMs: 0, intervalMs: 10 })
+    check(
+      'dock 让位：等不到在线就返回 false（不无限等、不把浮层让空）',
+      neverOnline === false && Date.now() - t0 < 1000,
+      'calls=' + never.calls() + ' elapsed=' + (Date.now() - t0)
+    )
+    const later = probeSeq([false, false, true])
+    check(
+      'dock 让位：窗口内迟到几拍上线也算在线',
+      (await waitDockOnline({ probe: later.probe, timeoutMs: 6000, intervalMs: 1 })) === true && later.calls() === 3,
+      'calls=' + later.calls()
+    )
+
+    const quitBase = fs.mkdtempSync(path.join(tmpHome, 'dock-quit-'))
+    const quitDir = path.join(quitBase, 'fox-dock')
+    fs.mkdirSync(quitDir, { recursive: true })
+    const bootAt = Math.round(Date.now() - os.uptime() * 1000)
+    fs.writeFileSync(path.join(quitDir, 'quit-until-boot.json'), JSON.stringify({ v: 1, at: Date.now(), bootAt, source: 'quit' }))
+    check(
+      'dock 让位：用户本次开机退出过 dock 时识别标记（不回落自己的浮层）',
+      dockQuitForThisBoot({ FOX_DOCK_DATA: quitBase }) === true
+    )
+    fs.writeFileSync(
+      path.join(quitDir, 'quit-until-boot.json'),
+      JSON.stringify({ v: 1, at: Date.now(), bootAt: bootAt - 3_600_000, source: 'quit' })
+    )
+    check('dock 让位：跨开机的旧退出标记不算数', dockQuitForThisBoot({ FOX_DOCK_DATA: quitBase }) === false)
+    check(
+      'dock 让位：没有标记时按「未退出」处理',
+      dockQuitForThisBoot({ FOX_DOCK_DATA: path.join(tmpHome, 'dock-quit-none') }) === false
+    )
+
+    const bootSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'boot-widget.mjs'), 'utf8')
+    check(
+      'dock 让位：源码契约——确认在线才让位，否则走 offline-fallback',
+      /waitDockOnline/.test(bootSrc) &&
+        /offline-fallback/.test(bootSrc) &&
+        /dockQuitForThisBoot/.test(bootSrc) &&
+        /skipped:dock-quit/.test(bootSrc)
+    )
+  }
 
   // fox-dock 迁移入口路由：offer 由服务端探测落盘（migrationProbe），这里直接种
   // 状态文件驱动各分支。GET 会触发节流探测，但 WHALE_DISABLE_UPDATE_CHECK=1 时
