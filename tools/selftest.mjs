@@ -2641,6 +2641,84 @@ try {
       authedHealth.keyProbe.entries.some((e) => e.providerId === 'deepseek-encrypted' && e.keyEncrypted === true),
     'keySource=' + authedHealth.keySource + ' entries=' + ((authedHealth.keyProbe && authedHealth.keyProbe.entries) || []).length
   )
+  // 单实例守卫与陈旧 server.json（issue #21）：ZCode 更新会终止整个进程树，服务
+  // 来不及清掉 server.json；Windows 又把被终止进程的 pid 回收给无关进程，于是
+  // 「pid 还活着」的守卫把新实例挡在门外，此后每条启动路径都失败。存活判据改成
+  // 「登记端口上有没有挂件在应答」，同时保留真·双实例的保守退出（审查 I3）。
+  {
+    const isoEnv = (home) => ({
+      ...process.env,
+      ZCODE_HOME: home,
+      ZCODE_DATA_BASE_DIR: home,
+      CMDGO_DIR: path.join(home, 'cmdgo-empty'),
+      WHALE_DISABLE_UPDATE_CHECK: '1',
+      WHALE_DISABLE_VENDOR_FETCH: '1',
+    })
+    // 每个用例一个隔离数据目录：配置端口 = 本次要绑的端口，server.json 里塞一条
+    // 「pid 活着」的陈旧登记——用自检进程自己的 pid 冒充被系统回收的无关进程。
+    const isoStart = async (bindPort, stalePort) => {
+      const home = fs.mkdtempSync(path.join(tmpHome, 'stale-info-'))
+      const whale = path.join(home, 'whale')
+      fs.mkdirSync(whale, { recursive: true })
+      fs.writeFileSync(path.join(whale, 'config.json'), JSON.stringify({ port: bindPort }), 'utf8')
+      fs.writeFileSync(
+        path.join(whale, 'server.json'),
+        JSON.stringify({ pid: process.pid, port: stalePort, url: 'http://127.0.0.1:' + stalePort + '/', token: 'stale' }),
+        'utf8'
+      )
+      const c = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'server.mjs')], {
+        cwd: PLUGIN_ROOT,
+        env: isoEnv(home),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let log = ''
+      c.stdout.on('data', (d) => (log += d))
+      c.stderr.on('data', (d) => (log += d))
+      return {
+        c,
+        log: () => log,
+        info: () => JSON.parse(fs.readFileSync(path.join(whale, 'server.json'), 'utf8')),
+      }
+    }
+    // 1) 登记的端口正是本次绑定成功的端口：登记实例不可能还在监听它 → 顶掉并起来
+    const pSame = await pickFreePort(39100, 39600)
+    const same = await isoStart(pSame, pSame)
+    const sameHealth = await waitReady(pSame, 20000, same.c)
+    check(
+      '陈旧 server.json：同端口的假活 pid 不再挡住启动（issue #21）',
+      !!sameHealth && sameHealth.pid === same.c.pid && same.info().pid === same.c.pid,
+      'up=' + !!sameHealth + ' child=' + same.c.pid + ' registry=' + same.info().pid + ' log=' + same.log().slice(0, 200)
+    )
+    try {
+      same.c.kill()
+    } catch (err) {}
+    // 2) 登记端口与本次绑定的端口不同、且那个端口没人应答：同样是残留，清掉再起
+    const pNew = await pickFreePort(39100, 39600)
+    const pGone = await pickFreePort(39100, 39600)
+    const moved = await isoStart(pNew, pGone)
+    const movedHealth = await waitReady(pNew, 20000, moved.c)
+    check(
+      '陈旧 server.json：换过端口后的残留登记也会被清掉（不必等无关进程退出）',
+      !!movedHealth && movedHealth.pid === moved.c.pid && moved.info().pid === moved.c.pid,
+      'up=' + !!movedHealth + ' child=' + moved.c.pid + ' registry=' + moved.info().pid + ' log=' + moved.log().slice(0, 200)
+    )
+    try {
+      moved.c.kill()
+    } catch (err) {}
+    // 3) 登记端口上确实有另一个挂件在应答（真·双实例）：仍然保守退出，不抢登记
+    const pThird = await pickFreePort(39100, 39600)
+    const twin = await isoStart(pThird, port)
+    const twinDeadline = Date.now() + 20000
+    while (twin.c.exitCode === null && Date.now() < twinDeadline) await new Promise((r) => setTimeout(r, 200))
+    check(
+      '真·双实例：登记端口上有挂件在应答时仍保守退出（审查 I3 语义不变）',
+      twin.c.exitCode === 0 && twin.info().pid === process.pid && /另一个实例已登记/.test(twin.log()),
+      'exit=' + twin.c.exitCode + ' registry=' + twin.info().pid + ' log=' + twin.log().slice(0, 200)
+    )
+    try {
+      twin.c.kill()
+    } catch (err) {}
+  }
   // 关于 / 自检（v1.15.2）：一份脱敏诊断快照，供用户直接复制给维护者
   {
     const res = await fetch('http://127.0.0.1:' + port + '/whale/diag.json')
