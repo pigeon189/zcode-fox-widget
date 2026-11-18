@@ -3500,6 +3500,123 @@ try {
     JSON.stringify(startPos)
   )
 
+  // —— 中键自由放置（2026-11-18 右下吸附遮挡课题）——
+  // 核心判据：中键拖进右下吸附区松手 → 停在原地不吸边；POS_KEY 记 free；
+  // reload（restoreSavedPos）与开/关菜单（snapCheck）都不丢位置语义；
+  // 左键同路径拖拽 → 仍吸附贴边（四分判定零改动）。
+  // 浏览器模式 root=610*scale，scale 1.5 时 root 中心进不了右 1/4 区，先缩到 0.6。
+  await fetch('http://127.0.0.1:' + PORT + '/whale/size.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scale: 0.6, petMode: false }),
+  })
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+  const midBase = JSON.parse(
+    await cdp.eval(
+      "(function(){var root=document.querySelector('.zcwv-root');var img=document.querySelector('.zcwv-root img');" +
+        'var rr=root.getBoundingClientRect();var ir=img.getBoundingClientRect();' +
+        'return JSON.stringify({rl:Math.round(rr.left),rt:Math.round(rr.top),rw:Math.round(rr.width),rh:Math.round(rr.height),' +
+        'cx:Math.round(ir.left+ir.width/2),cy:Math.round(ir.top+ir.height/2),vw:innerWidth,vh:innerHeight})})()'
+    )
+  )
+  // 目标：root 中心进右 1/4 区（对照判据需要），且 root 盒全程不撞视口 clamp
+  // （按实测 base 反算安全落点；root 实际尺寸随浏览器自适应缩放，不写死）
+  const midTo = {
+    x: Math.min(midBase.cx + (midBase.vw - midBase.rl - midBase.rw) - 12, Math.round(midBase.vw * 0.95)),
+    y: midBase.cy + (midBase.vh - midBase.rt - midBase.rh) - 12,
+  }
+  async function injectedDragBtn(fromX, fromY, toX, toY, btn) {
+    const down = btn === 'middle' ? { button: 'middle', buttons: 4 } : { button: 'left', buttons: 1 }
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: Math.round(fromX), y: Math.round(fromY), clickCount: 1, pointerType: 'mouse', ...down })
+    for (let i = 1; i <= 10; i++) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: Math.round(fromX + ((toX - fromX) * i) / 10),
+        y: Math.round(fromY + ((toY - fromY) * i) / 10),
+        button: btn,
+        buttons: btn === 'middle' ? 4 : 1,
+        pointerType: 'mouse',
+      })
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: Math.round(toX), y: Math.round(toY), button: btn, buttons: 0, clickCount: 1, pointerType: 'mouse' })
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  await injectedDragBtn(midBase.cx, midBase.cy, midTo.x, midTo.y, 'middle')
+  const afterMid = JSON.parse(
+    await cdp.eval(
+      "(function(){var root=document.querySelector('.zcwv-root');var rr=root.getBoundingClientRect();" +
+        "var p=JSON.parse(localStorage.getItem('zcw-pos')||'{}');" +
+        'return JSON.stringify({rl:Math.round(rr.left),rt:Math.round(rr.top),free:p.free||0})})()'
+    )
+  )
+  const midMovedOk =
+    Math.abs(afterMid.rl - (midBase.rl + (midTo.x - midBase.cx))) <= 3 &&
+    Math.abs(afterMid.rt - (midBase.rt + (midTo.y - midBase.cy))) <= 3
+  const midCenterX = midBase.rl + midBase.rw / 2 + (midTo.x - midBase.cx)
+  check(
+    '中键自由放置：拖进右下吸附区松手停在原地、右缘离屏、POS_KEY 记 free',
+    midCenterX > midBase.vw * 0.75 &&
+      midMovedOk &&
+      afterMid.free === 1 &&
+      afterMid.rl + midBase.rw < midBase.vw - 6,
+    JSON.stringify({ base: midBase, to: midTo, after: afterMid, centerX: Math.round(midCenterX) })
+  )
+  // reload：restoreSavedPos 读 free 语义 → 回到中键放置位（不转贴边锚点）
+  await cdp.send('Page.reload')
+  await new Promise((r) => setTimeout(r, 2500))
+  const afterReload = JSON.parse(
+    await cdp.eval(
+      "(function(){var root=document.querySelector('.zcwv-root');var rr=root.getBoundingClientRect();" +
+        "var p=JSON.parse(localStorage.getItem('zcw-pos')||'{}');" +
+        'return JSON.stringify({rl:Math.round(rr.left),rt:Math.round(rr.top),free:p.free||0,h:(p.hAnchor||"")})})()'
+    )
+  )
+  check(
+    '中键放置 reload 保持：位置回到放置点、free 语义保留',
+    Math.abs(afterReload.rl - afterMid.rl) <= 3 &&
+      Math.abs(afterReload.rt - afterMid.rt) <= 3 &&
+      afterReload.free === 1,
+    JSON.stringify({ afterMid: afterMid, afterReload: afterReload })
+  )
+  // 开/关菜单：closeMenu → snapCheck 必须豁免自由锚点（关菜单不得吸走）
+  await cdp.eval("(function(){document.querySelector('.zcwv-menu-btn').click();return 'open'})()")
+  await new Promise((r) => setTimeout(r, 300))
+  await cdp.eval("(function(){document.querySelector('.zcwv-menu-btn').click();return 'close'})()")
+  await new Promise((r) => setTimeout(r, 500))
+  const afterMenu = JSON.parse(
+    await cdp.eval(
+      "(function(){var root=document.querySelector('.zcwv-root');var rr=root.getBoundingClientRect();" +
+        'return JSON.stringify({rl:Math.round(rr.left),rt:Math.round(rr.top)})})()'
+    )
+  )
+  check(
+    '中键放置开/关菜单不被 snapCheck 吸走',
+    Math.abs(afterMenu.rl - afterReload.rl) <= 3 && Math.abs(afterMenu.rt - afterReload.rt) <= 3,
+    JSON.stringify({ afterReload: afterReload, afterMenu: afterMenu })
+  )
+  // 左键对照：同区域左键拖拽松手 → 仍按四分吸附贴右缘（上游语义零改动）
+  const leftBase = JSON.parse(
+    await cdp.eval(
+      "(function(){var img=document.querySelector('.zcwv-root img');var r=img.getBoundingClientRect();" +
+        'return JSON.stringify({cx:Math.round(r.left+r.width/2),cy:Math.round(r.top+r.height/2)})})()'
+    )
+  )
+  await injectedDragBtn(leftBase.cx, leftBase.cy, leftBase.cx + 60, leftBase.cy + 40, 'left')
+  const afterLeft = JSON.parse(
+    await cdp.eval(
+      "(function(){var root=document.querySelector('.zcwv-root');var rr=root.getBoundingClientRect();" +
+        "var p=JSON.parse(localStorage.getItem('zcw-pos')||'{}');" +
+        'return JSON.stringify({right:Math.round(rr.right),free:p.free||0,vw:innerWidth})})()'
+    )
+  )
+  check(
+    '左键对照：拖进右 1/4 松手仍吸附贴右缘、POS_KEY 回 free=0',
+    leftBase.cx > afterLeft.vw * 0.75 && afterLeft.right >= afterLeft.vw - 2 && afterLeft.free === 0,
+    JSON.stringify({ leftBase: leftBase, after: afterLeft })
+  )
+
   // （原 ⑮「接管看门狗」用例已随该修复一并回滚：实测它没有解决宿主暂停，
   //   而「接管中 6 秒无活动就交还」本身还有副作用——指针停在角色上超过 6 秒后
   //   角色会变成点不到。相关代码与自检钉桩都已移除。）
