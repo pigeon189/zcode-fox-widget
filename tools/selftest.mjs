@@ -3211,6 +3211,18 @@ try {
         /var vbal = vendorBalanceOf\(source, view\)[\s\S]{0,500}?labelText = view\.balanceLabel \|\| view\.label/.test(widgetSrc) &&
         /labelEl\.textContent = labelText/.test(widgetSrc)
     )
+    // 中键自由放置链路（2026-11-18 右下吸附遮挡课题）：中键拖放行与 free 分支、
+    // snapCheck 自由锚点豁免、POS_KEY free 标记与 restoreSavedPos/applyAnchorPos
+    // 双恢复点保持自由语义（左键四分吸附与「回到默认位置」不得受影响）
+    check(
+      '前端：中键自由放置（drag.free 放行+分支 / snapCheck 自由锚点豁免 / POS_KEY free 双恢复点）',
+      widgetSrc.indexOf("free: e.pointerType === 'mouse' && e.button === 1") !== -1 &&
+        widgetSrc.indexOf('if (drag.free) {') !== -1 &&
+        widgetSrc.indexOf('clickAllowed && !drag.moved && !drag.free') !== -1 &&
+        /function snapCheck\(\) \{[\s\S]{0,240}?if \(state\.h == null\) return/.test(widgetSrc) &&
+        widgetSrc.indexOf('free: state.h === null && state.v === null ? 1 : 0') !== -1 &&
+        (widgetSrc.match(/if \(a\.free\) \{/g) || []).length === 2
+    )
 
     // —— 事件驱动的单模板强制刷新（issue #18 讨论）：refreshVendorStatus 三件事 ——
     // 缓存行为用注入的 Map（opts.cacheStore）验证：不碰进程内全局缓存，也允许带着
