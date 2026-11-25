@@ -196,6 +196,8 @@ node lib/cli.mjs watch once        # 只探测一次并拉起（排障）
 
 不想要看门进程就 `watch uninstall`；把 `autoStartWithZcode` 设为 `false` 后，下次会话启动也会自动卸载。
 
+**停用插件会自动收尾**：在 ZCode 插件管理里停用（「取消使用」）插件后，看门进程会在 5 秒内发现自己已被停用，停掉浮层与挂件服务、删掉登录自启项并退出；MCP server 与挂件服务各有兜底自检，看门进程没装时也能退。停用期间不再拉起挂件，重新启用后由下一次会话启动把自启项装回来。
+
 ### 在对话里用
 
 输入 `/fox`（或 `/fox turn`、`/fox window start`），或直接问「我还有多少余额」——ZCode 会调 MCP：
@@ -339,11 +341,13 @@ node lib/cli.mjs json             # 结构化输出
 
 ## 卸载
 
-按「先停进程 → 再移除自启 → 最后删数据」的顺序：
+在 ZCode 插件管理里**停用**（「取消使用」）插件后，插件会自己收尾：看门进程在 5 秒内发现自己已被停用，停掉浮层与挂件服务、删掉登录自启项并退出；MCP server 与挂件服务各有兜底自检。想连数据一起清掉，或插件已卸载导致 CLI 不可用时，再按下面的手动步骤走。
+
+手动彻底移除按「先停进程 → 再移除自启 → 最后删数据」的顺序：
 
 1. **停掉挂件**：`node lib/cli.mjs close`（等价于 `window stop` + `stop`）。
 2. **移除登录自启**：`node lib/cli.mjs watch uninstall`。它会删除 Startup 文件夹里的看门 VBS 并停掉看门进程；插件已卸载、CLI 不可用时，手动删 Startup 里的 `zcode-fox-widget-watch.vbs` 即可（WorkBuddy 线的文件名是 `fox-widget-watchdog.vbs`，别删错）。
-3. **卸载插件**：在 ZCode 插件管理里卸载或停用 `zcode-fox-widget`。
+3. **卸载插件**：在 ZCode 插件管理里卸载或停用 `zcode-fox-widget`（停用会触发上面说的自动收尾）。
 4. **删除数据目录**（可选）：`~/.zcode/whale/`。里面有 Key、账本、角色、音效、配置、更新备份与 Electron 运行时（`desktop-runtime/`）；**删除后不可恢复**，需要保留就先备份。运行时只服务于浮层，删掉后本地页面仍可用，下次用浮层需重新 `node lib/cli.mjs desktop install`。
 
 插件不写宿主配置；除了插件缓存与这个 Startup 项，没有别的系统级残留。`~/.zcode/whale/` 之外的 ZCode 数据（会话库、日志）不会被本插件删除。

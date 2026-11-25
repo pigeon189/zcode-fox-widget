@@ -6658,6 +6658,129 @@ try {
     }
   }
 
+  {
+    // 插件启用状态（issue #24）：ZCode 禁用插件只改 enabledPlugins，不通知已运行的
+    // 常驻进程。判定必须保守——宁可什么都不做，也不能把 WorkBuddy 线（fox-widget）
+    // 或 dsh 副本（dsh-whale-widget）误判成本插件。
+    const { pluginNameOfKey, enabledPluginsOf, pluginEnabledState, pluginEnabledStateNow } = await import(
+      pathToFileURL(path.join(PLUGIN_ROOT, 'lib', 'plugin-state.mjs')).href
+    )
+    check(
+      '插件状态：键名归属取 @ 前半段做插件名',
+      pluginNameOfKey('zcode-fox-widget@zcode-fox-local') === 'zcode-fox-widget',
+      pluginNameOfKey('zcode-fox-widget@zcode-fox-local')
+    )
+    check(
+      '插件状态：WorkBuddy 线 fox-widget 不命中（子串陷阱）',
+      pluginEnabledState({ 'fox-widget@fox-local': false }, 'zcode-fox-widget').state === 'unknown',
+      ''
+    )
+    check(
+      '插件状态：dsh 副本 dsh-whale-widget 不命中',
+      pluginEnabledState({ 'dsh-whale-widget@dsh-local': false }, 'zcode-fox-widget').state === 'unknown',
+      ''
+    )
+    check(
+      '插件状态：显式 false → disabled',
+      pluginEnabledState({ 'zcode-fox-widget@zcode-fox-local': false }, 'zcode-fox-widget').state === 'disabled',
+      ''
+    )
+    check(
+      '插件状态：多市场任一 true → enabled',
+      pluginEnabledState({ 'zcode-fox-widget@a': false, 'zcode-fox-widget@b': true }, 'zcode-fox-widget').state === 'enabled',
+      ''
+    )
+    check(
+      '插件状态：值缺失不算关闭（不误杀）',
+      pluginEnabledState({ 'zcode-fox-widget@x': undefined }, 'zcode-fox-widget').state === 'enabled',
+      ''
+    )
+    check(
+      '插件状态：结构不符 → null（调用方不动作）',
+      enabledPluginsOf({ plugins: { enabledPlugins: [] } }) === null && enabledPluginsOf({}) === null && enabledPluginsOf(null) === null,
+      ''
+    )
+
+    const stateDir = fs.mkdtempSync(path.join(tmpHome, 'plugin-state-'))
+    try {
+      fs.mkdirSync(path.join(stateDir, 'cli'), { recursive: true })
+      const cfgFile = path.join(stateDir, 'cli', 'config.json')
+      fs.writeFileSync(cfgFile, JSON.stringify({ plugins: { enabledPlugins: { 'zcode-fox-widget@zcode-fox-local': false } } }))
+      const off = pluginEnabledStateNow({ file: cfgFile, name: 'zcode-fox-widget' })
+      check('插件状态：从 config 文件读出 disabled', off.state === 'disabled' && off.matched.length === 1, JSON.stringify(off))
+      fs.writeFileSync(cfgFile, '{坏 JSON')
+      check('插件状态：JSON 坏了算未知（不动作）', pluginEnabledStateNow({ file: cfgFile, name: 'zcode-fox-widget' }).state === 'unknown', '')
+
+      // 下面两条用临时 ZCODE_HOME 隔离：绝不读真实用户配置、不碰真实 Startup 文件夹
+      const watchHome = path.join(stateDir, 'home')
+      fs.mkdirSync(path.join(watchHome, 'cli'), { recursive: true })
+      fs.writeFileSync(
+        path.join(watchHome, 'cli', 'config.json'),
+        JSON.stringify({ plugins: { enabledPlugins: { 'zcode-fox-widget@zcode-fox-local': false } } })
+      )
+      const startupDir = path.join(stateDir, 'startup')
+      const once = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'zcode-watch.mjs'), '--once'], {
+        encoding: 'utf8',
+        timeout: 15000,
+        windowsHide: true,
+        env: { ...process.env, ZCODE_HOME: watchHome, ZCODE_DATA_BASE_DIR: watchHome, FOX_WATCH_STARTUP_DIR: startupDir },
+      })
+      let onceJson = null
+      try {
+        onceJson = JSON.parse(once.stdout)
+      } catch (err) {}
+      check(
+        '看门 --once：插件被禁用时跳过拉起',
+        once.status === 0 && onceJson && onceJson.skipped === 'plugin-disabled',
+        JSON.stringify({ status: once.status, stdout: String(once.stdout || '').slice(0, 200) })
+      )
+      check('看门 --once：禁用时没有留下 server.json', !fs.existsSync(path.join(watchHome, 'whale', 'server.json')), '')
+
+      // 常驻进程：第一拍发现禁用 → 停浮层/服务、删 Startup 项、释放单实例锁、自己退出
+      fs.mkdirSync(startupDir, { recursive: true })
+      const vbsFile = path.join(startupDir, 'zcode-fox-widget-watch.vbs')
+      fs.writeFileSync(vbsFile, 'fake')
+      const daemon = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'lib', 'zcode-watch.mjs'), '--daemon'], {
+        stdio: 'ignore',
+        windowsHide: true,
+        env: { ...process.env, ZCODE_HOME: watchHome, ZCODE_DATA_BASE_DIR: watchHome, FOX_WATCH_STARTUP_DIR: startupDir },
+      })
+      const exitDeadline = Date.now() + 20000
+      while (daemon.exitCode === null && Date.now() < exitDeadline) {
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      if (daemon.exitCode === null) {
+        try {
+          daemon.kill()
+        } catch (err) {}
+      }
+      check('看门 daemon：插件被禁用后自己退出', daemon.exitCode === 0, 'exitCode=' + daemon.exitCode)
+      check('看门 daemon：退出时删掉 Startup 项', !fs.existsSync(vbsFile), '')
+      check('看门 daemon：退出时释放单实例锁', !fs.existsSync(path.join(watchHome, 'whale', 'zcode-watch.lock')), '')
+    } finally {
+      try {
+        fs.rmSync(stateDir, { recursive: true, force: true })
+      } catch (err) {}
+    }
+
+    const watchSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'zcode-watch.mjs'), 'utf8')
+    check(
+      '看门源码：常驻期间检查插件状态并走 shutdown（不自杀式 stopWatcher）',
+      watchSrc.includes('pluginEnabledStateNow') &&
+        watchSrc.includes('shutdownForPluginDisabled') &&
+        watchSrc.includes('stopWatcher: false'),
+      ''
+    )
+    const serverSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'server.mjs'), 'utf8')
+    check(
+      '服务源码：禁用后自清（先收浮层再停服务）',
+      serverSrc.includes('startPluginDisabledWatch') && serverSrc.includes('stopOverlay'),
+      ''
+    )
+    const mcpSrc = fs.readFileSync(path.join(PLUGIN_ROOT, 'lib', 'mcp-server.mjs'), 'utf8')
+    check('MCP 源码：禁用后自行退出', mcpSrc.includes('pluginEnabledStateNow'), '')
+  }
+
   await new Promise((r) => setTimeout(r, 200))
   // 令牌关闭
   const info = JSON.parse(fs.readFileSync(path.join(dataDir, 'server.json'), 'utf8'))
